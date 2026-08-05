@@ -1,0 +1,243 @@
+{
+  "places": [
+    {
+      "id": "ChIJe6yTgrawVUcR7cPLASQofYQ",
+      "nationalPhoneNumber": "018 523428",
+      "formattedAddress": "Страхињића Бана, Ниш",
+      "rating": 4.9,
+      "websiteUri": "http://www.dumident.com/",
+      "userRatingCount": 277,
+      "displayName": {
+        "text": "Dumident - Dental Practice",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJz4ii-7OwVUcRiEXxYfFjv-0",
+      "nationalPhoneNumber": "063 1138373",
+      "formattedAddress": "Обреновићева 27, Ниш 18000",
+      "rating": 4.9,
+      "websiteUri": "http://www.trident.rs/",
+      "userRatingCount": 57,
+      "displayName": {
+        "text": "Specijalistička stomatološka ordinacija TRIDENT Niš",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJtaRsUBexVUcRvIu0Nd_ABBA",
+      "nationalPhoneNumber": "063 237758",
+      "formattedAddress": "Страхињића Бана, Ниш 18000",
+      "rating": 5,
+      "websiteUri": "https://www.dentalstudiolalic.rs/",
+      "userRatingCount": 81,
+      "displayName": {
+        "text": "Stomatološka ordinacija Niš | Dental Studio Lalić - Stomatolog (zubar) Niš",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJ35QED-uwVUcRGkrpD62h-CY",
+      "nationalPhoneNumber": "063 416246",
+      "formattedAddress": "Vizantijski bulevar 22/4, Niš 18000",
+      "rating": 4.9,
+      "websiteUri": "http://www.premovic.rs/",
+      "userRatingCount": 36,
+      "displayName": {
+        "text": "Premovic Stomatologija Specijalisticka Stomatoloska Ordinacija",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJqxuST7GwVUcR9nIsMz7wNDM",
+      "nationalPhoneNumber": "064 1522668",
+      "formattedAddress": "Булевар Николе Тесле 57, Ниш",
+      "rating": 4.7,
+      "websiteUri": "https://www.dentalspa.co.rs/",
+      "userRatingCount": 107,
+      "displayName": {
+        "text": "Specijalistička stomatološka ordinacija Dental SPA centar",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJeU-esimxVUcR6sTgj_ZLikk",
+      "nationalPhoneNumber": "060 5862724",
+      "formattedAddress": "Књажевачка 158, Ниш 18000",
+      "rating": 4.8,
+      "websiteUri": "http://www.dentalcentarmihajlovic.com/",
+      "userRatingCount": 114,
+      "displayName": {
+        "text": "Dental Centar Mihajlović Stomatoloska Ordinacija",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJxXARFJOwVUcRbg8eoO4T9eg",
+      "nationalPhoneNumber": "018 531158",
+      "formattedAddress": "Bulevar Nemanjića 85a Zona 2 Lokal 11 18000, Ниш 18000",
+      "rating": 4.2,
+      "websiteUri": "https://www.nadent.rs/",
+      "userRatingCount": 121,
+      "displayName": {
+        "text": "NaDent - Stomatološka Poliklinika Dr Nadica Vučić Niš",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJBRuJAGyxVUcR6W8V2gp_W5Q",
+      "nationalPhoneNumber": "060 3237877",
+      "formattedAddress": "Благоја Паровића 14, Ниш 18110",
+      "rating": 5,
+      "websiteUri": "http://www.miladinovicstomatologija.rs/",
+      "userRatingCount": 238,
+      "displayName": {
+        "text": "Miladinović stomatologija, Specijalistička stomatološka ordinacija",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJTfzsGoWxVUcRs_tSoeiGLyw",
+      "nationalPhoneNumber": "062 420280",
+      "formattedAddress": "Марина Држића 82, Ниш 18000",
+      "rating": 4.8,
+      "websiteUri": "http://fb.com/velickovic-dental-1223927027651787",
+      "userRatingCount": 84,
+      "displayName": {
+        "text": "Veličković Dental",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJb9aAih63VUcRcMNTQpTHH4w",
+      "nationalPhoneNumber": "063 413686",
+      "formattedAddress": "ul.21.maja br.21(prilaz prema Bu.Nemanjica) 18000 Nis, Niš",
+      "rating": 4.9,
+      "websiteUri": "https://tosicdent.com/",
+      "userRatingCount": 73,
+      "displayName": {
+        "text": "Tošić-dent stomatološka ordinacija",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJk8PVmcSwVUcR0AtES1KZl_0",
+      "nationalPhoneNumber": "064 2223288",
+      "formattedAddress": "Илије Бирчанина 18, Ниш 18000",
+      "rating": 5,
+      "websiteUri": "https://www.identanis.com/",
+      "userRatingCount": 13,
+      "displayName": {
+        "text": "Stomatološka Ordinacija Identa, Ilije Birčanina 18, Niš (Dr Biljana Petrović)",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJJTdKakKxVUcRbj6qlfK5Rh0",
+      "nationalPhoneNumber": "062 215206",
+      "formattedAddress": "Синђелићев трг 14d/6, Ниш 18000",
+      "rating": 5,
+      "websiteUri": "http://www.jordacevic.com/",
+      "userRatingCount": 20,
+      "displayName": {
+        "text": "Stomatološka Ordinacija Jordačević",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJIZtQ5bOwVUcRhTabZo455fY",
+      "nationalPhoneNumber": "060 3346860",
+      "formattedAddress": "Јанка Веселиновића 6Б, Ниш 18000",
+      "rating": 5,
+      "userRatingCount": 39,
+      "displayName": {
+        "text": "Stomatoloska ordinacija \"Vera Dental\"",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJ2WeapLSxVUcRpo9QlFC6YHg",
+      "nationalPhoneNumber": "069 0102866",
+      "formattedAddress": "Stanoja Bunuševca 16, Lokal 10, Niš 18000",
+      "rating": 5,
+      "websiteUri": "https://www.facebook.com/share/1JNLkqZPn8/?mibextid=wwXIfr",
+      "userRatingCount": 195,
+      "displayName": {
+        "text": "Stomatološka ordinacija Krunić",
+        "languageCode": "sr"
+      }
+    },
+    {
+      "id": "ChIJH_8c0cCxVUcRzodrBnbfN2Q",
+      "nationalPhoneNumber": "061 1119787",
+      "formattedAddress": "Душанова 56, Ниш 18000",
+      "rating": 5,
+      "websiteUri": "https://hollywood-smile.rs/",
+      "userRatingCount": 112,
+      "displayName": {
+        "text": "Hollywood Smile Dental Clinic",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJ-V06N9SxVUcRYx7qI4LMpLI",
+      "nationalPhoneNumber": "064 4608129",
+      "formattedAddress": "Првомајска 63/3, Ниш 18000",
+      "rating": 5,
+      "userRatingCount": 19,
+      "displayName": {
+        "text": "Stomatološka ordinacija dr Danilo Tomović",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJszqlnrawVUcRnnex_viCkSQ",
+      "nationalPhoneNumber": "063 332009",
+      "formattedAddress": "Strahinjica Bana bb, lokal 1, Niš 18000",
+      "rating": 5,
+      "websiteUri": "https://www.duodent.co.rs/",
+      "userRatingCount": 26,
+      "displayName": {
+        "text": "Stomatoloska Ordinacija Duodent",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJlSrW-q2wVUcRcpcQB4iQQkA",
+      "nationalPhoneNumber": "018 521561",
+      "formattedAddress": "Стојана Новаковића 2, Ниш",
+      "rating": 4.6,
+      "websiteUri": "http://www.dentaltehno.com/",
+      "userRatingCount": 223,
+      "displayName": {
+        "text": "BRANKO DENTAL TEHNO",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJFx2CeZKwVUcRYM0IL6WZ_wE",
+      "nationalPhoneNumber": "064 3067892",
+      "formattedAddress": "Булевар Немањића 86, Ниш 18000",
+      "rating": 4.9,
+      "websiteUri": "https://www.3mdent.com/",
+      "userRatingCount": 32,
+      "displayName": {
+        "text": "STOMATOLOŠKA ORDINACIJA - \"3M DENT\"",
+        "languageCode": "en"
+      }
+    },
+    {
+      "id": "ChIJ075JgsixVUcRhNzofqU-nJg",
+      "nationalPhoneNumber": "069 2984142",
+      "formattedAddress": "Војводе Мишића 40, Ниш 700402",
+      "rating": 5,
+      "websiteUri": "https://dunjadent.rs/",
+      "userRatingCount": 79,
+      "displayName": {
+        "text": "Stomatološka ordinacija Dunja Dent",
+        "languageCode": "sr"
+      }
+    }
+  ],
+  "nextPageToken": "AWCwydgUIgTD0nPZoQSjboUEq1vbXdiuutejuasUK6qsswWOO_slYHIZ7b_qbvFuSN1-6j9Cf0NjQerjqGWRHC7o0_G6i5eHqGLzieVRPyKqXROhgi7D7neV14h8VKFPSX1pljPqspRAe2i-O4dukCZaTm7jDaLPKTg82Rjbz8ybBTA0qwMZqdhewC94IBB0EKBBymn4Ml5YJzNCou79cLf2Qp19SEc7NSXstP_Igyg3Q0P3WdGuPZwu5Tz5R7wQTy4rukPQtsd9fhf4dWLWXQLg2Ag-z0NqlcSG76TIlpaxZBFtou4X2Cic0I3510yidk-lSp3YqJHEm8k7-FVU6yefP_WL28NpV6_bXXWW60ydixN9MWitV6Foy1PInUkO9FWXeT3a8BU5mqvaDX9PtnYFD6RP4FoFaippO0r8PoI7nBzyCtnGZQ8u3VtGLjv5xijUJdD6hSIImR-ZLZxQro8YMzxyichdhyU9Q4GfA9Ixx4yejiuXoNFK6_ROJ0hb-AQs21Sy3TMY7Lntp-9XzCiSy5RGDQkfKBQggw6-iSjL8VOAPoggsyWmrzETDXAzpbyHUaeIvMF-ugB1ohbV8mO_dgqmSG9pSXOdRlAtVztKfBQyAqfZVDk83E7qrFXtHsLp2Xtfc3lQaV1zBUO4OraJHXSyy2wiohJ8r4bq42tO0h2vbiSJBQyy_jukfxhnImMpFmzCZ8dro0qlfI417gGSOkvHcdgOzT4noT98az3SGqx4vtfTTrIRPQbUcam6aeAl1AV66q705hsV7VbtmY6LpDIKA18NNAz-cZCYdXMvXdi-FGsbDikERRvpAZhmr8vROhZ6aVDyMK_b"
+}
