@@ -1,17 +1,9 @@
-// src/ugly-score.ts
-// Ugly Score — koliko je sajt zapušten. Čista funkcija, bez zavisnosti od mreže.
+// packages/shared/src/ugly-score.ts
+// Ugly Score — koliko je sajt zapušten. Čista funkcija, bez mreže, bez fajl sistema.
+// Jedini izvor istine za web, worker i CLI (pravilo 6 iz CLAUDE.md).
 // VAŽNO: težine i heuristike NIKAD ne idu u klijentski bundle (bezbednost-i-zastita.md, Sloj 2).
 
-import { pathToFileURL } from "node:url";
-
-export type Band = "kritican" | "los" | "osrednji" | "solidan";
-
-export type Signal = {
-  key: string;
-  points: number;
-  /** Rečenica koju doslovno možeš staviti u cold poruku. */
-  label: string;
-};
+import type { Platform, Signal, UglyBand } from "./types";
 
 export type ScoreInput = {
   html: string;
@@ -22,15 +14,11 @@ export type ScoreInput = {
 
 export type ScoreResult = {
   score: number;          // 0-100, veće = gore
-  band: Band;
+  band: UglyBand;
   signals: Signal[];
   platform: Platform;
   topIssue: string | null;
 };
-
-export type Platform =
-  | "WordPress" | "Joomla" | "Drupal" | "Wix" | "Squarespace"
-  | "Shopify" | "Blogger" | "Weebly" | "custom";
 
 // ── pomoćne ────────────────────────────────────────────────
 
@@ -41,7 +29,7 @@ const count = (html: string, re: RegExp): number => (html.match(re) ?? []).lengt
 /** <head> deo — dovoljno za većinu meta provera, brže od celog dokumenta. */
 function head(html: string): string {
   const m = /<head[\s>][\s\S]{0,20000}?<\/head>/i.exec(html);
-  return m ? m[0] : html.slice(0, 20_000);
+  return m?.[0] ?? html.slice(0, 20_000);
 }
 
 /** Srpska deklinacija: 1 godinu, 2-4 godine, 5+ godina. */
@@ -170,9 +158,9 @@ export function scoreSite(input: ScoreInput): ScoreResult {
   const raw = signals.reduce((sum, s) => sum + s.points, 0);
   const score = Math.min(100, raw);
 
-  const band: Band =
-    score >= 70 ? "kritican" :
-    score >= 45 ? "los" :
+  const band: UglyBand =
+    score >= 70 ? "katastrofa" :
+    score >= 45 ? "ruzan" :
     score >= 20 ? "osrednji" : "solidan";
 
   const sorted = [...signals].sort((a, b) => b.points - a.points);
@@ -184,43 +172,4 @@ export function scoreSite(input: ScoreInput): ScoreResult {
     platform: detectPlatform(html),
     topIssue: sorted[0]?.label ?? null,
   };
-}
-
-// ── samotest: pnpm exec tsx src/ugly-score.ts ───────────────
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const modern = `<html><head><meta name="viewport" content="width=device-width">
-    <title>Ordinacija</title><meta name="description" content="x">
-    <meta property="og:title" content="x"><link rel="icon" href="/f.ico">
-    </head><body>${"tekst ".repeat(500)}<p>&copy; ${new Date().getFullYear()}</p></body></html>`;
-
-  const meh = `<html><head><title>Ordinacija</title></head>
-    <body>${"tekst ".repeat(500)}<p>&copy; ${new Date().getFullYear() - 4}</p></body></html>`;
-
-  const ancient = `<html><head><title>Ordinacija</title></head><body>
-    <table><tr><td><table><tr><td><table><tr><td>
-    <font size="2">Dobrodosli</font></td></tr></table></td></tr></table></td></tr></table>
-    <center><font color="red">Akcija</font></center><marquee>Novo!</marquee>
-    <script src="/js/jquery-1.7.2.min.js"></script>
-    ${"tekst ".repeat(400)}<center>&copy; 2011</center></body></html>`;
-
-  // jedan <center> u modernom sajtu ne sme da upali legacy_tags
-  const modernWithOneCenter = modern.replace("</body>", "<center>Radno vreme</center></body>");
-
-  const cases: [string, string, Band][] = [
-    ["moderan", modern, "solidan"],
-    ["moderan +center", modernWithOneCenter, "solidan"],
-    ["osrednji", meh, "los"],
-    ["iz 2011", ancient, "kritican"],
-  ];
-
-  let fail = 0;
-  for (const [name, html, expected] of cases) {
-    const r = scoreSite({ html, httpsOk: true, loadMs: 800, finalUrl: null });
-    const ok = r.band === expected;
-    if (!ok) fail++;
-    console.log(`${ok ? "✓" : "✗"} ${name.padEnd(16)} skor ${String(r.score).padStart(3)} · ${r.band} · ${r.platform}`);
-    console.log(`   ${r.signals.map((s) => `${s.key}(${s.points})`).join(" ") || "—"}`);
-    if (!ok) console.log(`   očekivano: ${expected}`);
-  }
-  console.log(fail === 0 ? "\nSva četiri prošla." : `\n${fail} palo.`);
 }

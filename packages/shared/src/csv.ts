@@ -1,11 +1,12 @@
-// src/csv.ts
+// packages/shared/src/csv.ts
 // CSV koji se otvara u Excelu na Windowsu bez razbijene dijakritike.
-
-import fs from "node:fs";
-import path from "node:path";
+//
+// Ovde je SAMO serijalizacija — čista, bez `node:fs`, da bi je i browser mogao
+// da koristi za download u F4. Upis na disk radi onaj ko ima fajl sistem
+// (CLI, worker), ne ovaj paket.
 
 /** Excel razbija UTF-8 bez BOM-a — č, ć, š postaju smeće. */
-const BOM = "\uFEFF";
+export const CSV_BOM = "\uFEFF";
 
 function cell(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -14,13 +15,11 @@ function cell(value: unknown): string {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export function writeCsv(
-  file: string,
-  headers: string[],
-  rows: unknown[][],
-): void {
+/**
+ * Ceo CSV kao string — sa BOM-om i CRLF krajevima redova, jer Excel to očekuje.
+ * Upisuje se doslovno, bez dodatne obrade.
+ */
+export function toCsv(headers: string[], rows: unknown[][]): string {
   const lines = [headers.map(cell).join(","), ...rows.map((r) => r.map(cell).join(","))];
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  // CRLF jer Excel to očekuje
-  fs.writeFileSync(file, BOM + lines.join("\r\n") + "\r\n", "utf8");
+  return CSV_BOM + lines.join("\r\n") + "\r\n";
 }

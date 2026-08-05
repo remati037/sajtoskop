@@ -1,6 +1,6 @@
-// src/queries.ts
-import type { City, Niche } from "./shared/taxonomy.ts";
-import { CITIES, NICHES, buildQueries } from "./shared/taxonomy.ts";
+// packages/shared/src/queries.ts
+import type { City, Niche } from "./taxonomy";
+import { CITIES, NICHES, buildQueries } from "./taxonomy";
 
 function listSlugs(items: { slug: string }[]): string {
   return items.map((i) => i.slug).sort().join(", ");

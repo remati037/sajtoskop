@@ -10,6 +10,8 @@
  * na niše koje ne mogu da plate ili koje već imaju dobre sajtove.
  */
  
+import type { PhoneKind } from "./types";
+
 export type Niche = {
   slug: string;
   label: string;        // za UI dropdown
@@ -130,6 +132,8 @@ export const VALIDATED_NICHES = NICHES
 export type City = {
   slug: string;
   label: string;
+  /** Pravilo 11 iz CLAUDE.md — region dolazi kasnije, migracija ne. */
+  countryCode: "RS";
   okrug: string;
   tier: 1 | 2 | 3;      // 1 = veliki, sweep prvo; 3 = mali, sweep zadnje
   subareas?: string[];  // za velike gradove — Places vraća max ~60 po upitu,
@@ -139,7 +143,7 @@ export type City = {
 export const CITIES: City[] = [
   // ── TIER 1 ────────────────────────────────────────────────
   {
-    slug: "beograd", label: "Beograd", okrug: "Grad Beograd", tier: 1,
+    slug: "beograd", label: "Beograd", countryCode: "RS", okrug: "Grad Beograd", tier: 1,
     subareas: [
       "Stari grad", "Vračar", "Savski venac", "Novi Beograd", "Zemun",
       "Voždovac", "Zvezdara", "Palilula", "Čukarica", "Rakovica",
@@ -147,66 +151,66 @@ export const CITIES: City[] = [
     ],
   },
   {
-    slug: "novi-sad", label: "Novi Sad", okrug: "Južnobački", tier: 1,
+    slug: "novi-sad", label: "Novi Sad", countryCode: "RS", okrug: "Južnobački", tier: 1,
     subareas: ["Centar", "Liman", "Detelinara", "Novo naselje", "Petrovaradin", "Sremska Kamenica"],
   },
-  { slug: "nis",           label: "Niš",              okrug: "Nišavski",        tier: 1,
+  { slug: "nis",           label: "Niš", countryCode: "RS",              okrug: "Nišavski",        tier: 1,
     subareas: ["Medijana", "Palilula", "Pantelej", "Crveni krst", "Niška Banja"] },
-  { slug: "kragujevac",    label: "Kragujevac",       okrug: "Šumadijski",      tier: 1 },
+  { slug: "kragujevac",    label: "Kragujevac", countryCode: "RS",       okrug: "Šumadijski",      tier: 1 },
  
   // ── TIER 2 ────────────────────────────────────────────────
-  { slug: "subotica",      label: "Subotica",         okrug: "Severnobački",    tier: 2 },
-  { slug: "zrenjanin",     label: "Zrenjanin",        okrug: "Srednjebanatski", tier: 2 },
-  { slug: "pancevo",       label: "Pančevo",          okrug: "Južnobanatski",   tier: 2 },
-  { slug: "cacak",         label: "Čačak",            okrug: "Moravički",       tier: 2 },
-  { slug: "kraljevo",      label: "Kraljevo",         okrug: "Raški",           tier: 2 },
-  { slug: "novi-pazar",    label: "Novi Pazar",       okrug: "Raški",           tier: 2 },
-  { slug: "smederevo",     label: "Smederevo",        okrug: "Podunavski",      tier: 2 },
-  { slug: "leskovac",      label: "Leskovac",         okrug: "Jablanički",      tier: 2 },
-  { slug: "uzice",         label: "Užice",            okrug: "Zlatiborski",     tier: 2 },
-  { slug: "valjevo",       label: "Valjevo",          okrug: "Kolubarski",      tier: 2 },
-  { slug: "krusevac",      label: "Kruševac",         okrug: "Rasinski",        tier: 2 },
-  { slug: "vranje",        label: "Vranje",           okrug: "Pčinjski",        tier: 2 },
-  { slug: "sabac",         label: "Šabac",            okrug: "Mačvanski",       tier: 2 },
-  { slug: "sombor",        label: "Sombor",           okrug: "Zapadnobački",    tier: 2 },
-  { slug: "pozarevac",     label: "Požarevac",        okrug: "Braničevski",     tier: 2 },
-  { slug: "pirot",         label: "Pirot",            okrug: "Pirotski",        tier: 2 },
-  { slug: "zajecar",       label: "Zaječar",          okrug: "Zaječarski",      tier: 2 },
-  { slug: "kikinda",       label: "Kikinda",          okrug: "Severnobanatski", tier: 2 },
-  { slug: "sremska-mitrovica", label: "Sremska Mitrovica", okrug: "Sremski",    tier: 2 },
-  { slug: "jagodina",      label: "Jagodina",         okrug: "Pomoravski",      tier: 2 },
-  { slug: "vrsac",         label: "Vršac",            okrug: "Južnobanatski",   tier: 2 },
-  { slug: "bor",           label: "Bor",              okrug: "Borski",          tier: 2 },
-  { slug: "loznica",       label: "Loznica",          okrug: "Mačvanski",       tier: 2 },
-  { slug: "prokuplje",     label: "Prokuplje",        okrug: "Toplički",        tier: 2 },
+  { slug: "subotica",      label: "Subotica", countryCode: "RS",         okrug: "Severnobački",    tier: 2 },
+  { slug: "zrenjanin",     label: "Zrenjanin", countryCode: "RS",        okrug: "Srednjebanatski", tier: 2 },
+  { slug: "pancevo",       label: "Pančevo", countryCode: "RS",          okrug: "Južnobanatski",   tier: 2 },
+  { slug: "cacak",         label: "Čačak", countryCode: "RS",            okrug: "Moravički",       tier: 2 },
+  { slug: "kraljevo",      label: "Kraljevo", countryCode: "RS",         okrug: "Raški",           tier: 2 },
+  { slug: "novi-pazar",    label: "Novi Pazar", countryCode: "RS",       okrug: "Raški",           tier: 2 },
+  { slug: "smederevo",     label: "Smederevo", countryCode: "RS",        okrug: "Podunavski",      tier: 2 },
+  { slug: "leskovac",      label: "Leskovac", countryCode: "RS",         okrug: "Jablanički",      tier: 2 },
+  { slug: "uzice",         label: "Užice", countryCode: "RS",            okrug: "Zlatiborski",     tier: 2 },
+  { slug: "valjevo",       label: "Valjevo", countryCode: "RS",          okrug: "Kolubarski",      tier: 2 },
+  { slug: "krusevac",      label: "Kruševac", countryCode: "RS",         okrug: "Rasinski",        tier: 2 },
+  { slug: "vranje",        label: "Vranje", countryCode: "RS",           okrug: "Pčinjski",        tier: 2 },
+  { slug: "sabac",         label: "Šabac", countryCode: "RS",            okrug: "Mačvanski",       tier: 2 },
+  { slug: "sombor",        label: "Sombor", countryCode: "RS",           okrug: "Zapadnobački",    tier: 2 },
+  { slug: "pozarevac",     label: "Požarevac", countryCode: "RS",        okrug: "Braničevski",     tier: 2 },
+  { slug: "pirot",         label: "Pirot", countryCode: "RS",            okrug: "Pirotski",        tier: 2 },
+  { slug: "zajecar",       label: "Zaječar", countryCode: "RS",          okrug: "Zaječarski",      tier: 2 },
+  { slug: "kikinda",       label: "Kikinda", countryCode: "RS",          okrug: "Severnobanatski", tier: 2 },
+  { slug: "sremska-mitrovica", label: "Sremska Mitrovica", countryCode: "RS", okrug: "Sremski",    tier: 2 },
+  { slug: "jagodina",      label: "Jagodina", countryCode: "RS",         okrug: "Pomoravski",      tier: 2 },
+  { slug: "vrsac",         label: "Vršac", countryCode: "RS",            okrug: "Južnobanatski",   tier: 2 },
+  { slug: "bor",           label: "Bor", countryCode: "RS",              okrug: "Borski",          tier: 2 },
+  { slug: "loznica",       label: "Loznica", countryCode: "RS",          okrug: "Mačvanski",       tier: 2 },
+  { slug: "prokuplje",     label: "Prokuplje", countryCode: "RS",        okrug: "Toplički",        tier: 2 },
  
   // ── TIER 3 ────────────────────────────────────────────────
-  { slug: "ruma",              label: "Ruma",              okrug: "Sremski",       tier: 3 },
-  { slug: "backa-palanka",     label: "Bačka Palanka",     okrug: "Južnobački",    tier: 3 },
-  { slug: "indjija",           label: "Inđija",            okrug: "Sremski",       tier: 3 },
-  { slug: "stara-pazova",      label: "Stara Pazova",      okrug: "Sremski",       tier: 3 },
-  { slug: "arandjelovac",      label: "Aranđelovac",       okrug: "Šumadijski",    tier: 3 },
-  { slug: "gornji-milanovac",  label: "Gornji Milanovac",  okrug: "Moravički",     tier: 3 },
-  { slug: "vrbas",             label: "Vrbas",             okrug: "Južnobački",    tier: 3 },
-  { slug: "trstenik",          label: "Trstenik",          okrug: "Rasinski",      tier: 3 },
-  { slug: "paracin",           label: "Paraćin",           okrug: "Pomoravski",    tier: 3 },
-  { slug: "cuprija",           label: "Ćuprija",           okrug: "Pomoravski",    tier: 3 },
-  { slug: "becej",             label: "Bečej",             okrug: "Južnobački",    tier: 3 },
-  { slug: "senta",             label: "Senta",             okrug: "Severnobački",  tier: 3 },
-  { slug: "apatin",            label: "Apatin",            okrug: "Zapadnobački",  tier: 3 },
-  { slug: "negotin",           label: "Negotin",           okrug: "Borski",        tier: 3 },
-  { slug: "temerin",           label: "Temerin",           okrug: "Južnobački",    tier: 3 },
-  { slug: "aleksinac",         label: "Aleksinac",         okrug: "Nišavski",      tier: 3 },
-  { slug: "lazarevac",         label: "Lazarevac",         okrug: "Grad Beograd",  tier: 3 },
-  { slug: "obrenovac",         label: "Obrenovac",         okrug: "Grad Beograd",  tier: 3 },
-  { slug: "mladenovac",        label: "Mladenovac",        okrug: "Grad Beograd",  tier: 3 },
-  { slug: "ivanjica",          label: "Ivanjica",          okrug: "Moravički",     tier: 3 },
-  { slug: "prijepolje",        label: "Prijepolje",        okrug: "Zlatiborski",   tier: 3 },
-  { slug: "smederevska-palanka", label: "Smederevska Palanka", okrug: "Podunavski", tier: 3 },
-  { slug: "velika-plana",      label: "Velika Plana",      okrug: "Podunavski",    tier: 3 },
-  { slug: "knjazevac",         label: "Knjaževac",         okrug: "Zaječarski",    tier: 3 },
-  { slug: "svilajnac",         label: "Svilajnac",         okrug: "Pomoravski",    tier: 3 },
-  { slug: "backa-topola",      label: "Bačka Topola",      okrug: "Severnobački",  tier: 3 },
+  { slug: "ruma",              label: "Ruma", countryCode: "RS",              okrug: "Sremski",       tier: 3 },
+  { slug: "backa-palanka",     label: "Bačka Palanka", countryCode: "RS",     okrug: "Južnobački",    tier: 3 },
+  { slug: "indjija",           label: "Inđija", countryCode: "RS",            okrug: "Sremski",       tier: 3 },
+  { slug: "stara-pazova",      label: "Stara Pazova", countryCode: "RS",      okrug: "Sremski",       tier: 3 },
+  { slug: "arandjelovac",      label: "Aranđelovac", countryCode: "RS",       okrug: "Šumadijski",    tier: 3 },
+  { slug: "gornji-milanovac",  label: "Gornji Milanovac", countryCode: "RS",  okrug: "Moravički",     tier: 3 },
+  { slug: "vrbas",             label: "Vrbas", countryCode: "RS",             okrug: "Južnobački",    tier: 3 },
+  { slug: "trstenik",          label: "Trstenik", countryCode: "RS",          okrug: "Rasinski",      tier: 3 },
+  { slug: "paracin",           label: "Paraćin", countryCode: "RS",           okrug: "Pomoravski",    tier: 3 },
+  { slug: "cuprija",           label: "Ćuprija", countryCode: "RS",           okrug: "Pomoravski",    tier: 3 },
+  { slug: "becej",             label: "Bečej", countryCode: "RS",             okrug: "Južnobački",    tier: 3 },
+  { slug: "senta",             label: "Senta", countryCode: "RS",             okrug: "Severnobački",  tier: 3 },
+  { slug: "apatin",            label: "Apatin", countryCode: "RS",            okrug: "Zapadnobački",  tier: 3 },
+  { slug: "negotin",           label: "Negotin", countryCode: "RS",           okrug: "Borski",        tier: 3 },
+  { slug: "temerin",           label: "Temerin", countryCode: "RS",           okrug: "Južnobački",    tier: 3 },
+  { slug: "aleksinac",         label: "Aleksinac", countryCode: "RS",         okrug: "Nišavski",      tier: 3 },
+  { slug: "lazarevac",         label: "Lazarevac", countryCode: "RS",         okrug: "Grad Beograd",  tier: 3 },
+  { slug: "obrenovac",         label: "Obrenovac", countryCode: "RS",         okrug: "Grad Beograd",  tier: 3 },
+  { slug: "mladenovac",        label: "Mladenovac", countryCode: "RS",        okrug: "Grad Beograd",  tier: 3 },
+  { slug: "ivanjica",          label: "Ivanjica", countryCode: "RS",          okrug: "Moravički",     tier: 3 },
+  { slug: "prijepolje",        label: "Prijepolje", countryCode: "RS",        okrug: "Zlatiborski",   tier: 3 },
+  { slug: "smederevska-palanka", label: "Smederevska Palanka", countryCode: "RS", okrug: "Podunavski", tier: 3 },
+  { slug: "velika-plana",      label: "Velika Plana", countryCode: "RS",      okrug: "Podunavski",    tier: 3 },
+  { slug: "knjazevac",         label: "Knjaževac", countryCode: "RS",         okrug: "Zaječarski",    tier: 3 },
+  { slug: "svilajnac",         label: "Svilajnac", countryCode: "RS",         okrug: "Pomoravski",    tier: 3 },
+  { slug: "backa-topola",      label: "Bačka Topola", countryCode: "RS",      okrug: "Severnobački",  tier: 3 },
 ];
  
 // ═══════════════════════════════════════════════════════════
@@ -243,7 +247,7 @@ export function sweepPlan() {
 // TELEFON — tip po prefiksu (nula API troška)
 // ═══════════════════════════════════════════════════════════
  
-export function phoneType(raw: string): "mobilni" | "fiksni" | "besplatni" | "nepoznat" {
+export function phoneType(raw: string): PhoneKind {
   const d = raw.replace(/\D/g, "").replace(/^381/, "0");
   if (/^06[0-9]/.test(d)) return "mobilni";
   if (/^0800/.test(d)) return "besplatni";
@@ -256,6 +260,6 @@ export function phoneType(raw: string): "mobilni" | "fiksni" | "besplatni" | "ne
 //    10.000 besplatnih poziva mesečno — 50 gradova je trivijalno)
 // 2. Proveri da li Places bolje reaguje na `locationBias` sa koordinatama
 //    grada nego na naziv grada u upitu. Verovatno da — testiraj oba.
-// 3. Za region (faza 2): dodaj country_code i duplicij ovu strukturu
-//    za HR / BA / ME / MK. Niše se prevode skoro 1:1.
+// 3. Za region (faza 2): `countryCode` na City već postoji — proširi uniju
+//    na "RS" | "HR" | "BA" | "ME" | "MK" i dodaj gradove. Niše se prevode skoro 1:1.
  

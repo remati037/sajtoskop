@@ -1,19 +1,36 @@
-// src/cli.ts
+// apps/cli/src/index.ts
+// Postojeći CLI, sada iz monorepoa. Čista logika dolazi iz @sajtoskop/shared,
+// mreža i Google budžet iz @sajtoskop/worker/lib.
+
 import Table from "cli-table3";
 import { Command } from "commander";
 import "dotenv/config";
 import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
-import { budgetSummary } from "./api-budget.ts";
-import { writeCsv } from "./csv.ts";
-import type { SiteFetch, SiteStatus } from "./fetch-site.ts";
-import { fetchAll } from "./fetch-site.ts";
-import { searchText } from "./places.ts";
-import { buildScanQueries, resolveCity, resolveNiche } from "./queries.ts";
-import { foldForSearch, slugify } from "./shared/translit.ts";
-import type { Business } from "./shared/types.ts";
-import type { ScoreResult } from "./ugly-score.ts";
-import { scoreSite } from "./ugly-score.ts";
+import type { Business, Niche, ScoreResult, SiteStatus } from "@sajtoskop/shared";
+import {
+  buildScanQueries,
+  foldForSearch,
+  resolveCity,
+  resolveNiche,
+  scoreSite,
+  slugify,
+  toCsv,
+} from "@sajtoskop/shared";
+import type { SiteFetch } from "@sajtoskop/worker/lib";
+import {
+  BudgetError,
+  budgetSummary,
+  fetchAll,
+  outPath,
+  searchText,
+  userPath,
+  workspaceRoot,
+} from "@sajtoskop/worker/lib";
+
+/** Za ispis: "out/scan.csv" umesto pune apsolutne putanje. */
+const rel = (f: string): string => path.relative(workspaceRoot(), f);
 
 const optionsSchema = z.object({
   grad: z.string().min(1),
@@ -34,9 +51,9 @@ type Row = {
   score: ScoreResult | null;
 };
 
-// NEMA_SAJT je najbolji lead, ide na vrh
+// nema_sajt je najbolji lead, ide na vrh
 const STATUS_RANK: Record<SiteStatus, number> = {
-  NEMA_SAJT: 0, SAMO_DRUSTVENE: 1, MRTAV: 2, ZIV: 3,
+  nema_sajt: 0, samo_drustvene: 1, mrtav: 2, ok: 3,
 };
 
 function sortRows(rows: Row[]): Row[] {
@@ -49,17 +66,17 @@ function sortRows(rows: Row[]): Row[] {
 
 function statusCell(row: Row): string {
   switch (row.site.status) {
-    case "NEMA_SAJT": return "NEMA SAJT";
-    case "SAMO_DRUSTVENE": return "SAMO DRUŠTVENE";
-    case "MRTAV": return `MRTAV`;
-    case "ZIV": return row.score ? String(row.score.score) : "—";
+    case "nema_sajt": return "NEMA SAJT";
+    case "samo_drustvene": return "SAMO DRUŠTVENE";
+    case "mrtav": return `MRTAV`;
+    case "ok": return row.score ? String(row.score.score) : "—";
   }
 }
 
 function issueCell(row: Row): string {
-  if (row.site.status === "MRTAV") return row.site.error ?? "nedostupan";
-  if (row.site.status === "NEMA_SAJT") return "Google nema zapisan sajt";
-  if (row.site.status === "SAMO_DRUSTVENE") return "Samo profil na mreži";
+  if (row.site.status === "mrtav") return row.site.error ?? "nedostupan";
+  if (row.site.status === "nema_sajt") return "Google nema zapisan sajt";
+  if (row.site.status === "samo_drustvene") return "Samo profil na mreži";
   return row.score?.topIssue ?? "—";
 }
 
@@ -77,7 +94,7 @@ function printTable(rows: Row[]): void {
       row.business.name,
       statusCell(row),
       issueCell(row),
-      row.site.status === "ZIV" ? (row.score?.platform ?? "—") : "—",
+      row.site.status === "ok" ? (row.score?.platform ?? "—") : "—",
     ]);
   });
 
@@ -87,16 +104,15 @@ function printTable(rows: Row[]): void {
 function summary(rows: Row[]): string {
   const n = (s: SiteStatus) => rows.filter((r) => r.site.status === s).length;
   const ruzni = rows.filter((r) => (r.score?.score ?? 0) >= 45).length;
-  const solidni = rows.filter((r) => r.site.status === "ZIV" && (r.score?.score ?? 0) < 45).length;
+  const solidni = rows.filter((r) => r.site.status === "ok" && (r.score?.score ?? 0) < 45).length;
   return (
-    `${rows.length} biznisa · ${n("NEMA_SAJT")} bez sajta · ${n("SAMO_DRUSTVENE")} samo društvene · ` +
-    `${n("MRTAV")} nedostupnih\n${ruzni} ružnih (45+) · ${solidni} solidnih`
+    `${rows.length} biznisa · ${n("nema_sajt")} bez sajta · ${n("samo_drustvene")} samo društvene · ` +
+    `${n("mrtav")} nedostupnih\n${ruzni} ružnih (45+) · ${solidni} solidnih`
   );
 }
 
 function exportCsv(rows: Row[], file: string): void {
-  writeCsv(
-    file,
+  const csv = toCsv(
     ["naziv", "telefon", "tip_telefona", "sajt", "status", "skor", "band", "platforma", "problemi", "adresa", "ocena", "broj_ocena"],
     rows.map((r) => [
       r.business.name,
@@ -113,6 +129,8 @@ function exportCsv(rows: Row[], file: string): void {
       r.business.reviewCount ?? "",
     ]),
   );
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, csv, "utf8");
 }
 
 async function main(): Promise<void> {
@@ -132,20 +150,24 @@ async function main(): Promise<void> {
   program.parse(process.argv.filter((a, i) => i < 2 || a !== "--"));
   const opts = optionsSchema.parse(program.opts());
 
-  if (!opts.nisa && !opts.upit) {
+  // Sintetička niša za --upit: isti oblik kao zapis iz taksonomije, bez `any`.
+  let niche: Niche;
+  if (opts.nisa) {
+    niche = resolveNiche(opts.nisa);
+  } else if (opts.upit) {
+    niche = {
+      slug: slugify(opts.upit),
+      label: opts.upit,
+      query: opts.upit,
+      group: "usluge",
+      buyingPower: 2,
+      badSiteOdds: 2,
+    };
+  } else {
     console.error("Greška: moraš proslediti --nisa ili --upit");
     process.exit(1);
   }
-  const niche = opts.nisa
-    ? resolveNiche(opts.nisa)
-    : {
-        slug: slugify(opts.upit!),
-        label: opts.upit!,
-        query: opts.upit!,
-        group: "usluge",
-        buyingPower: 2,
-        badSiteOdds: 2,
-      } as any;
+
   const city = resolveCity(opts.grad);
   const stamp = new Date().toISOString().slice(0, 10);
   const started = Date.now();
@@ -154,14 +176,14 @@ async function main(): Promise<void> {
 
   const usedQuery = opts.upit ?? niche.query;
   const scanSlug = niche.slug;
-  console.log(`\nTražim: ${niche!.label} · ${city.label}${opts.mock ? "  [MOCK]" : ""}`);
+  console.log(`\nTražim: ${niche.label} · ${city.label}${opts.mock ? "  [MOCK]" : ""}`);
   console.log(`Upit: "${usedQuery} ${city.label}"`);
 
   let all: Business[] = [];
   let calls = 0;
 
   if (opts.offline) {
-    all = JSON.parse(fs.readFileSync(opts.offline, "utf8")) as Business[];
+    all = JSON.parse(fs.readFileSync(userPath(opts.offline), "utf8")) as Business[];
     console.log(`\nUčitano iz: ${opts.offline}  [OFFLINE]`);
   } else {
     const queries = opts.upit ? [`${opts.upit} ${city.label}`] : buildScanQueries(niche, city, { deep: opts.duboko });
@@ -206,10 +228,10 @@ async function main(): Promise<void> {
   const businesses = inCity.slice(0, opts.broj);
 
   if (opts.save && !opts.offline) {
-    const f = `out/${scanSlug}-${city.slug}-${stamp}.json`;
-    fs.mkdirSync("out", { recursive: true });
+    const f = outPath(`${scanSlug}-${city.slug}-${stamp}.json`);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
     fs.writeFileSync(f, JSON.stringify(businesses, null, 2), "utf8");
-    console.log(`Snimljeno: ${f}`);
+    console.log(`Snimljeno: ${rel(f)}`);
   }
 
   // ── 2. sajtovi ────────────────────────────────────────────
@@ -223,7 +245,7 @@ async function main(): Promise<void> {
   const rows: Row[] = businesses.map((business) => {
     const site = fetched.get(business.placeId)!;
     const score =
-      site.status === "ZIV" && site.html
+      site.status === "ok" && site.html
         ? scoreSite({
             html: site.html,
             httpsOk: site.httpsOk,
@@ -241,32 +263,26 @@ async function main(): Promise<void> {
   console.log(`\n${summary(sorted)}`);
 
   if (opts.csv) {
-    const f = `out/${scanSlug}-${city.slug}-${stamp}.csv`;
+    const f = outPath(`${scanSlug}-${city.slug}-${stamp}.csv`);
     exportCsv(sorted, f);
-    console.log(`Izvezeno: ${f}`);
+    console.log(`Izvezeno: ${rel(f)}`);
   }
 
   console.log(`Vreme: ${((Date.now() - started) / 1000).toFixed(1)}s · API pozivi: ${calls}`);
   if (!opts.offline) console.log(budgetSummary());
 
   if (!opts.save && !opts.csv) {
-  console.warn("  ⚠ Bez --save i --csv rezultat se nigde ne upisuje.\n");
-}
-
-//   try {
-//   await main();
-// } catch (err) {
-//   if (err instanceof BudgetError) {
-//     console.error(`\n  ⛔ ${err.message}`);
-//     console.error(`     Potrošeno: ${err.state.calls} poziva danas\n`);
-//     process.exitCode = 2;
-//     return;
-//   }
-//   throw err;
-// }
+    console.warn("  ⚠ Bez --save i --csv rezultat se nigde ne upisuje.\n");
+  }
 }
 
 main().catch((err: unknown) => {
+  if (err instanceof BudgetError) {
+    console.error(`\n  ⛔ ${err.message}`);
+    console.error(`     Potrošeno danas: ${err.state.calls} · ovaj mesec: ${err.state.monthCalls}\n`);
+    process.exit(2);
+  }
+
   if (err instanceof z.ZodError) {
     console.error("\nNeispravni argumenti:");
     for (const issue of err.issues) console.error(`  --${issue.path.join(".")}: ${issue.message}`);

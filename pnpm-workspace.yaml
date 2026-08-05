@@ -1,0 +1,7 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# tsx nosi esbuild; njegov postinstall raspakuje binarni fajl za ovu platformu.
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,23 @@
+{
+  "name": "@sajtoskop/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "sajtoskop": "./src/index.ts"
+  },
+  "scripts": {
+    "scan": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "harvest": "tsx src/harvest-emails.ts"
+  },
+  "dependencies": {
+    "@sajtoskop/shared": "workspace:*",
+    "@sajtoskop/worker": "workspace:*",
+    "cli-table3": "^0.6.5",
+    "commander": "^13.0.0",
+    "dotenv": "^16.4.7",
+    "p-limit": "^6.2.0",
+    "zod": "^4.0.0"
+  }
+}

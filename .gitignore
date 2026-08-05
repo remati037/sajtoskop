@@ -7,3 +7,8 @@ dist/
 data/scanovi-arhiva/
 *.log
 .DS_Store
+
+# stanje Google budzeta (api-budget.ts) — nikad u repo
+.cache/
+# izlaz CLI scanova i harvesta
+out/

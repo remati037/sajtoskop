@@ -1,18 +1,39 @@
-// src/places.ts
-// Google Places API (New) — Text Search klijent.
+// apps/worker/src/lib/places.ts
+// Google Places API (New) — Text Search klijent. Živi u workeru jer je jedini
+// koji priča sa Googleom; web ga ne vidi.
 
 import fs from "node:fs";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+import type { Business } from "@sajtoskop/shared";
+import { cirToLat, phoneType } from "@sajtoskop/shared";
 import {
   assertAvailable,
   BudgetError,
   consume,
   markExhausted,
-} from "./api-budget.ts";
-import { phoneType } from "./shared/taxonomy.ts";
-import { cirToLat } from "./shared/translit.ts";
-import type { Business, PlacesResponse, RawPlace } from "./shared/types.ts";
+} from "./api-budget";
+
+// ── Googleov žični oblik ───────────────────────────────────
+// Namerno NIJE u @sajtoskop/shared: to je Googleov format odgovora, a ne naš
+// model podataka. Naš normalizovan oblik je `Business`.
+
+/** Sirovi oblik koji vraća Places API — samo polja iz naše field maske. */
+export type RawPlace = {
+  id: string;
+  displayName?: { text: string; languageCode?: string };
+  formattedAddress?: string;
+  nationalPhoneNumber?: string;
+  websiteUri?: string;
+  rating?: number;
+  userRatingCount?: number;
+};
+
+export type PlacesResponse = {
+  places?: RawPlace[];
+  nextPageToken?: string;
+};
 
 const ENDPOINT = "https://places.googleapis.com/v1/places:searchText";
 
@@ -139,6 +160,12 @@ async function fetchPage(
   return (await res.json()) as PlacesResponse;
 }
 
+/** Fixture se razrešava u odnosu na ovaj modul, ne na cwd — da `--mock` daje
+ *  isti izlaz bez obzira odakle je pokrenut (root, apps/cli, apps/worker). */
+const DEFAULT_MOCK_FILE = fileURLToPath(
+  new URL("../fixtures/text-search-nis-stomatolog.json", import.meta.url),
+);
+
 function loadMock(file: string): PlacesResponse {
   const p = path.resolve(file);
   if (!fs.existsSync(p)) throw new Error(`Fixture ne postoji: ${p}`);
@@ -155,7 +182,7 @@ export async function searchText(
   const languageCode = opts.languageCode ?? "sr-Latn";
 
   if (opts.mock) {
-    const data = loadMock(opts.mockFile ?? "src/fixtures/text-search-nis-stomatolog.json");
+    const data = loadMock(opts.mockFile ?? DEFAULT_MOCK_FILE);
     const raw = data.places ?? [];
     return { businesses: raw.slice(0, maxResults).map(toBusiness), apiCalls: 0 };
   }

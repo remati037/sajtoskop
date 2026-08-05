@@ -1,8 +1,9 @@
-// src/fetch-site.ts
+// apps/worker/src/lib/fetch-site.ts
 // Preuzimanje HTML-a sa nepoznatih sajtova. Ništa ne analizira — samo donosi.
+// Node-only: undici kodovi grešaka, TLS fallback. Nikad u apps/web.
 
 import pLimit from "p-limit";
-import type { Business } from "./shared/types.ts";
+import type { Business, SiteStatus } from "@sajtoskop/shared";
 
 const TIMEOUT_MS = 15_000;
 const MAX_BYTES = 2_000_000;      // 2MB, dovoljno za svaki legitiman HTML
@@ -20,8 +21,6 @@ const SOCIAL_HOSTS = [
 
 /** Greške posle kojih ima smisla probati http:// umesto https:// */
 const TLS_FAILURES = ["SSL", "sertifikat", "veza prekinuta", "server odbija vezu"];
-
-export type SiteStatus = "NEMA_SAJT" | "SAMO_DRUSTVENE" | "MRTAV" | "ZIV";
 
 export type SiteFetch = {
   status: SiteStatus;
@@ -125,7 +124,7 @@ async function readCapped(res: Response): Promise<string> {
 // ── glavna ─────────────────────────────────────────────────
 
 export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
-  if (!rawUrl) return empty("NEMA_SAJT", null);
+  if (!rawUrl) return empty("nema_sajt", null);
 
   // Business.website je normalizovan (bez protokola), pa ga vraćamo u pun URL
   const candidate = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
@@ -134,11 +133,11 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
   try {
     u = new URL(candidate);
   } catch {
-    return empty("MRTAV", rawUrl, "neispravan URL");
+    return empty("mrtav", rawUrl, "neispravan URL");
   }
 
   if (isSocial(u.hostname)) {
-    return { ...empty("SAMO_DRUSTVENE", rawUrl), finalUrl: u.href };
+    return { ...empty("samo_drustvene", rawUrl), finalUrl: u.href };
   }
 
   const started = Date.now();
@@ -156,10 +155,10 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
         plain.protocol = "http:";
         res = await doFetch(plain.href);
       } catch {
-        return { ...empty("MRTAV", rawUrl, reason), loadMs: Date.now() - started };
+        return { ...empty("mrtav", rawUrl, reason), loadMs: Date.now() - started };
       }
     } else {
-      return { ...empty("MRTAV", rawUrl, reason), loadMs: Date.now() - started };
+      return { ...empty("mrtav", rawUrl, reason), loadMs: Date.now() - started };
     }
   }
 
@@ -184,7 +183,7 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
   // 3) sajt koji preusmerava na Facebook NIJE mrtav — to je vredan lead
   if (isSocial(finalHost)) {
     return {
-      ...empty("SAMO_DRUSTVENE", rawUrl),
+      ...empty("samo_drustvene", rawUrl),
       finalUrl,
       httpStatus: res.status,
       loadMs: Date.now() - started,
@@ -193,7 +192,7 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
 
   if (!res.ok) {
     return {
-      ...empty("MRTAV", rawUrl, `HTTP ${res.status}`),
+      ...empty("mrtav", rawUrl, `HTTP ${res.status}`),
       finalUrl,
       httpStatus: res.status,
       loadMs: Date.now() - started,
@@ -205,7 +204,7 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
     html = await readCapped(res);
   } catch (err: unknown) {
     return {
-      ...empty("MRTAV", rawUrl, `prekinuto čitanje: ${describeFailure(err)}`),
+      ...empty("mrtav", rawUrl, `prekinuto čitanje: ${describeFailure(err)}`),
       finalUrl,
       httpStatus: res.status,
       loadMs: Date.now() - started,
@@ -213,7 +212,7 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
   }
 
   return {
-    status: "ZIV",
+    status: "ok",
     url: rawUrl,
     finalUrl,
     httpStatus: res.status,

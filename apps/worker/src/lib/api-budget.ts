@@ -16,18 +16,22 @@
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { cachePath } from "./paths";
 
 // ─────────────────────────────────────────────────────────────
 // Konfiguracija
 // ─────────────────────────────────────────────────────────────
 
-/** Override za testove: BUDGET_STATE_PATH=/tmp/x.json */
+/**
+ * Override za testove: BUDGET_STATE_PATH=/tmp/x.json
+ *
+ * Vezano za koren monorepoa, ne za cwd — inače bi `pnpm scan` i
+ * `pnpm --filter @sajtoskop/cli scan` vodili dva odvojena brojača
+ * i mesečni cap bi prestao da važi.
+ */
 function statePath(): string {
-  return (
-    process.env.BUDGET_STATE_PATH ??
-    join(process.cwd(), ".cache", "api-budget.json")
-  );
+  return process.env.BUDGET_STATE_PATH ?? cachePath("api-budget.json");
 }
 
 function num(raw: string | undefined, fallback: number): number {

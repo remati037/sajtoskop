@@ -1,5 +1,6 @@
-// src/harvest-emails.ts
+// apps/cli/src/harvest-emails.ts
 // Vadi mejlove sa sajtova iz scan rezultata. Nula Google poziva.
+// Samostalna skripta sa svojim main(), pokreće se preko `pnpm harvest`.
 //
 // Upotreba:
 //   pnpm harvest out/pvc-stolarija-valjevo-2026-08-04.csv
@@ -12,12 +13,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import pLimit from "p-limit";
+import { outPath, userPath, workspaceRoot } from "@sajtoskop/worker/lib";
 
 // ─────────────────────────────────────────────────────────────
 // Tipovi
 // ─────────────────────────────────────────────────────────────
 
-type Business = {
+/**
+ * Red iz ranijeg scan izlaza — NIJE `Business` iz @sajtoskop/shared.
+ * Sva polja su opciona jer ulaz može biti CSV iz bilo koje starije verzije CLI-ja,
+ * i nosi kolone kojih u normalizovanom `Business` obliku nema (band, problemi, grad).
+ */
+type ScanRow = {
   placeId?: string;
   name: string;
   address?: string;
@@ -35,7 +42,7 @@ type Business = {
   grad?: string;
 };
 
-type Harvested = Business & {
+type Harvested = ScanRow & {
   email: string;
   emailAll: string;
   src: string;
@@ -55,6 +62,7 @@ function parseCsv(text: string): string[][] {
 
   for (let i = 0; i < clean.length; i++) {
     const c = clean[i];
+    if (c === undefined) continue;
 
     if (inQuotes) {
       if (c === '"') {
@@ -76,7 +84,7 @@ function parseCsv(text: string): string[][] {
 }
 
 /** Aliasi jer se nazivi kolona menjaju kroz verzije CLI-ja. */
-const COLS: Record<keyof Business, string[]> = {
+const COLS: Record<keyof ScanRow, string[]> = {
   placeId:    ["placeid", "place_id"],
   name:       ["naziv", "name", "ime"],
   address:    ["adresa", "address"],
@@ -94,30 +102,33 @@ const COLS: Record<keyof Business, string[]> = {
   grad:       ["grad", "city"],
 };
 
-function indexHeader(header: string[]): Partial<Record<keyof Business, number>> {
+function indexHeader(header: string[]): Partial<Record<keyof ScanRow, number>> {
   const norm = header.map((h) => h.trim().toLowerCase().replace(/^\uFEFF/, ""));
-  const map: Partial<Record<keyof Business, number>> = {};
-  for (const [key, aliases] of Object.entries(COLS) as [keyof Business, string[]][]) {
+  const map: Partial<Record<keyof ScanRow, number>> = {};
+  for (const [key, aliases] of Object.entries(COLS) as [keyof ScanRow, string[]][]) {
     const idx = norm.findIndex((h) => aliases.includes(h));
     if (idx !== -1) map[key] = idx;
   }
   return map;
 }
 
-function csvToBusinesses(text: string, file: string): Business[] {
+function csvToBusinesses(text: string, file: string): ScanRow[] {
   const rows = parseCsv(text);
   if (rows.length < 2) return [];
 
-  const map = indexHeader(rows[0]);
+  const header = rows[0];
+  if (!header) return [];
+
+  const map = indexHeader(header);
   if (map.name === undefined) {
     throw new Error(
       `${file}: ne prepoznajem kolonu sa nazivom.\n` +
-        `  Zaglavlje: ${rows[0].join(", ")}\n` +
+        `  Zaglavlje: ${header.join(", ")}\n` +
         `  Očekujem jednu od: ${COLS.name.join(", ")}`,
     );
   }
 
-  const pick = (r: string[], k: keyof Business): string | undefined => {
+  const pick = (r: string[], k: keyof ScanRow): string | undefined => {
     const i = map[k];
     if (i === undefined) return undefined;
     const v = r[i]?.trim();
@@ -150,16 +161,16 @@ function parseFileName(file: string): { nisa?: string; grad?: string } {
   const base = path.basename(file).replace(/\.(csv|json)$/i, "");
   const m = base.match(/^(.+)-([a-z0-9-]+)-\d{4}-\d{2}-\d{2}$/i);
   if (!m) return {};
-  const parts = m[1].split("-");
+  const parts = (m[1] ?? "").split("-");
   // poslednji segment pre datuma je grad, ostalo je niša
   return { nisa: parts.join("-"), grad: m[2] };
 }
 
-function loadFile(file: string): Business[] {
+function loadFile(file: string): ScanRow[] {
   const raw = fs.readFileSync(file, "utf8");
   const meta = parseFileName(file);
 
-  let items: Business[];
+  let items: ScanRow[];
   if (file.toLowerCase().endsWith(".json") || raw.replace(/^\uFEFF/, "").trimStart().startsWith("[")) {
     const parsed = JSON.parse(raw.replace(/^\uFEFF/, ""));
     items = Array.isArray(parsed) ? parsed : (parsed.businesses ?? []);
@@ -183,7 +194,9 @@ function extractEmails(html: string, host: string): string[] {
   const found = new Set<string>();
 
   for (const m of html.matchAll(/mailto:([^"'?\s>]+)/gi)) {
-    try { found.add(decodeURIComponent(m[1]).toLowerCase()); } catch { /* ignore */ }
+    const raw = m[1];
+    if (!raw) continue;
+    try { found.add(decodeURIComponent(raw).toLowerCase()); } catch { /* ignore */ }
   }
   for (const m of html.matchAll(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi)) {
     found.add(m[0].toLowerCase());
@@ -250,7 +263,7 @@ async function fetchHtml(url: string, timeoutMs = 15_000): Promise<string | null
 
 const PATHS = ["", "/kontakt", "/contact", "/kontakt.html", "/o-nama", "/impressum"];
 
-async function harvestOne(b: Business): Promise<Harvested> {
+async function harvestOne(b: ScanRow): Promise<Harvested> {
   const empty = { email: "", emailAll: "" };
   if (!b.website) return { ...b, ...empty, src: "nema-sajt" };
 
@@ -269,10 +282,11 @@ async function harvestOne(b: Business): Promise<Harvested> {
     if (!html) continue;
 
     const emails = extractEmails(html, host);
-    if (emails.length) {
+    const first = emails[0];
+    if (first) {
       return {
         ...b,
-        email: emails[0],
+        email: first,
         emailAll: emails.slice(0, 3).join(" | "),
         src: p || "/",
       };
@@ -293,7 +307,7 @@ function csvCell(v: unknown): string {
 /** Prva rečenica iz liste problema — ide u cold poruku. */
 function firstProblem(problems?: string): string {
   if (!problems) return "";
-  return problems.split(/\s*[|;·]\s*|\s*\n\s*/)[0].trim();
+  return (problems.split(/\s*[|;·]\s*|\s*\n\s*/)[0] ?? "").trim();
 }
 
 /** Kanal po tome šta imaš od kontakta. */
@@ -320,14 +334,16 @@ function isLead(r: Harvested): boolean {
     return true;
   }
 
+  // "kritican"/"los" su bendovi iz arhiviranih CSV-ova pre F0;
+  // "katastrofa"/"ruzan" su aktuelni. Oba se i dalje čitaju.
   const band = (r.band ?? "").toLowerCase().replace(/[čć]/g, "c");
-  if (/kritican|los/.test(band)) return true;
+  if (/kritican|los|katastrofa|ruzan/.test(band)) return true;
 
   return (r.score ?? 0) >= 45;
 }
 
 /** Ključ za dedup kad nema placeId. */
-function dedupeKey(b: Business): string {
+function dedupeKey(b: ScanRow): string {
   if (b.placeId) return `id:${b.placeId}`;
   const site = (b.website ?? "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "");
   if (site) return `web:${site}`;
@@ -362,16 +378,16 @@ async function main(): Promise<void> {
   if (!files.length) usage();
 
   for (const f of files) {
-    if (!fs.existsSync(f)) {
-      console.error(`  Fajl ne postoji: ${path.resolve(f)}`);
+    if (!fs.existsSync(userPath(f))) {
+      console.error(`  Fajl ne postoji: ${userPath(f)}`);
       process.exit(1);
     }
   }
 
   const seen = new Set<string>();
-  const all: Business[] = [];
+  const all: ScanRow[] = [];
   for (const f of files) {
-    const items = loadFile(f);
+    const items = loadFile(userPath(f));
     let added = 0;
     for (const b of items) {
       const k = dedupeKey(b);
@@ -425,10 +441,10 @@ async function main(): Promise<void> {
   }
 
   // ime izlaza se izvodi iz ulaza — provenijencija bez razmišljanja o datumu
-  const stem = path.basename(files[0]).replace(/\.(csv|json)$/i, "");
+  const stem = path.basename(files[0] ?? "scan").replace(/\.(csv|json)$/i, "");
   const suffix = files.length > 1 ? `-plus${files.length - 1}` : "";
-  const out = path.join("out", `mejlovi-${stem}${suffix}.csv`);
-  fs.mkdirSync("out", { recursive: true });
+  const out = outPath(`mejlovi-${stem}${suffix}.csv`);
+  fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, "\uFEFF" + lines.join("\r\n"), "utf8");
 
   // ── statistika ──
@@ -451,7 +467,7 @@ async function main(): Promise<void> {
   console.log(`  Leadova (bez sajta / mrtav / društvene / skor 45+): ${leads} / ${rows.length}`);
   console.log(`  Gde je nađen:`, Object.fromEntries(bySrc));
   console.log(`  Kanali${samoLead ? " (lead)" : ""}:`, Object.fromEntries(byChannel));
-  console.log(`\n  Fajl: ${out}  (${final.length} redova)\n`);
+  console.log(`\n  Fajl: ${path.relative(workspaceRoot(), out)}  (${final.length} redova)\n`);
 }
 
 main().catch((err) => {

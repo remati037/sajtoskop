@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+
+    // ODSTUPANJE OD F0 (sekcija 2), namerno i jedino:
+    // F0 propisuje "module": "NodeNext" / "moduleResolution": "NodeNext",
+    // ali NodeNext u ESM-u ZAHTEVA eksplicitnu ekstenziju u relativnim importima
+    // (i to ".js"), što je direktno suprotno pravilu iz CLAUDE.md:
+    // "Importi bez ekstenzija." Ta dva zahteva se ne mogu zadovoljiti istovremeno.
+    // "Preserve" + "bundler" dozvoljava importe bez ekstenzije i tačno opisuje
+    // kako se ovaj kod stvarno izvršava: tsx u CLI-u i workeru, transpilePackages
+    // u Next.js-u. Paket se i dalje ne buildira.
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true
+  }
+}
