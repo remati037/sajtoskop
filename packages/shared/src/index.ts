@@ -57,7 +57,9 @@ export type { City, Niche, NicheGroup } from "./taxonomy";
 export {
   buildQueries,
   CITIES,
+  CITY_SLUGS,
   nichePriority,
+  NICHE_SLUGS,
   NICHES,
   phoneType,
   SEED_NICHES,

@@ -56,6 +56,12 @@ export type ArchiveReport = {
   bandMismatches: { placeId: string; csv: string; derived: string; score: number }[];
   /** Koliko je biznisa dobilo mejlove iz `mejlovi-*.csv`. */
   emailsAttached: number;
+  /**
+   * Fajlovi čija niša ne postoji u `NICHES`. Takav upis prođe u bazu, ali ga
+   * `/api/search` nikad ne vrati — allowlist iz taksonomije ga odbija. Seed
+   * zbog toga odbija upis (vidi `seed.ts`), a `--dry` ih samo prijavi.
+   */
+  unknownNiches: { file: string; slug: string }[];
   warnings: string[];
 };
 
@@ -226,7 +232,7 @@ function readEmails(dir: string, warnings: string[]): Map<string, string[]> {
 export function readArchive(dir: string): ArchiveReport {
   const report: ArchiveReport = {
     records: [], files: [], skipped: [], duplicates: [],
-    bandMismatches: [], emailsAttached: 0, warnings: [],
+    bandMismatches: [], emailsAttached: 0, unknownNiches: [], warnings: [],
   };
 
   if (!fs.existsSync(dir)) {
@@ -257,6 +263,13 @@ export function readArchive(dir: string): ArchiveReport {
     }
 
     const { nicheSlug, citySlug, scanDate } = parsed;
+
+    // Grad je već validiran u `parseScanName` (ime se parsira po listi gradova),
+    // niša nije bila — a upis pod nišom koje nema u `NICHES` je nevidljiv podatak:
+    // `/api/search` prima samo slugove iz taksonomije.
+    if (nicheSlug && !NICHES.some((n) => n.slug === nicheSlug)) {
+      report.unknownNiches.push({ file: jsonFile, slug: nicheSlug });
+    }
     // Scan je odrađen tokom dana; ponoć u UTC je dovoljno precizno za TTL od 30 dana.
     const scanAt = `${scanDate}T12:00:00.000Z`;
 

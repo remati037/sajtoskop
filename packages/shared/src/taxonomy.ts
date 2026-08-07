@@ -214,6 +214,23 @@ export const CITIES: City[] = [
 ];
  
 // ═══════════════════════════════════════════════════════════
+// ALLOWLIST SLUGOVA
+// ═══════════════════════════════════════════════════════════
+//
+// `z.enum()` traži ne-prazan tuple, a `NICHES.map(n => n.slug)` je `string[]`.
+// Ovo je jedini izvor dozvoljenih vrednosti za `city` i `niche` na granici
+// API-ja: slobodan tekst nikad ne dolazi do upita nad bazom.
+
+function slugTuple(items: readonly { slug: string }[]): [string, ...string[]] {
+  const [first, ...rest] = items.map((i) => i.slug);
+  if (!first) throw new Error("Prazna taksonomija — nema nijednog slug-a.");
+  return [first, ...rest];
+}
+
+export const CITY_SLUGS = slugTuple(CITIES);
+export const NICHE_SLUGS = slugTuple(NICHES);
+
+// ═══════════════════════════════════════════════════════════
 // UPIT BUILDER
 // ═══════════════════════════════════════════════════════════
  

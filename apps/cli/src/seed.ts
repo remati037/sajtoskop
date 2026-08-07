@@ -94,6 +94,13 @@ function printReport(report: ArchiveReport, records: SeedRecord[]): void {
     }
   }
 
+  if (report.unknownNiches.length) {
+    const bySlug = new Map<string, string[]>();
+    for (const u of report.unknownNiches) bySlug.set(u.slug, [...(bySlug.get(u.slug) ?? []), u.file]);
+    console.log(`\n⚠ Niše kojih nema u taksonomiji (podatak bi bio nevidljiv u aplikaciji):`);
+    for (const [slug, files] of bySlug) console.log(`  ${slug.padEnd(22)} ${files.join(", ")}`);
+  }
+
   for (const w of report.warnings) console.log(`\n⚠ ${w}`);
 
   // Ove brojke idu na landing u F8 — otuda ovaj blok.
@@ -199,6 +206,23 @@ async function main(): Promise<void> {
   if (opts.dry) {
     console.log(`\n[--dry] Baza nije dirana.`);
     return;
+  }
+
+  // Upis pod nišom koje nema u `NICHES` je podatak koji niko nikad neće videti:
+  // `/api/search` prima samo slugove iz taksonomije (F2 §2). Bolje je da seed
+  // stane nego da baza tiho naraste za redove kojih u aplikaciji nema.
+  if (report.unknownNiches.length > 0) {
+    const slugovi = [...new Set(report.unknownNiches.map((u) => u.slug))];
+    throw new Error(
+      `Seed zaustavljen: ${slugovi.length} niša iz arhive ne postoji u taksonomiji ` +
+        `(${slugovi.join(", ")}).\n` +
+        `Ti redovi bi ušli u bazu, ali ih pretraga nikad ne bi vratila.\n\n` +
+        `Reši ovako:\n` +
+        `  a) dodaj nišu u packages/shared/src/taxonomy.ts, ili\n` +
+        `  b) izmesti te fajlove iz arhive i pokreni seed nad direktorijumom bez njih\n` +
+        `     (pnpm seed --dir putanja/do/direktorijuma).\n\n` +
+        `Fajlovi: ${report.unknownNiches.map((u) => u.file).join(", ")}`,
+    );
   }
 
   console.log(`\nUpisujem...`);

@@ -1,11 +1,15 @@
 @import "tailwindcss";
 
-/* F1 nema dizajn — vizuelni sloj dolazi u F8. Ovde je samo čitljiv default
-   da ekrani ne izgledaju kao neformatiran HTML dok se radi na logici. */
+/* F2: jedan sans font, tamna i svetla tema, gusta tabela.
+   Pun vizuelni identitet (boje brenda, landing) dolazi u F8 — ovde je samo
+   osnovni jezik: jedan font, dve teme, čitljive brojke. */
 
 @theme {
   --color-mrak: oklch(0.16 0.01 260);
   --color-papir: oklch(0.98 0.005 260);
+
+  /* Manrope stiže iz `next/font/google` u layout-u, kao CSS promenljiva. */
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
@@ -14,10 +18,18 @@
 
 body {
   @apply bg-white text-neutral-900 antialiased;
+  /* Tabela sa skorovima i brojevima traži poravnate cifre. */
+  font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-color-scheme: dark) {
   body {
     @apply bg-neutral-950 text-neutral-100;
   }
+}
+
+/* Vidljiv fokus na svemu što se dohvata tastaturom — combobox se bez ovoga
+   ne može koristiti bez miša. */
+:focus-visible {
+  @apply outline-2 outline-offset-2 outline-neutral-500;
 }
