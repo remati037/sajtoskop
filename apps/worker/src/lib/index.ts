@@ -31,6 +31,12 @@ export {
 export type { PlacesResponse, RawPlace, SearchOptions } from "./places";
 export { searchText } from "./places";
 
+// ── .env iz korena monorepoa ───────────────────────────────
+export { loadRootEnv } from "./env";
+
+// ── Supabase (service_role) ────────────────────────────────
+export { supabaseAdmin, supabaseAnon } from "./supabase";
+
 // ── preuzimanje sajtova ────────────────────────────────────
 export type { SiteFetch } from "./fetch-site";
 export { fetchAll, fetchSite } from "./fetch-site";

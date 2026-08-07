@@ -5,3 +5,11 @@ packages:
 # tsx nosi esbuild; njegov postinstall raspakuje binarni fajl za ovu platformu.
 allowBuilds:
   esbuild: true
+  # Next.js koristi sharp za optimizaciju slika; postinstall raspakuje binarni fajl.
+  sharp: true
+
+minimumReleaseAgeExclude:
+  - '@clerk/backend@3.15.1'
+  - '@clerk/nextjs@7.6.5'
+  - '@clerk/react@6.12.11'
+  - '@clerk/shared@4.26.0'

@@ -9,11 +9,14 @@
   "scripts": {
     "scan": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "harvest": "tsx src/harvest-emails.ts"
+    "harvest": "tsx src/harvest-emails.ts",
+    "seed": "tsx src/seed.ts",
+    "checks": "tsx src/checks.ts"
   },
   "dependencies": {
     "@sajtoskop/shared": "workspace:*",
     "@sajtoskop/worker": "workspace:*",
+    "@supabase/supabase-js": "^2.112.0",
     "cli-table3": "^0.6.5",
     "commander": "^13.0.0",
     "dotenv": "^16.4.7",

@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  provera:
+    runs-on: ubuntu-latest
+
+    # Build namerno ide sa lažnim tajnama. Poenta koraka nije da aplikacija radi,
+    # nego da se dobije klijentski bundle koji se onda pretraži (P0-4).
+    #
+    # Vrednosti su čitljive rečenice, a ne nasumični nizovi, da ih gitleaks ne
+    # prijavljuje kao tajne po entropiji.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://ci.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon-kljuc-koji-nije-pravi
+      SUPABASE_SERVICE_ROLE_KEY: ci-service-role-kljuc-koji-nije-pravi
+      CLERK_SECRET_KEY: sk_test_ci
+      # Clerk dekodira publishable ključ da izvuče svoj domen, pa mora da bude
+      # ispravnog oblika — ovo je base64 od "ci.clerk.accounts.dev$".
+      # Publishable ključ je javan po dizajnu, a ovaj je uz to i izmišljen.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kuY2xlcmsuYWNjb3VudHMuZGV2JA== # gitleaks:allow
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tipovi
+        run: pnpm typecheck
+
+      - name: Testovi
+        run: pnpm test
+
+      - name: Migracije
+        run: pnpm check:sql
+
+      - name: Build weba
+        run: pnpm --filter @sajtoskop/web build
+
+      - name: Tajne u bundle-u
+        run: pnpm check:secrets
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -71,6 +71,20 @@ export function copyrightYear(html: string): number | null {
   return years.length ? Math.max(...years) : null;
 }
 
+// ── bendovi ────────────────────────────────────────────────
+
+/**
+ * Skor → band. Jedini izvor pragova; `scoreSite` ga zove, seed ga zove.
+ * Postoji da bi seed mogao da izvede band iz istorijskog skora umesto da
+ * veruje stringu iz starog CSV-a (pravilo 6 — logika se ne duplira).
+ */
+export function bandForScore(score: number): UglyBand {
+  if (score >= 70) return "katastrofa";
+  if (score >= 45) return "ruzan";
+  if (score >= 20) return "osrednji";
+  return "solidan";
+}
+
 // ── glavni skor ────────────────────────────────────────────
 
 export function scoreSite(input: ScoreInput): ScoreResult {
@@ -158,10 +172,7 @@ export function scoreSite(input: ScoreInput): ScoreResult {
   const raw = signals.reduce((sum, s) => sum + s.points, 0);
   const score = Math.min(100, raw);
 
-  const band: UglyBand =
-    score >= 70 ? "katastrofa" :
-    score >= 45 ? "ruzan" :
-    score >= 20 ? "osrednji" : "solidan";
+  const band = bandForScore(score);
 
   const sorted = [...signals].sort((a, b) => b.points - a.points);
 

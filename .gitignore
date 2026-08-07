@@ -1,12 +1,17 @@
 node_modules/
 .next/
 dist/
+*.tsbuildinfo
 .env
 .env.local
 .env*.local
 data/scanovi-arhiva/
 *.log
 .DS_Store
+
+# lokalno stanje Supabase CLI-ja (project-ref, pooler-url) — nikad u repo
+supabase/.temp/
+supabase/.branches/
 
 # stanje Google budzeta (api-budget.ts) — nikad u repo
 .cache/

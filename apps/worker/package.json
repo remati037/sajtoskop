@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@sajtoskop/shared": "workspace:*",
+    "@supabase/supabase-js": "^2.112.0",
     "p-limit": "^6.2.0"
   }
 }
