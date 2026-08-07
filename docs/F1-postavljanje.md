@@ -155,7 +155,28 @@ Chrome → DevTools (`⌥⌘I`) → **Application** → Storage → Cookies → 
 
 ## 8. Vercel
 
-Projekat: root direktorijum `apps/web`, build komanda podrazumevana.
+**Project Settings → General:**
+
+| Podešavanje | Vrednost |
+|---|---|
+| **Root Directory** | `apps/web` |
+| **Include source files outside of the Root Directory** | uključeno |
+| Framework Preset | Next.js (dolazi iz `apps/web/vercel.json`) |
+| Build / Install / Output | ostavi podrazumevano |
+
+Oba prva reda su obavezna i oba ume da promakne:
+
+- Bez **Root Directory** Vercel gleda koren monorepoa, tamo nema `next` u
+  `package.json`, pa pada na „Other" preset i traži `public/` direktorijum.
+  Greška glasi: *No Output Directory named "public" found after the Build completed.*
+- Bez **Include source files outside of the Root Directory** build ne vidi
+  `packages/shared` ni `pnpm-workspace.yaml`, pa `pnpm install` puca na
+  nerazrešen `workspace:*`.
+
+Ako je projekat već jednom napravljen sa „Other" presetom, promena Root Directory-ja
+ne resetuje uvek preset — zato `apps/web/vercel.json` izričito postavlja
+`"framework": "nextjs"`, što je jače od vrednosti iz konzole.
+
 Env promenljive (Production i Preview):
 
 ```
