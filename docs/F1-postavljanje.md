@@ -117,8 +117,15 @@ pnpm seed           # upis
 pnpm check:f1       # provere iz „Gotovo kad"
 ```
 
-`pnpm seed --dry` trenutno daje **288 biznisa, 100 bez funkcionalnog sajta (35%)**.
+`pnpm seed --dry` trenutno daje **172 biznisa, 89 bez funkcionalnog sajta (52%)**.
 Te brojke idu na landing u F8.
+
+> Od F2 seed odbija scan čije niše nema u `packages/shared/src/taxonomy.ts` —
+> takav red uđe u bazu, ali ga `/api/search` nikad ne vrati, jer prima samo
+> slugove iz taksonomije. Scanovi `izrada-sajtova` i `web-dizajn-agencija`
+> (istraživanje konkurencije, 116 biznisa) zato stoje u
+> `data/scanovi-arhiva/van-taksonomije/` i ne učestvuju u seedu. U bazi su i
+> dalje, od prvog seeda — otuda razlika između 288 redova u bazi i 172 iz arhive.
 
 `pnpm check:f1` pravi privremen profil, pokreće 20 paralelnih otključavanja sa
 jednim kreditom i briše profil za sobom.
