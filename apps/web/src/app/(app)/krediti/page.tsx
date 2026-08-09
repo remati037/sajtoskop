@@ -9,7 +9,8 @@ import { creditMonth, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
 import { getIstorijaKredita, type StavkaKnjige } from "@/lib/krediti";
 import { getOwnProfile } from "@/lib/profile";
-import { formatDatum, plural } from "@/lib/ui-tekst";
+import { formatDatum } from "@/lib/ui-tekst";
+import { VezaGreska } from "@/components/veza-greska";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,18 @@ export default async function Page() {
   const [profile, istorija] = await Promise.all([getOwnProfile(), getIstorijaKredita()]);
   const plan = planFor(profile?.plan);
 
+  // Prazna knjiga i pokvarena veza izgledaju isto kroz RLS — v. `veza-greska.tsx`.
+  // Na ovom ekranu je razlika najveća: „nemaš nijednu stavku" i „ne mogu da
+  // pročitam tvoje stavke" su suprotne poruke o istom novcu.
+  if (!profile) {
+    return (
+      <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
+        <h1 className="mb-8 text-2xl font-semibold tracking-tight">Krediti</h1>
+        <VezaGreska sta="Stanje i istorija kredita" />
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <header className="mb-8">
@@ -39,17 +52,17 @@ export default async function Page() {
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Kartica
           naslov="Stanje"
-          vrednost={profile ? String(profile.credits_balance) : "—"}
+          vrednost={String(profile.credits_balance)}
           podnaslov={`od ${plan.monthlyCredits} mesečno`}
         />
         <Kartica
           naslov="Nova skeniranja"
-          vrednost={`${profile?.cache_miss_count ?? 0} / ${plan.cacheMissPerDay}`}
+          vrednost={`${profile.cache_miss_count} / ${plan.cacheMissPerDay}`}
           podnaslov="danas, van keša"
         />
         <Kartica
           naslov="Izvezeno u CSV"
-          vrednost={`${profile?.export_count ?? 0} / ${plan.exportPerDay}`}
+          vrednost={`${profile.export_count} / ${plan.exportPerDay}`}
           podnaslov="redova danas"
         />
       </dl>

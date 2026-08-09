@@ -2,6 +2,7 @@ import Link from "next/link";
 import { planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
 import { getOwnProfile } from "@/lib/profile";
+import { VezaGreska } from "@/components/veza-greska";
 
 // Kontrolna tabla dokazuje da lanac Clerk → Supabase JWT → RLS radi: broj kredita
 // ispod je pročitan kroz RLS politiku „own profile", ne kroz service_role.
@@ -32,11 +33,9 @@ export default async function Page() {
           />
         </dl>
       ) : (
-        <p className="mt-8 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          Profil nije pronađen. Najverovatniji uzrok: Clerk nije podešen kao
-          third-party auth provider u Supabase-u, pa RLS politika ne vidi tvoj
-          korisnički ID.
-        </p>
+        <div className="mt-8">
+          <VezaGreska sta="Podaci naloga" />
+        </div>
       )}
 
       <p className="mt-10 text-sm text-neutral-500">

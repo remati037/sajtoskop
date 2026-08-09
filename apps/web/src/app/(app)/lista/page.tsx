@@ -8,6 +8,7 @@ import { requireSession } from "@/lib/auth";
 import { getMojaLista } from "@/lib/moja-lista";
 import { getOwnProfile } from "@/lib/profile";
 import { MojaListaEkran } from "@/components/moja-lista-ekran";
+import { VezaGreska } from "@/components/veza-greska";
 
 export const dynamic = "force-dynamic";
 
@@ -29,14 +30,19 @@ export default async function Page() {
         </p>
       </header>
 
-      {leads.length === 0 ? (
+      {/* Redosled je bitan: prvo se isključuje mogućnost da je lista prazna zato
+          što RLS ne prepoznaje korisnika, pa tek onda ide prijateljsko prazno
+          stanje. Obrnuto bi značilo da pokvarena veza izgleda kao „nemaš ništa". */}
+      {!profile ? (
+        <VezaGreska sta="Otključani prospekti" />
+      ) : leads.length === 0 ? (
         <PraznoStanje />
       ) : (
         <MojaListaEkran
           leads={leads}
           cityLabels={cityLabels}
           exportPerDay={plan.exportPerDay}
-          exportedToday={profile?.export_count ?? 0}
+          exportedToday={profile.export_count}
         />
       )}
     </main>

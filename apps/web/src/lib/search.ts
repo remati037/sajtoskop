@@ -223,6 +223,21 @@ function isStale(iso: string): boolean {
  * Namerno kroz `userSupabase()`: RLS politika „own unlocks" je drugi sloj koji
  * garantuje da se ne mogu pročitati tuđa otključavanja. Sa admin klijentom bi
  * jedina odbrana bio `where user_id = ...` koji se lako zaboravi.
+ *
+ * [SVESNO ODSTUPANJE] Pokvarena Clerk↔Supabase veza i ovde vraća prazno umesto
+ * greške, pa bi svi leadovi izgledali zaključano. `/lista`, `/krediti` i izvoz
+ * na to reaguju glasno (v. `components/veza-greska.tsx`), a pretraga ne — iz dva
+ * razloga:
+ *
+ *   1. Novac je bezbedan. Klik na „Otključaj" ide u `spend_credit_and_unlock`,
+ *      koji `unlocks` čita kroz `service_role` bez RLS-a i uredno vrati
+ *      `already_unlocked`. Korisnik ne može dvaput da plati isti lead.
+ *   2. Provera bi tražila dodatno čitanje profila na SVAKOJ pretrazi, a prazan
+ *      rezultat je ovde uobičajeno stanje — većina korisnika na većini strana
+ *      nema ništa otključano.
+ *
+ * Dakle: šteta je zabuna, ne gubitak. Ako se ikad pojavi prijava „piše da nemam
+ * otključano, a imam" — uzrok je ovde, a potvrda je na `/lista`.
  */
 async function getUnlockedPlaceIds(placeIds: string[]): Promise<Set<string>> {
   if (placeIds.length === 0) return new Set();

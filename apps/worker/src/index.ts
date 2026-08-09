@@ -33,6 +33,15 @@ const REAP_EVERY_MS = 5 * 60 * 1000;
 /** Na koliko se proverava da li tekući mesec ima dodelu kredita (F4 §2). */
 const SCHEDULE_EVERY_MS = 60 * 60 * 1000;
 
+/**
+ * Koliko se čeka pre nego što se PALA mesečna dodela pokuša ponovo.
+ *
+ * Bez ovoga bi pao posao zauvek blokirao mesec — a sa nulom bi raspoređivač
+ * pravio nov posao svakog sata dok god uzrok pada traje. Šest sati znači najviše
+ * četiri crvena reda dnevno i oporavak u istom danu kad se uzrok otkloni.
+ */
+const RETRY_AFTER_FAILURE_MS = 6 * 60 * 60 * 1000;
+
 let running = true;
 
 function stamp(): string {
@@ -142,22 +151,43 @@ async function reaperLoop(): Promise<void> {
  * datuma korisnici bi ostali bez kredita ceo mesec i to bi se videlo tek po
  * prijavama. Ovako prvi sledeći start nadoknadi propušteno.
  *
- * Provera gleda poslove SVIH statusa, ne samo žive — `dedupe_key` u 0003 važi
- * samo dok posao traje, pa bi se posle `done` isti mesec upisivao svakog sata.
+ * Provera ne može da gleda samo žive poslove — `dedupe_key` u 0003 važi dok
+ * posao traje, pa bi se posle `done` isti mesec upisivao svakog sata. Ali ne sme
+ * ni da gleda sve statuse redom:
+ *
+ * [NAUČENO NA SVOJOJ KOŽI] Prva verzija je blokirala na posao BILO kog statusa.
+ * Kad je posao pao — a pao je, jer je worker na Hetzneru vrteo kod od pre F4 i
+ * nije poznavao tip `monthly_grant` — mesec je ostao zauvek „pokriven" poslom
+ * koji nikad nije dodelio nijedan kredit. Tiho, bez ijedne poruke.
+ *
+ * Zato: `pending`, `running` i `done` blokiraju, a `failed` blokira samo šest
+ * sati. Dodela je idempotentna (`ref_id` je mesec), pa je ponovni pokušaj
+ * bezopasan, a jedini ishod koji se ne popravlja sam jeste onaj koji niko ne vidi.
  */
 async function ensureMonthlyGrant(): Promise<void> {
   const month = creditMonth();
 
   const { data, error } = await supabaseAdmin()
     .from("job_queue")
-    .select("id")
+    .select("id, status, created_at")
     .eq("type", "monthly_grant")
     .eq("dedupe_key", month)
+    .order("id", { ascending: false })
     .limit(1)
-    .returns<{ id: number }[]>();
+    .returns<{ id: number; status: string; created_at: string }[]>();
 
   if (error) throw new Error(`Provera mesečne dodele nije uspela: ${error.message}`);
-  if ((data ?? []).length > 0) return;
+
+  const poslednji = (data ?? [])[0];
+
+  if (poslednji) {
+    if (poslednji.status !== "failed") return;
+
+    const odPada = Date.now() - new Date(poslednji.created_at).getTime();
+    if (odPada < RETRY_AFTER_FAILURE_MS) return;
+
+    log(`mesečna dodela za ${month} je pala (posao #${poslednji.id}) — pokušavam ponovo`);
+  }
 
   const { jobId } = await enqueueJob({
     type: "monthly_grant",

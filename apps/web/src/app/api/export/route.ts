@@ -9,7 +9,7 @@
 // odluka baze (F4 §7).
 
 import { NextResponse } from "next/server";
-import { CITY_SLUGS, DEFAULT_PLAN, NICHE_SLUGS, planFor } from "@sajtoskop/shared";
+import { CITY_SLUGS, NICHE_SLUGS, planFor } from "@sajtoskop/shared";
 import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
 import { exportUnlockedCsv } from "@/lib/export";
@@ -61,7 +61,24 @@ export async function GET(req: Request): Promise<Response> {
 
   try {
     const profile = await getOwnProfile();
-    const plan = profile?.plan ?? DEFAULT_PLAN;
+
+    // Bez profila kroz RLS ne znamo ni plan ni da li je lista stvarno prazna —
+    // `getMojaLista()` čita `unlocks` istim klijentom i istom politikom, pa bi
+    // vratila prazno i korisnik bi dobio „nemaš nijedan otključan prospekt" iako
+    // ih ima. Obrazloženje je u `components/veza-greska.tsx`.
+    //
+    // 503, a ne 500: ovo nije bag u kodu nego privremeno neispravna veza sa
+    // bazom, i prolazi samo od sebe kad se Clerk↔Supabase podesi.
+    if (!profile) {
+      return greska(
+        "Ne mogu da pročitam tvoj nalog iz baze, pa izvoz nije bezbedan — " +
+          "vratio bi prazan fajl umesto tvojih prospekata. Podaci su netaknuti. " +
+          "Osveži stranicu, pa ako se ponovi, javi mi.",
+        503,
+      );
+    }
+
+    const plan = profile.plan;
 
     const rezultat = await exportUnlockedCsv({
       userId,
