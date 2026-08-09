@@ -16,6 +16,7 @@ import { claimCacheMiss, enqueueRefresh, enqueueScan, releaseCacheMiss } from "@
 import { getOwnProfile } from "@/lib/profile";
 import { searchCachedLeads } from "@/lib/search";
 import { searchBodySchema } from "@/lib/search-schema";
+import type { SearchResponse } from "@/lib/search-types";
 import { formatDatum } from "@/lib/ui-tekst";
 
 export const dynamic = "force-dynamic";
@@ -91,7 +92,19 @@ export async function POST(req: Request): Promise<Response> {
 
     try {
       const job = await enqueueScan({ userId, countryCode: COUNTRY, city, niche });
-      return NextResponse.json({ ...result, status: "queued", job }, { headers });
+
+      // `enqueueScan` vraća `{ jobId, joined }`, a ugovor prema UI-ju je
+      // `{ id, joined }` — preslikavanje mora ovde. Telo je eksplicitno tipizovano
+      // kao `SearchResponse` da tsc uhvati svako sledeće razilaženje: bez toga je
+      // `NextResponse.json` progutao `jobId`, klijent je pollovao `/api/job/undefined`
+      // i loader je visio do isteka strpljenja.
+      const body: SearchResponse = {
+        ...result,
+        status: "queued",
+        job: { id: job.jobId, joined: job.joined },
+      };
+
+      return NextResponse.json(body, { headers });
     } catch (err) {
       // Rezervacija je potrošena, a posao nije upisan — vrati je korisniku.
       await releaseCacheMiss(userId);

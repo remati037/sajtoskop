@@ -34,6 +34,19 @@ const POLL_MS = 3000;
 /** Posle ovoga se odustaje od čekanja — posao se svejedno završi u pozadini. */
 const MAX_CEKANJE_MS = 3 * 60 * 1000;
 
+/**
+ * Koliko krugova bez ijednog novog audita se toleriše POSLE završenog scana pre
+ * nego što se traka skloni.
+ *
+ * Ne završava svaki `enrich_basic` redom u `website_audits`: sajt zabranjen
+ * robots.txt-om i biznis obrisan u međuvremenu prolaze bez audita. Za takvu
+ * kombinaciju `analizirano` nikad ne stigne `nađeno`, pa bez ovog izlaza traka
+ * ostaje da se vrti nad gotovom listom sve do isteka strpljenja.
+ */
+const MIRNIH_KRUGOVA_DO_KRAJA = 15;
+
+const pauza = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export function PretragaEkran({ cities, niches, cityLabels }: Props) {
   const [city, setCity] = useState<string | null>(null);
   const [niche, setNiche] = useState<string | null>(null);
@@ -51,8 +64,17 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
   const pollToken = useRef(0);
   useEffect(() => () => void (pollToken.current += 1), []);
 
-  /** Jedan poziv pretrage. Vraća odgovor da bi pozivalac mogao da nastavi. */
-  async function trazi(f: SearchFilters, page: number): Promise<SearchResponse | null> {
+  /**
+   * Jedan poziv pretrage. Vraća odgovor da bi pozivalac mogao da nastavi.
+   *
+   * `token` se proverava i posle `await`-a: bez toga zakasnela runda pollovanja
+   * stare pretrage prepiše tabelu koju je nova već popunila.
+   */
+  async function trazi(
+    f: SearchFilters,
+    page: number,
+    token: number,
+  ): Promise<SearchResponse | null> {
     if (!city || !niche) {
       setGreska("Izaberi i grad i nišu.");
       return null;
@@ -65,6 +87,8 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
     });
 
     const json: SearchResponse | ApiError = await res.json();
+
+    if (token !== pollToken.current) return null;
 
     if (!res.ok) {
       setGreska("greska" in json ? json.greska : "Pretraga nije uspela.");
@@ -86,12 +110,17 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
     setPredugo(false);
 
     try {
-      const odgovor = await trazi(f, page);
+      const odgovor = await trazi(f, page, token);
       if (!odgovor || token !== pollToken.current) return;
 
-      if (odgovor.status === "queued" && odgovor.job) {
-        setPosao({ id: odgovor.job.id, status: "pending", progress: null, greska: null });
-        void pratiPosao(odgovor.job.id, token, f, page);
+      // Bez ispravnog ID-ja nema šta da se prati. Traka se tada NE prikazuje —
+      // bolje odmah pokazati listu kakva jeste nego vrteti spinner nad poslom o
+      // kome ne možemo ništa da saznamo.
+      const jobId = odgovor.status === "queued" ? odgovor.job?.id : undefined;
+
+      if (typeof jobId === "number" && Number.isInteger(jobId)) {
+        setPosao({ id: jobId, status: "pending", progress: null, greska: null });
+        void pratiPosao(jobId, token, f, page);
       }
     } catch {
       setGreska("Nema veze sa serverom. Proveri internet pa pokušaj ponovo.");
@@ -106,19 +135,44 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
    *
    * Lista se osvežava svaki put kad se broj analiziranih promeni — korisnik vidi
    * kako se popunjava, umesto da gleda spinner pa dobije sve odjednom.
+   *
+   * Pravilo bez izuzetka: svaki izlaz iz ove funkcije skida traku (`setPosao(null)`)
+   * ili je zamenjuje porukom. Ranija verzija je na `return` ostavljala `posao`
+   * postavljen, pa je `ceka` zauvek bilo `true` — ekran je zaglavljivao na
+   * „Prva pretraga traje do dva minuta" iako je posao odavno završio.
    */
   async function pratiPosao(jobId: number, token: number, f: SearchFilters, page: number) {
     const kraj = Date.now() + MAX_CEKANJE_MS;
     let poslednjeAnalizirano = -1;
+    let mirnihKrugova = 0;
+
+    /**
+     * Poslednje osvežavanje liste pa skidanje trake.
+     *
+     * BUDŽET: `osveziPrvo` sme `true` samo kad u bazi već postoje redovi za ovu
+     * kombinaciju. Nad praznim kešom `/api/search` nije čitanje nego nov
+     * cache-miss — skine korisniku dnevnu rezervaciju i upiše nov `scan`
+     * (prethodni je `done`, pa ga dedup ključ više ne pokriva), dakle do 3 nova
+     * Places poziva za lice koje samo gleda spinner.
+     */
+    async function zavrsi(osveziPrvo: boolean) {
+      if (osveziPrvo) await trazi(f, page, token);
+      if (token === pollToken.current) setPosao(null);
+    }
 
     while (token === pollToken.current && Date.now() < kraj) {
-      await new Promise((r) => setTimeout(r, POLL_MS));
+      await pauza(POLL_MS);
       if (token !== pollToken.current) return;
 
       let stanje: JobStatusResponse;
       try {
         const res = await fetch(`/api/job/${jobId}`, { cache: "no-store" });
-        if (!res.ok) return; // 404 posle brisanja posla nije razlog za crvenu poruku
+        // 404 (posao obrisan) ni 400 (ID bez smisla) nisu razlog za crvenu poruku,
+        // ali jesu razlog da se prestane sa čekanjem — status više neće stići.
+        if (!res.ok) {
+          await zavrsi(poslednjeAnalizirano >= 0);
+          return;
+        }
         stanje = (await res.json()) as JobStatusResponse;
       } catch {
         continue; // prolazan mrežni prekid — probaj opet za 3s
@@ -129,27 +183,46 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
 
       if (stanje.greska) {
         setGreska(stanje.greska);
+        setPosao(null);
         return;
       }
 
       const analizirano = stanje.progress?.analyzed ?? 0;
       const nadjeno = stanje.progress?.found ?? 0;
+      const pomak = nadjeno > 0 && analizirano !== poslednjeAnalizirano;
 
-      if (analizirano !== poslednjeAnalizirano && nadjeno > 0) {
+      if (pomak) {
         poslednjeAnalizirano = analizirano;
-        await trazi(f, page);
+        mirnihKrugova = 0;
+        await trazi(f, page, token);
         if (token !== pollToken.current) return;
+      } else {
+        mirnihKrugova += 1;
       }
 
-      // Gotovo je tek kad je i scan završio i svi sajtovi analizirani.
-      if (stanje.status === "done" && nadjeno > 0 && analizirano >= nadjeno) {
+      if (stanje.status === "failed") {
         setPosao(null);
         return;
       }
-      if (stanje.status === "failed") return;
+
+      if (stanje.status === "done") {
+        // Scan je gotov; ostaje da `enrich_basic` poslovi popune audite. Izlazi su
+        // tri: nema šta da se nađe, sve je analizirano, ili je brojač stao (audit
+        // koji nikad neće doći — v. MIRNIH_KRUGOVA_DO_KRAJA).
+        const gotovo =
+          nadjeno === 0 || analizirano >= nadjeno || mirnihKrugova >= MIRNIH_KRUGOVA_DO_KRAJA;
+
+        if (gotovo) {
+          await zavrsi(!pomak && nadjeno > 0);
+          return;
+        }
+      }
     }
 
-    if (token === pollToken.current) setPredugo(true);
+    if (token === pollToken.current) {
+      setPosao(null);
+      setPredugo(true);
+    }
   }
 
   // Promena filtera ili strane ne traži novi klik na „Pretraži" — ali ni ne puca
@@ -212,7 +285,13 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
 
       {data && (
         <section className="space-y-4">
-          <FilterTraka filters={filters} onChange={primeniFiltere} disabled={ucitava} />
+          {/* Dok scan traje a lista je još prazna, filter bi otišao u nov cache-miss
+              (nova dnevna rezervacija, nov `scan`). Zato je zaključan tek dotle. */}
+          <FilterTraka
+            filters={filters}
+            onChange={primeniFiltere}
+            disabled={ucitava || (ceka && data.total === 0)}
+          />
 
           {data.total === 0 && !ceka && !predugo ? (
             <Poruka
