@@ -9,6 +9,7 @@
     "seed": "tsx apps/cli/src/seed.ts",
     "check:sql": "tsx scripts/validate-migrations.ts",
     "check:f1": "tsx apps/cli/src/checks.ts",
+    "check:f4": "tsx scripts/check-unlock.ts",
     "check:secrets": "bash scripts/check-secrets.sh",
     "dev": "pnpm --filter @sajtoskop/web dev",
     "build": "pnpm --filter @sajtoskop/web build",

@@ -95,5 +95,15 @@ export type JobStatusResponse = {
   greska: string | null;
 };
 
+/** Ono što vraća `POST /api/unlock`. */
+export type UnlockResponse = {
+  /** Uvek otključan — zaključan lead nema šta da traži u odgovoru ove rute. */
+  lead: UnlockedLead;
+  /** Stanje posle skidanja. Header ga koristi bez novog zahteva. */
+  creditsLeft: number;
+  /** `true` znači da je lead već bio otključan i da kredit NIJE skinut. */
+  alreadyUnlocked: boolean;
+};
+
 /** Oblik greške koji rute vraćaju. Poruka je na srpskom i ide direktno korisniku. */
 export type ApiError = { greska: string; detalji?: string[] };

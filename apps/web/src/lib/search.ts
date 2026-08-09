@@ -10,7 +10,13 @@ import "server-only";
 import { GOOGLE_TTL_DAYS } from "@sajtoskop/shared";
 import type { SiteStatus } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
-import { toPublicLead, type LeadAudit, type LeadBusiness } from "./public-lead";
+import {
+  LEAD_AUDIT_COLUMNS,
+  LEAD_BUSINESS_COLUMNS,
+  toPublicLead,
+  type LeadAudit,
+  type LeadBusiness,
+} from "./public-lead";
 import { PAGE_SIZE, type SearchFilters, type SearchResponse, type SearchSummary } from "./search-types";
 
 /**
@@ -23,11 +29,11 @@ import { PAGE_SIZE, type SearchFilters, type SearchResponse, type SearchSummary 
  */
 const FETCH_CAP = 1200;
 
-const BUSINESS_COLUMNS =
-  "place_id, name, city_slug, address, phone, phone_type, website_url, rating, google_refreshed_at";
+// Pretraga uzima kolone za `toPublicLead` plus dve svoje: `google_refreshed_at`
+// za svežinu i `place_id` za spajanje audita sa biznisom.
+const BUSINESS_COLUMNS = `${LEAD_BUSINESS_COLUMNS}, google_refreshed_at`;
 
-const AUDIT_COLUMNS =
-  "place_id, site_status, ugly_band, platform, ugly_score, signals, emails, ai_issues";
+const AUDIT_COLUMNS = `place_id, ${LEAD_AUDIT_COLUMNS}`;
 
 type BusinessQueryRow = LeadBusiness & { google_refreshed_at: string };
 type AuditQueryRow = LeadAudit & { place_id: string };

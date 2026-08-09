@@ -46,5 +46,29 @@ export const GLOBAL_MONTHLY_API_CAP = 900;
 /** Google resetuje kvotu u 09:00 po lokalnom vremenu Kalifornije. */
 export const BUDGET_TIMEZONE = "America/Los_Angeles";
 
+/**
+ * Krediti se resetuju po domaćem kalendaru, ne po Googleovom.
+ *
+ * Dnevni brojači (`cache_miss_day`, `export_day`) namerno idu po LA danu — oni
+ * štite moju kvotu. Mesečna dodela nema veze sa kvotom: korisniku u Šapcu
+ * „prvog u mesecu" znači prvog po njegovom kalendaru.
+ */
+export const CREDITS_TIMEZONE = "Europe/Belgrade";
+
+/**
+ * Mesec u obliku `2026-09`, po domaćem vremenu. Ovo je `ref_id` za mesečnu
+ * dodelu, dakle ključ idempotencije — dva poziva sa istim mesecom su jedan.
+ */
+export function creditMonth(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CREDITS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}`;
+}
+
 /** Pravilo 1 iz CLAUDE.md: Google podatak stariji od ovoga se ne servira. */
 export const GOOGLE_TTL_DAYS = 30;

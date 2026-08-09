@@ -3,16 +3,26 @@
 // Tabela prospekata. `NEMA SAJT` i `MRTAV DOMEN` su vizuelno najjači bedževi —
 // to su najbolji leadovi, ne greške (F2 §5). Zato zelena i žuta, a ne crvena:
 // crvena se čita kao „nešto ne valja u aplikaciji".
+//
+// F4: dugme „Otključaj" radi. Otključan red menja dve ćelije — telefon postaje
+// pozivni link, a kolona sa dugmetom postaje mejl i Ugly Score. Red se NE
+// premešta i ne menja boju: korisnik treba da nastavi da čita listu odozgo
+// nadole, a ne da traži gde mu je otišao lead koji je upravo platio.
 
 import type { PublicLead } from "@/lib/search-types";
-import { BAND_LABEL, PHONE_LABEL, STATUS_LABEL } from "@/lib/ui-tekst";
+import { BAND_LABEL, PHONE_LABEL, STATUS_LABEL, telefonHref } from "@/lib/ui-tekst";
 
 type Props = {
   leads: PublicLead[];
   cityLabels: Record<string, string>;
+  onUnlock: (placeId: string) => void;
+  /** `place_id` reda koji se upravo otključava, ili `null`. */
+  otkljucavam: string | null;
+  /** Bez kredita se dugme ne gasi — poruka je korisnija od mrtvog dugmeta. */
+  disabled?: boolean;
 };
 
-export function LeadTabela({ leads, cityLabels }: Props) {
+export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled }: Props) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[46rem] border-collapse text-sm">
@@ -56,24 +66,82 @@ export function LeadTabela({ leads, cityLabels }: Props) {
               </td>
 
               <td className="py-2.5 align-middle text-neutral-600 dark:text-neutral-400">
-                {/* Tip telefona je javan, sam broj nije — to je mamac za otključavanje. */}
-                {lead.phoneType ? PHONE_LABEL[lead.phoneType] : "—"}
+                {lead.isUnlocked ? (
+                  <TelefonLink phone={lead.phone} tip={lead.phoneType} />
+                ) : (
+                  // Tip telefona je javan, sam broj nije — to je mamac za otključavanje.
+                  (lead.phoneType && PHONE_LABEL[lead.phoneType]) || "—"
+                )}
               </td>
 
               <td className="py-2.5 pr-3 text-right align-middle">
-                <button
-                  type="button"
-                  disabled
-                  title="Otključavanje stiže u sledećoj fazi"
-                  className="cursor-not-allowed rounded-md border border-neutral-200 px-2.5 py-1 text-xs text-neutral-400 dark:border-neutral-800 dark:text-neutral-600"
-                >
-                  Otključaj
-                </button>
+                {lead.isUnlocked ? (
+                  <OtkljucanKontakt lead={lead} />
+                ) : (
+                  <button
+                    type="button"
+                    disabled={disabled || otkljucavam !== null}
+                    onClick={() => onUnlock(lead.placeId)}
+                    className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium transition-colors hover:border-neutral-900 hover:bg-neutral-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-neutral-300 disabled:hover:bg-transparent disabled:hover:text-inherit dark:border-neutral-700 dark:hover:border-white dark:hover:bg-white dark:hover:text-neutral-900"
+                  >
+                    {otkljucavam === lead.placeId ? "Otključavam…" : "Otključaj · 1 kredit"}
+                  </button>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Mobilni → Viber, fiksni → poziv (F4 §3). */
+export function TelefonLink({ phone, tip }: { phone: string | null; tip: string | null }) {
+  if (!phone) return <span className="text-neutral-400">—</span>;
+
+  return (
+    <a
+      href={telefonHref(phone, tip)}
+      className="tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid"
+      title={tip === "mobilni" ? "Otvori Viber" : "Pozovi"}
+    >
+      {phone}
+    </a>
+  );
+}
+
+function OtkljucanKontakt({ lead: l }: { lead: Extract<PublicLead, { isUnlocked: true }> }) {
+  return (
+    <div className="flex flex-col items-end gap-0.5 text-xs">
+      {l.email ? (
+        <a
+          href={`mailto:${l.email}`}
+          className="max-w-[14rem] truncate underline decoration-dotted underline-offset-4 hover:decoration-solid"
+        >
+          {l.email}
+        </a>
+      ) : (
+        <span className="text-neutral-400">bez mejla</span>
+      )}
+
+      <span className="flex items-center gap-2 text-neutral-500">
+        {l.websiteUrl && (
+          <a
+            href={l.websiteUrl}
+            target="_blank"
+            rel="noreferrer noopener nofollow"
+            className="max-w-[10rem] truncate underline decoration-dotted underline-offset-4"
+          >
+            {l.websiteUrl.replace(/^https?:\/\/(www\.)?/, "")}
+          </a>
+        )}
+        {l.uglyScore !== null && (
+          <span className="tabular-nums" title="Ugly Score">
+            {l.uglyScore}
+          </span>
+        )}
+      </span>
     </div>
   );
 }

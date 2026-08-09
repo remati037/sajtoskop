@@ -9,6 +9,7 @@
 // osvežava u hodu, kako `enrich_basic` poslovi završavaju jedan po jedan.
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Combobox, type ComboGroup } from "./combobox";
 import { LeadTabela } from "./lead-tabela";
 import {
@@ -17,6 +18,7 @@ import {
   type JobStatusResponse,
   type SearchFilters,
   type SearchResponse,
+  type UnlockResponse,
 } from "@/lib/search-types";
 import { formatDatum, plural, summaryLine } from "@/lib/ui-tekst";
 
@@ -48,6 +50,7 @@ const MIRNIH_KRUGOVA_DO_KRAJA = 15;
 const pauza = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function PretragaEkran({ cities, niches, cityLabels }: Props) {
+  const router = useRouter();
   const [city, setCity] = useState<string | null>(null);
   const [niche, setNiche] = useState<string | null>(null);
   const [filters, setFilters] = useState<SearchFilters>(PRAZNI_FILTERI);
@@ -58,6 +61,10 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
   // Stanje čekanja na worker.
   const [posao, setPosao] = useState<JobStatusResponse | null>(null);
   const [predugo, setPredugo] = useState(false);
+
+  // Otključavanje: `place_id` reda u toku, i poruka posle uspeha.
+  const [otkljucavam, setOtkljucavam] = useState<string | null>(null);
+  const [otkljucano, setOtkljucano] = useState<string | null>(null);
 
   // Svako novo pretraživanje poništava prethodno pollovanje. Bez ovoga bi dve
   // pretrage u nizu naizmenično prepisivale istu tabelu.
@@ -225,6 +232,65 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
     }
   }
 
+  /**
+   * Otključavanje jednog prospekta.
+   *
+   * Lista se NE traži ponovo posle uspeha: `/api/unlock` vraća pun otključan
+   * lead, pa se menja samo taj jedan red. Ponovna pretraga bi nad praznim kešom
+   * bila nov cache-miss, dakle nova dnevna rezervacija i do 3 Places poziva za
+   * klik koji sa pretragom nema veze.
+   *
+   * Zato je i „jedan po jedan": `otkljucavam !== null` gasi ostala dugmad dok
+   * traje zahtev. Dupli klik na dva reda sa poslednjim kreditom bi inače dao
+   * jedan uspeh i jednu crvenu poruku, iako je korisnik uradio ono što je smeo.
+   */
+  async function otkljucaj(placeId: string) {
+    if (otkljucavam) return;
+
+    setOtkljucavam(placeId);
+    setGreska(null);
+    setOtkljucano(null);
+
+    try {
+      const res = await fetch("/api/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ placeId }),
+      });
+
+      const json: UnlockResponse | ApiError = await res.json();
+
+      if (!res.ok) {
+        setGreska("greska" in json ? json.greska : "Otključavanje nije uspelo.");
+        return;
+      }
+
+      const odgovor = json as UnlockResponse;
+
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              results: prev.results.map((l) => (l.placeId === placeId ? odgovor.lead : l)),
+            }
+          : prev,
+      );
+
+      setOtkljucano(
+        odgovor.alreadyUnlocked
+          ? `${odgovor.lead.name} je već bio otključan — kredit nije skinut.`
+          : `${odgovor.lead.name} otključan. Ostalo ti je ${odgovor.creditsLeft} ${plural(odgovor.creditsLeft, "kredit", "kredita", "kredita")}.`,
+      );
+
+      // Balans u headeru crta serverski layout, pa ga osvežava samo ovo.
+      router.refresh();
+    } catch {
+      setGreska("Nema veze sa serverom. Prospekt nije otključan i kredit nije skinut.");
+    } finally {
+      setOtkljucavam(null);
+    }
+  }
+
   // Promena filtera ili strane ne traži novi klik na „Pretraži" — ali ni ne puca
   // pre prve pretrage, jer tada još ne znamo šta korisnik traži.
   function primeniFiltere(sledeci: SearchFilters) {
@@ -271,6 +337,15 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
       {greska && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
           {greska}
+        </p>
+      )}
+
+      {otkljucano && (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+          {otkljucano}{" "}
+          <a href="/lista" className="underline underline-offset-4">
+            Moja lista
+          </a>
         </p>
       )}
 
@@ -321,7 +396,12 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
                 )}
               </div>
 
-              <LeadTabela leads={data.results} cityLabels={cityLabels} />
+              <LeadTabela
+                leads={data.results}
+                cityLabels={cityLabels}
+                onUnlock={(placeId) => void otkljucaj(placeId)}
+                otkljucavam={otkljucavam}
+              />
 
               {strana_ukupno > 1 && (
                 <div className="flex items-center justify-between text-sm">

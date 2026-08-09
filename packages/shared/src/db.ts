@@ -20,6 +20,9 @@ export type ProfileRow = {
   credits_balance: number;
   cache_miss_day: string | null;
   cache_miss_count: number;
+  /** Dnevni cap na CSV export (F4 §5). Isti LA dan kao `cache_miss_day`. */
+  export_day: string | null;
+  export_count: number;
   created_at: string;
 };
 
@@ -90,7 +93,12 @@ export type SearchRow = {
   created_at: string;
 };
 
-export type JobType = "scan" | "enrich_basic" | "enrich_full" | "refresh_google";
+export type JobType =
+  | "scan"
+  | "enrich_basic"
+  | "enrich_full"
+  | "refresh_google"
+  | "monthly_grant";
 export type JobStatus = "pending" | "running" | "done" | "failed";
 
 export type JobQueueRow = {
@@ -134,4 +142,23 @@ export type GrantReason =
   | "invalid_reason"
   | "no_user";
 
+export type MonthlyGrantReason =
+  | "granted"
+  | "already_granted"
+  | "invalid_amount"
+  | "missing_ref_id"
+  | "no_user";
+
+export type ExportClaimReason = "claimed" | "limit_reached" | "nothing_to_export" | "no_user";
+
 export type RpcResult<R extends string> = { ok: boolean; reason: R };
+
+/** `grant_monthly_credits` uz `ok`/`reason` vraća i upisanu razliku. */
+export type MonthlyGrantResult = RpcResult<MonthlyGrantReason> & { delta: number };
+
+/** `claim_export` vraća KOLIKO redova je odobreno, ne samo da li sme. */
+export type ExportClaimResult = RpcResult<ExportClaimReason> & {
+  allowed: number;
+  used: number;
+  reset_at: string;
+};

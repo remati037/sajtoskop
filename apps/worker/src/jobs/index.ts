@@ -6,6 +6,7 @@
 import type { JobRegistry } from "./types";
 import { runEnrichBasic } from "./enrich-basic";
 import { runEnrichFull } from "./enrich-full";
+import { runMonthlyGrant } from "./monthly-grant";
 import { runRefreshGoogle } from "./refresh-google";
 import { runScan } from "./scan";
 
@@ -14,6 +15,7 @@ export const HANDLERS: JobRegistry = {
   enrich_basic: runEnrichBasic,
   enrich_full: runEnrichFull,
   refresh_google: runRefreshGoogle,
+  monthly_grant: runMonthlyGrant,
 };
 
 export type { JobContext, JobHandler, JobResult } from "./types";

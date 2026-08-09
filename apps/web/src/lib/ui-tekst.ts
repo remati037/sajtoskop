@@ -67,6 +67,26 @@ export function plural(n: number, one: string, few: string, many: string): strin
   return many;
 }
 
+/**
+ * Link za pozivanje. Mobilni broj vodi na Viber, fiksni na klasičan poziv.
+ *
+ * Sitnica koju domaći korisnik odmah primeti (F4 §3): outreach na mobilni broj
+ * se ovde radi preko Vibera, a ne pozivom. Viber traži broj bez razmaka i sa
+ * pozivnim brojem, pa se `06x` prevodi u `+3816x`.
+ */
+export function telefonHref(broj: string, tip: string | null): string {
+  const cist = broj.replace(/[^\d+]/g, "");
+  if (tip !== "mobilni") return `tel:${cist}`;
+
+  const medjunarodni = cist.startsWith("+")
+    ? cist
+    : cist.startsWith("0")
+      ? `+381${cist.slice(1)}`
+      : `+381${cist}`;
+
+  return `viber://chat?number=${encodeURIComponent(medjunarodni)}`;
+}
+
 export function formatDatum(iso: string): string {
   return new Date(iso).toLocaleDateString("sr-Latn-RS", {
     day: "numeric",

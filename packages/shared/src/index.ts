@@ -24,7 +24,11 @@ export type {
   BusinessRow,
   CreditLedgerRow,
   CreditReason,
+  ExportClaimReason,
+  ExportClaimResult,
   GrantReason,
+  MonthlyGrantReason,
+  MonthlyGrantResult,
   JobQueueRow,
   JobStatus,
   JobType,
@@ -44,6 +48,8 @@ export { bandForScore, copyrightYear, detectPlatform, scoreSite } from "./ugly-s
 export type { Plan, PlanId } from "./plans";
 export {
   BUDGET_TIMEZONE,
+  CREDITS_TIMEZONE,
+  creditMonth,
   DEFAULT_PLAN,
   GLOBAL_DAILY_API_CAP,
   GLOBAL_MONTHLY_API_CAP,
@@ -51,6 +57,10 @@ export {
   PLANS,
   planFor,
 } from "./plans";
+
+// ── naplata: interfejs bez implementacije (F4 §6) ──────────
+export type { BillingProvider } from "./billing";
+export { billingProvider, FreeBetaProvider, NotImplementedError } from "./billing";
 
 // ── taksonomija: niše i gradovi ────────────────────────────
 export type { City, Niche, NicheGroup } from "./taxonomy";

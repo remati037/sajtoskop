@@ -11,9 +11,11 @@
 // ni potrebe za čišćenjem pri gašenju — samo se ne uzima nov posao.
 
 import { setTimeout as sleep } from "node:timers/promises";
+import { creditMonth } from "@sajtoskop/shared";
 import { BudgetError } from "./lib/api-budget";
 import { loadRootEnv } from "./lib/env";
-import { claimJob, completeJob, deferJob, failJob, reapStuckJobs } from "./lib/queue";
+import { claimJob, completeJob, deferJob, enqueueJob, failJob, reapStuckJobs } from "./lib/queue";
+import { supabaseAdmin } from "./lib/supabase";
 import { HANDLERS } from "./jobs";
 import type { JobContext } from "./jobs";
 
@@ -27,6 +29,9 @@ const IDLE_MS = Number(process.env.WORKER_IDLE_MS ?? 2000);
 /** Posao stariji od ovoga u statusu `running` smatra se zaglavljenim (PRD §1). */
 const STUCK_MINUTES = Number(process.env.WORKER_STUCK_MINUTES ?? 15);
 const REAP_EVERY_MS = 5 * 60 * 1000;
+
+/** Na koliko se proverava da li tekući mesec ima dodelu kredita (F4 §2). */
+const SCHEDULE_EVERY_MS = 60 * 60 * 1000;
 
 let running = true;
 
@@ -126,6 +131,58 @@ async function reaperLoop(): Promise<void> {
   }
 }
 
+// ── mesečna dodela kredita ─────────────────────────────────
+
+/**
+ * Upiši `monthly_grant` posao ako ga tekući mesec još nema.
+ *
+ * [ODSTUPANJE od PRD-a §2] PRD kaže „pokreće ga worker prvog u mesecu". Uslov
+ * ovde nije datum nego odsustvo posla za taj mesec. Razlika je bitna kad worker
+ * prvog u mesecu ne radi — deploy, restart Hetznera, pao kontejner: uz proveru
+ * datuma korisnici bi ostali bez kredita ceo mesec i to bi se videlo tek po
+ * prijavama. Ovako prvi sledeći start nadoknadi propušteno.
+ *
+ * Provera gleda poslove SVIH statusa, ne samo žive — `dedupe_key` u 0003 važi
+ * samo dok posao traje, pa bi se posle `done` isti mesec upisivao svakog sata.
+ */
+async function ensureMonthlyGrant(): Promise<void> {
+  const month = creditMonth();
+
+  const { data, error } = await supabaseAdmin()
+    .from("job_queue")
+    .select("id")
+    .eq("type", "monthly_grant")
+    .eq("dedupe_key", month)
+    .limit(1)
+    .returns<{ id: number }[]>();
+
+  if (error) throw new Error(`Provera mesečne dodele nije uspela: ${error.message}`);
+  if ((data ?? []).length > 0) return;
+
+  const { jobId } = await enqueueJob({
+    type: "monthly_grant",
+    payload: { month },
+    dedupeKey: month,
+    userId: null,
+  });
+
+  log(`mesečna dodela za ${month} upisana kao posao #${jobId}`);
+}
+
+async function schedulerLoop(): Promise<void> {
+  while (running) {
+    try {
+      await ensureMonthlyGrant();
+    } catch (err) {
+      log(`raspoređivanje nije uspelo: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    for (let waited = 0; waited < SCHEDULE_EVERY_MS && running; waited += 1000) {
+      await sleep(1000);
+    }
+  }
+}
+
 // ── gašenje ────────────────────────────────────────────────
 
 function shutdown(signal: string): void {
@@ -155,6 +212,7 @@ async function main(): Promise<void> {
   await Promise.all([
     ...Array.from({ length: CONCURRENCY }, (_, i) => workerLoop(i + 1)),
     reaperLoop(),
+    schedulerLoop(),
   ]);
 
   log("worker stao");

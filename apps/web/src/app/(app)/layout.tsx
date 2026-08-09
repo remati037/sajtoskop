@@ -42,15 +42,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </nav>
 
           <div className="ml-auto flex items-center gap-4">
-            <span
-              className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400"
+            {/* Balans je uvek vidljiv (F4 §4) i vodi na izvod iz knjige. Broj se
+                osvežava kroz `router.refresh()` posle svakog otključavanja —
+                ovaj layout je server komponenta i sam od sebe ne zna za klik. */}
+            <Link
+              href="/krediti"
+              className="rounded-md px-2 py-1 text-xs tabular-nums text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900"
               title="Krediti se troše na otključavanje prospekata"
             >
               <span className="font-medium text-neutral-900 dark:text-neutral-100">
                 {profile ? profile.credits_balance : "—"}
               </span>{" "}
               kredita
-            </span>
+            </Link>
             <UserButton />
           </div>
         </div>

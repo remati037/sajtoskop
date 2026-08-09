@@ -45,10 +45,20 @@ export const enrichFullPayloadSchema = z.strictObject({
   placeId: z.string().min(1),
 });
 
+/**
+ * Mesec je i ključ idempotencije (`ref_id` u `credit_ledger`), pa oblik mora da
+ * bude tačan: `2026-09`. Slobodan string bi značio da `2026-9` i `2026-09` budu
+ * dva različita meseca i da neko dobije kredite dvaput.
+ */
+export const monthlyGrantPayloadSchema = z.strictObject({
+  month: z.string().regex(/^\d{4}-\d{2}$/, { error: "Mesec mora biti u obliku 2026-09." }),
+});
+
 export type ScanPayload = z.infer<typeof scanPayloadSchema>;
 export type EnrichBasicPayload = z.infer<typeof enrichBasicPayloadSchema>;
 export type RefreshGooglePayload = z.infer<typeof refreshGooglePayloadSchema>;
 export type EnrichFullPayload = z.infer<typeof enrichFullPayloadSchema>;
+export type MonthlyGrantPayload = z.infer<typeof monthlyGrantPayloadSchema>;
 
 // ── kontekst i rezultat ────────────────────────────────────
 

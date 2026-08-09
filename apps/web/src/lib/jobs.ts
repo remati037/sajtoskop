@@ -112,6 +112,30 @@ export async function enqueueScan(args: {
   });
 }
 
+/**
+ * Skup enrichment posle otključavanja (F4 §1). Handler je prazan do F5 — ovde
+ * se posao svejedno upisuje, da red poslova od početka ima stvaran zapis o tome
+ * šta je naručeno.
+ *
+ * `dedupeKey` je `place_id`: dva korisnika koja u istoj minuti otključaju isti
+ * lead dele jedan posao. Od F5 to nije uredno nego budžetski — jedan posao je
+ * dva Playwright screenshota, jedan PageSpeed i jedan Claude poziv.
+ *
+ * Korisnik se upisuje kao pretplatnik, pa `GET /api/job/:id` sme da mu vrati
+ * status — u F5 iz toga izlazi „screenshot se pravi".
+ */
+export async function enqueueEnrichFull(args: {
+  userId: string;
+  placeId: string;
+}): Promise<EnqueuedJob> {
+  return enqueue({
+    type: "enrich_full",
+    payload: { placeId: args.placeId },
+    dedupeKey: args.placeId,
+    userId: args.userId,
+  });
+}
+
 /** Koliko dugo posle osvežavanja se isto ne pokušava ponovo. */
 const REFRESH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 

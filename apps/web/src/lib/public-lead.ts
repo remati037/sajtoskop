@@ -34,6 +34,16 @@ export type LeadAudit = Pick<
   "site_status" | "ugly_band" | "platform" | "ugly_score" | "signals" | "emails" | "ai_issues"
 >;
 
+// `select` liste stoje uz `Pick` tipove, a ne uz upite: pravilo 2 iznad zabranjuje
+// `select *`, pa svaki upit mora da nabroji kolone. Kad su te liste raštrkane po
+// fajlovima, dodata kolona se doda u jednu i zaboravi u drugoj — tip i dalje
+// prolazi kroz `tsc`, a polje u odgovoru je `undefined`. Ovde su jednom.
+export const LEAD_BUSINESS_COLUMNS =
+  "place_id, name, city_slug, address, phone, phone_type, website_url, rating";
+
+export const LEAD_AUDIT_COLUMNS =
+  "site_status, ugly_band, platform, ugly_score, signals, emails, ai_issues";
+
 export function toPublicLead(
   b: LeadBusiness,
   a: LeadAudit | null,

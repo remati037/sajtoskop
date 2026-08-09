@@ -290,12 +290,68 @@ async function main(): Promise<void> {
   const nextDay = await miss("u1", 2);
   check(nextDay?.used === 1, `nov LA dan resetuje brojač (used ${nextDay?.used})`);
 
+  // ── F4: mesečna dodela bez rollovera ─────────────────────
+  console.log("\ngrant_monthly_credits");
+  type Grant = { ok: boolean; reason: string; delta: number };
+  const mesecna = (u: string, target: number, ref: string) =>
+    one<Grant>(`select * from grant_monthly_credits($1,$2,$3)`, [u, target, ref]);
+
+  await db.exec(`update profiles set credits_balance = 12 where id = 'u1'`);
+  const g1 = await mesecna("u1", 30, "2026-09");
+  check(g1?.delta === 18, `12 → 30 upisuje delta 18  (${g1?.delta})`);
+
+  // Poenta cele funkcije: reset, ne sabiranje. Rollover u besplatnoj beti znači
+  // da neko ko se registrovao u avgustu ima 90 kredita u oktobru.
+  const g2 = await mesecna("u1", 30, "2026-10");
+  check(g2?.delta === 0 && g2.ok, "isti balans sledeći mesec → delta 0, bez rollovera");
+
+  const g3 = await mesecna("u1", 30, "2026-10");
+  check(g3?.reason === "already_granted", `ponovljen isti mesec → already_granted (${g3?.reason})`);
+
+  // Nulta stavka MORA da postoji, inače idempotencija nema šta da uhvati.
+  const nula = await one<{ n: number }>(
+    `select count(*)::int as n from credit_ledger
+     where user_id = 'u1' and reason = 'monthly_grant' and ref_id = '2026-10' and delta = 0`);
+  check(nula?.n === 1, "nulta stavka je upisana u knjigu");
+
+  await db.exec(`update profiles set credits_balance = 5 where id = 'u1'`);
+  check((await mesecna("u1", 30, "2026-10"))?.delta === 0, "potrošeni krediti se NE vraćaju ponovljenim poslom");
+
+  check((await mesecna("u1", 30, ""))?.reason === "missing_ref_id", "bez ref_id → odbijeno");
+  check((await mesecna("nema_ga", 30, "2026-09"))?.reason === "no_user", "nepostojeći korisnik → no_user");
+
+  // Invarijanta iz F4 §8, na profilu koji nijedan test nije dirao golim UPDATE-om:
+  // registracija → otključavanje → mesečni reset, sve kroz funkcije.
+  await db.exec(`select create_profile_with_grant('u3', 'c@d.rs', 30, 'signup:u3')`);
+  await db.exec(`select spend_credit_and_unlock('u3', 'p1')`);
+  await db.exec(`select grant_monthly_credits('u3', 30, '2026-11')`);
+  const knjiga = await one<{ zbir: number; balans: number }>(
+    `select (select coalesce(sum(delta),0) from credit_ledger where user_id = 'u3')::int as zbir,
+            (select credits_balance from profiles where id = 'u3')::int as balans`);
+  check(knjiga?.zbir === knjiga?.balans && knjiga?.balans === 30,
+    `sum(delta) = credits_balance = 30  (${knjiga?.zbir} = ${knjiga?.balans})`);
+
+  // ── F4: dnevni cap na export ─────────────────────────────
+  console.log("\nclaim_export");
+  type Export = { ok: boolean; reason: string; allowed: number; used: number };
+  const exp = (u: string, lim: number, want: number) =>
+    one<Export>(`select * from claim_export($1,$2,$3)`, [u, lim, want]);
+
+  check((await exp("u1", 100, 30))?.allowed === 30, "prvi izvoz: traženo 30 → odobreno 30");
+  const delimicno = await exp("u1", 100, 90);
+  check(delimicno?.allowed === 70, `preko capa → delimično, ne odbijeno (${delimicno?.allowed})`);
+  const pun = await exp("u1", 100, 10);
+  check(pun?.ok === false && pun.reason === "limit_reached", "iscrpljen cap → limit_reached");
+
+  await db.exec(`update profiles set export_day = budget_day() - 1 where id = 'u1'`);
+  check((await exp("u1", 100, 10))?.allowed === 10, "nov LA dan resetuje brojač izvoza");
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "api_budget_status", "mark_api_exhausted",
                     "set_api_day_calls", "enqueue_job", "claim_job", "complete_job",
                     "fail_job", "defer_job", "reap_stuck_jobs", "claim_cache_miss",
-                    "release_cache_miss"]) {
+                    "release_cache_miss", "grant_monthly_credits", "claim_export"]) {
     const r = await one<{ anon: boolean; svc: boolean }>(
       `select has_function_privilege('anon', p.oid, 'execute') as anon,
               has_function_privilege('service_role', p.oid, 'execute') as svc
