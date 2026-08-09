@@ -4,14 +4,20 @@
 
 import pLimit from "p-limit";
 import type { Business, SiteStatus } from "@sajtoskop/shared";
+import { mayCrawl } from "./robots";
 
 const TIMEOUT_MS = 15_000;
 const MAX_BYTES = 2_000_000;      // 2MB, dovoljno za svaki legitiman HTML
 const CONCURRENCY = 3;
-const UA =
+
+// Prepoznatljiv token uz Chrome kompatibilni deo (pravilo 12). Chrome deo nije
+// maskiranje nego nužnost: pola zapuštenih sajtova stoji iza WAF-a koji odbija
+// sve što ne liči na pregledač, a taj sajt nam je najvredniji lead.
+export const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/126.0 Safari/537.36 Sajtoskop/0.1";
-const UA_PLAIN = UA.replace(" Sajtoskop/0.1", "");
+  "(KHTML, like Gecko) Chrome/126.0 Safari/537.36 Sajtoskop/1.0 " +
+  "(+https://sajtoskop.com/bot)";
+const UA_PLAIN = UA.slice(0, UA.indexOf(" Sajtoskop/1.0"));
 
 const SOCIAL_HOSTS = [
   "facebook.com", "fb.com", "instagram.com", "linktr.ee",
@@ -22,8 +28,16 @@ const SOCIAL_HOSTS = [
 /** Greške posle kojih ima smisla probati http:// umesto https:// */
 const TLS_FAILURES = ["SSL", "sertifikat", "veza prekinuta", "server odbija vezu"];
 
+/**
+ * Ishod preuzimanja. `blocked` NIJE `SiteStatus` i namerno se ne mapira ni na
+ * jedan: sajt koji nam `robots.txt` zabranjuje nije ni mrtav ni ružan — o njemu
+ * jednostavno nemamo pravo da imamo mišljenje. `enrich_basic` za takav biznis
+ * ne upisuje audit; lista ga prikazuje kao neanaliziran.
+ */
+export type FetchStatus = SiteStatus | "blocked";
+
 export type SiteFetch = {
-  status: SiteStatus;
+  status: FetchStatus;
   url: string | null;
   finalUrl: string | null;
   httpStatus: number | null;
@@ -40,7 +54,7 @@ function isSocial(host: string): boolean {
   return SOCIAL_HOSTS.some((s) => h === s || h.endsWith(`.${s}`));
 }
 
-function empty(status: SiteStatus, url: string | null, error: string | null = null): SiteFetch {
+function empty(status: FetchStatus, url: string | null, error: string | null = null): SiteFetch {
   return {
     status, url, finalUrl: null, httpStatus: null,
     httpsOk: false, loadMs: null, html: null, error,
@@ -140,6 +154,13 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
     return { ...empty("samo_drustvene", rawUrl), finalUrl: u.href };
   }
 
+  // robots.txt i razmak od 1s po domenu — pravilo 12. Ovo je jedina kapija ka
+  // tuđem serveru; sve ispod nje sme tačno jedan zahtev po prolasku.
+  const gate = await mayCrawl(u.href, UA);
+  if (!gate.allowed) {
+    return empty("blocked", rawUrl, gate.reason);
+  }
+
   const started = Date.now();
   let res: Response;
 
@@ -153,6 +174,9 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
       try {
         const plain = new URL(u.href);
         plain.protocol = "http:";
+        // Drugi origin (http:// umesto https://) → svoj robots.txt i svoj razmak.
+        const plainGate = await mayCrawl(plain.href, UA);
+        if (!plainGate.allowed) return empty("blocked", rawUrl, plainGate.reason);
         res = await doFetch(plain.href);
       } catch {
         return { ...empty("mrtav", rawUrl, reason), loadMs: Date.now() - started };
@@ -165,6 +189,7 @@ export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
   // 2) neki WAF-ovi odbijaju nepoznat token u User-Agentu
   if (res.status === 403 || res.status === 406) {
     try {
+      await mayCrawl(u.href, UA); // samo da se ispoštuje razmak; pravila su već proverena
       res = await doFetch(u.href, UA_PLAIN);
     } catch {
       // ostavljamo prvi odgovor, obradiće ga provera ispod

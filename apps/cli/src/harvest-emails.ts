@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import pLimit from "p-limit";
+import { extractEmails } from "@sajtoskop/shared";
 import { outPath, userPath, workspaceRoot } from "@sajtoskop/worker/lib";
 
 // ─────────────────────────────────────────────────────────────
@@ -185,48 +186,8 @@ function loadFile(file: string): ScanRow[] {
 // Ekstrakcija mejlova
 // ─────────────────────────────────────────────────────────────
 
-const GENERIC =
-  /^(no-?reply|noreply|privacy|abuse|postmaster|webmaster|hostmaster|sentry|example|test|user|email|your|name|ime)@/i;
-const BAD_EXT = /\.(png|jpe?g|gif|svg|webp|css|js|ico|woff2?|mp4|pdf)$/i;
-const BAD_DOMAIN = /@(sentry|wixpress|example|domain|sentry\.io|2x|w3\.org)/i;
-
-function extractEmails(html: string, host: string): string[] {
-  const found = new Set<string>();
-
-  for (const m of html.matchAll(/mailto:([^"'?\s>]+)/gi)) {
-    const raw = m[1];
-    if (!raw) continue;
-    try { found.add(decodeURIComponent(raw).toLowerCase()); } catch { /* ignore */ }
-  }
-  for (const m of html.matchAll(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi)) {
-    found.add(m[0].toLowerCase());
-  }
-  // obfuskacija: ime (at) domen.rs, ime [et] domen.rs
-  for (const m of html.matchAll(
-    /([a-z0-9._%+-]+)\s*[\(\[]\s*(?:at|et|@|majmun)\s*[\)\]]\s*([a-z0-9.-]+\.[a-z]{2,})/gi,
-  )) {
-    found.add(`${m[1]}@${m[2]}`.toLowerCase());
-  }
-
-  const clean = [...found].filter(
-    (e) =>
-      !GENERIC.test(e) &&
-      !BAD_EXT.test(e) &&
-      !BAD_DOMAIN.test(e) &&
-      e.length < 60 &&
-      !e.includes("..") &&
-      !/^\d+@/.test(e),
-  );
-
-  const bare = host.replace(/^www\./, "");
-  const rank = (e: string) => {
-    if (e.endsWith("@" + bare)) return 0;                                  // sopstveni domen
-    if (/^(info|office|kontakt|contact|prodaja|sales|uprava)@/.test(e)) return 1;
-    if (/@(gmail|yahoo|hotmail|outlook|mail)\./.test(e)) return 2;         // free mail, i dalje koristan
-    return 3;
-  };
-  return clean.sort((a, b) => rank(a) - rank(b));
-}
+// Sama ekstrakcija je od F3 u `@sajtoskop/shared` — istu koristi i `enrich_basic`
+// posao u workeru. Ovde ostaje samo obilazak putanja, jer je to mrežni deo.
 
 // ─────────────────────────────────────────────────────────────
 // Mreža

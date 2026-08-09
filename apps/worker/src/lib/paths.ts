@@ -2,10 +2,14 @@
 // Putanje vezane za koren monorepoa, ne za `process.cwd()`.
 //
 // Zašto postoji: pnpm postavlja cwd na paket kad pokreneš `pnpm --filter ... scan`,
-// a na koren kad pokreneš `pnpm scan`. Da se to ne popravi, `.cache/api-budget.json`
-// bi se pravio na dva mesta i brojač Google poziva bi tiho krenuo od nule —
-// mesečni cap od 900 poziva bi prestao da važi. Isto važi i za `out/`:
-// scan bi pisao u jedan direktorijum, a harvest čitao iz drugog.
+// a na koren kad pokreneš `pnpm scan`. Bez ovoga bi scan pisao u jedan `out/`,
+// a harvest čitao iz drugog.
+//
+// Do F3 je ovde stajao i `.cache/api-budget.json` — brojač Google poziva. On je
+// od F3 u tabeli `api_budget`, jer dva procesa na dve mašine sa dva fajla znače
+// dva brojača, a mesečni cap od 900 poziva time prestaje da važi. `cachePath()`
+// ostaje kao opšta putanja; ako se `.cache/api-budget.json` još vucara po disku,
+// slobodno ga obriši, niko ga više ne čita.
 
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

@@ -108,10 +108,12 @@ export type JobQueueRow = {
 };
 
 export type ApiBudgetRow = {
-  day: string;
-  month: string;
+  day: string;   // LA dan, YYYY-MM-DD
+  month: string; // LA mesec, YYYY-MM
   calls: number;
   exhausted_at: string | null;
+  /** Raspodela poziva po SKU-u, npr. `{ "places:searchText": 12 }` (0002). */
+  by_kind: Record<string, number>;
 };
 
 // ── povratne vrednosti RPC funkcija ────────────────────────

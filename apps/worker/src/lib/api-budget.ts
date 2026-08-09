@@ -12,27 +12,33 @@
  * Dan i mesec se računaju po America/Los_Angeles, jer tamo Google resetuje.
  * Ponoć PT = 09:00 u Beogradu.
  *
- * Stanje: .cache/api-budget.json (gitignore)
+ * ── F3: stanje je u bazi, ne u fajlu ─────────────────────────────────────
+ * Do F2 je stanje bilo u `.cache/api-budget.json`. To je radilo dok je postojao
+ * samo CLI na mom laptopu. Od trenutka kad worker radi na Hetzneru, dva procesa
+ * na dve mašine sa dva fajla znače dva brojača, a mesečni cap prestaje da važi.
+ * Sada je jedan red po LA danu u tabeli `api_budget`.
+ *
+ * ── ko računa LA dan ─────────────────────────────────────────────────────
+ * BAZA. `consume_api_call()` sam poziva `budget_day()` i ne prima dan kao
+ * parametar — pogrešan sat ili TZ na kontejneru ne može da upiše u pogrešan dan.
+ * `budgetDay()` ovde ostaje netaknut, ali služi SAMO za poruke korisniku i za
+ * `hoursUntilReset()`. Da se dve implementacije ne raziđu, `pnpm check:sql`
+ * poredi izlaz ove funkcije sa izlazom SQL-a.
+ *
+ * Sve što dodiruje bazu je async i pada zatvoreno: ako Supabase nije dostupan,
+ * `consume()` baca i HTTP zahtev ka Googleu se nikad ne dogodi. Bolje propušten
+ * scan nego nebrojani pozivi.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { cachePath } from "./paths";
+import {
+  GLOBAL_DAILY_API_CAP,
+  GLOBAL_MONTHLY_API_CAP,
+} from "@sajtoskop/shared";
+import { supabaseAdmin } from "./supabase";
 
 // ─────────────────────────────────────────────────────────────
 // Konfiguracija
 // ─────────────────────────────────────────────────────────────
-
-/**
- * Override za testove: BUDGET_STATE_PATH=/tmp/x.json
- *
- * Vezano za koren monorepoa, ne za cwd — inače bi `pnpm scan` i
- * `pnpm --filter @sajtoskop/cli scan` vodili dva odvojena brojača
- * i mesečni cap bi prestao da važi.
- */
-function statePath(): string {
-  return process.env.BUDGET_STATE_PATH ?? cachePath("api-budget.json");
-}
 
 function num(raw: string | undefined, fallback: number): number {
   const n = raw ? Number(raw) : fallback;
@@ -42,12 +48,12 @@ function num(raw: string | undefined, fallback: number): number {
 
 /** TVRDA granica. Ispod Googleovog besplatnog praga za Enterprise SKU (1.000). */
 export function monthlyLimit(): number {
-  return num(process.env.GOOGLE_MONTHLY_LIMIT, 900);
+  return num(process.env.GOOGLE_MONTHLY_LIMIT, GLOBAL_MONTHLY_API_CAP);
 }
 
 /** MEKA granica — zaštita od odbeglog skripta, ne budžet. */
 export function dailyLimit(): number {
-  return num(process.env.GOOGLE_DAILY_LIMIT, 80);
+  return num(process.env.GOOGLE_DAILY_LIMIT, GLOBAL_DAILY_API_CAP);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -61,7 +67,12 @@ const PT_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
-/** Dan po kome Google resetuje dnevnu kvotu. Format YYYY-MM-DD. */
+/**
+ * Dan po kome Google resetuje dnevnu kvotu. Format YYYY-MM-DD.
+ *
+ * NIJE autoritet za upis — to je `budget_day()` u bazi. Ovo je za ispis i za
+ * proveru da se klijent i baza slažu.
+ */
 export function budgetDay(d: Date = new Date()): string {
   return PT_DAY_FMT.format(d);
 }
@@ -71,7 +82,7 @@ export function budgetMonth(d: Date = new Date()): string {
   return budgetDay(d).slice(0, 7);
 }
 
-/** Sati do reseta dnevne kvote. */
+/** Sati do reseta dnevne kvote. Korača po satu, pa DST ne pomera rezultat. */
 export function hoursUntilReset(d: Date = new Date()): number {
   const today = budgetDay(d);
   for (let i = 1; i <= 30; i++) {
@@ -80,15 +91,17 @@ export function hoursUntilReset(d: Date = new Date()): number {
   return 24;
 }
 
-/** Koliko dana ostaje u mesecu, uključujući današnji. Za tempo potrošnje. */
+/**
+ * Koliko dana ostaje u LA mesecu, uključujući današnji. Za tempo potrošnje.
+ *
+ * Računa se po kalendaru, ne dodavanjem 24h: LA dan traje 23h ili 25h dvaput
+ * godišnje, pa bi koračanje po milisekundama 1.11. izbrojalo isti datum dvaput,
+ * a u martu preskočilo jedan.
+ */
 export function daysLeftInMonth(d: Date = new Date()): number {
-  const month = budgetMonth(d);
-  let days = 0;
-  for (let i = 1; i <= 32; i++) {
-    if (budgetMonth(new Date(d.getTime() + i * 86_400_000)) !== month) break;
-    days++;
-  }
-  return days + 1;
+  const [y, m, day] = budgetDay(d).split("-").map(Number) as [number, number, number];
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate(); // m je 1-based → 0. dan sledećeg
+  return daysInMonth - day + 1;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -104,55 +117,111 @@ export type BudgetState = {
   byKind: Record<string, number>;
 };
 
+/** Zašto poziv nije prošao. Određuje kad posao sme ponovo da se pokuša. */
+export type BudgetScope = "daily" | "monthly" | "exhausted";
+
 export class BudgetError extends Error {
   constructor(
     message: string,
     public readonly state: BudgetState,
+    /** `undefined` kad je greška pre-flight, a ne odbijen konkretan poziv. */
+    public readonly scope?: BudgetScope,
+    /** Kad ima smisla pokušati ponovo. Worker ovo upisuje u `job_queue.run_after`. */
+    public readonly retryAfter?: Date,
   ) {
     super(message);
     this.name = "BudgetError";
   }
 }
 
-function emptyState(
-  day = budgetDay(),
-  month = budgetMonth(),
-  monthCalls = 0,
-): BudgetState {
-  return { day, month, calls: 0, monthCalls, exhausted: false, byKind: {} };
+// ── oblik redova koje vraćaju RPC funkcije iz 0002 ──────────
+// `pt_day` / `pt_month`, ne `day` / `month`: u plpgsql-u bi izlazno polje
+// zasenilo istoimenu kolonu i `on conflict (day)` bi pukao. Prefiks znači
+// Pacific Time, što je i jedina zona po kojoj se ovaj brojač resetuje.
+
+type ConsumeRow = {
+  ok: boolean;
+  reason: "consumed" | "daily_cap" | "monthly_cap" | "exhausted";
+  pt_day: string;
+  pt_month: string;
+  day_calls: number;
+  month_calls: number;
+  retry_after: string | null;
+};
+
+type StatusRow = {
+  pt_day: string;
+  pt_month: string;
+  day_calls: number;
+  month_calls: number;
+  exhausted: boolean;
+  kinds: Record<string, number>;
+  daily_cap: number;
+  monthly_cap: number;
+  day_remaining: number;
+  month_remaining: number;
+  days_left: number;
+};
+
+type DayRow = {
+  pt_day: string;
+  pt_month: string;
+  day_calls: number;
+  month_calls: number;
+  exhausted_at: string | null;
+};
+
+function stateFromDay(r: DayRow): BudgetState {
+  return {
+    day: r.pt_day,
+    month: r.pt_month,
+    calls: r.day_calls,
+    monthCalls: r.month_calls,
+    exhausted: r.exhausted_at !== null,
+    byKind: {},
+  };
 }
 
-function read(): BudgetState {
-  let s: BudgetState;
-  try {
-    const p = JSON.parse(readFileSync(statePath(), "utf8"));
-    s = {
-      day: String(p.day ?? ""),
-      month: String(p.month ?? ""),
-      calls: Number(p.calls ?? 0),
-      monthCalls: Number(p.monthCalls ?? 0),
-      exhausted: Boolean(p.exhausted),
-      byKind: p.byKind ?? {},
-    };
-  } catch {
-    return emptyState();
+/**
+ * Sve tri funkcije vraćaju `table (...)`, pa supabase-js vraća niz od tačno
+ * jednog reda. Prazan niz znači da je funkcija pukla tiho — tretiraj kao grešku.
+ */
+async function rpcOne<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabaseAdmin().rpc(fn, args);
+
+  if (error) {
+    throw new Error(
+      `Budžet nije dostupan (${fn}): ${error.message}\n` +
+        `Bez brojača se Google ne zove — proveri NEXT_PUBLIC_SUPABASE_URL i ` +
+        `SUPABASE_SERVICE_ROLE_KEY, pa da li je migracija 0002 puštena.`,
+    );
   }
 
-  const month = budgetMonth();
-  if (s.month !== month) return emptyState(budgetDay(), month, 0); // nov mesec
-
-  const day = budgetDay();
-  if (s.day !== day) return emptyState(day, month, s.monthCalls); // nov dan, mesec ostaje
-
-  return s;
+  const rows = (data ?? []) as T[];
+  if (rows.length === 0) throw new Error(`Budžet: ${fn} nije vratio nijedan red.`);
+  return rows[0] as T;
 }
 
-function write(s: BudgetState): void {
-  const p = statePath();
-  mkdirSync(dirname(p), { recursive: true });
-  const tmp = `${p}.tmp`;
-  writeFileSync(tmp, JSON.stringify(s, null, 2), "utf8");
-  renameSync(tmp, p); // atomično
+function stateFromStatus(r: StatusRow): BudgetState {
+  return {
+    day: r.pt_day,
+    month: r.pt_month,
+    calls: r.day_calls,
+    monthCalls: r.month_calls,
+    exhausted: r.exhausted,
+    byKind: r.kinds ?? {},
+  };
+}
+
+function stateFromConsume(r: ConsumeRow, exhausted: boolean): BudgetState {
+  return {
+    day: r.pt_day,
+    month: r.pt_month,
+    calls: r.day_calls,
+    monthCalls: r.month_calls,
+    exhausted,
+    byKind: {}, // consume ne vraća raspodelu; nije potrebna u poruci o grešci
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -167,31 +236,37 @@ export type BudgetStatus = BudgetState & {
   dailyPace: number; // koliko sme dnevno da mesec izdrži
 };
 
-export function status(): BudgetStatus {
-  const s = read();
-  const limit = dailyLimit();
-  const monthLimit = monthlyLimit();
-  const monthRemaining = Math.max(0, monthLimit - s.monthCalls);
+export async function status(): Promise<BudgetStatus> {
+  const r = await rpcOne<StatusRow>("api_budget_status", {
+    p_daily_cap: dailyLimit(),
+    p_monthly_cap: monthlyLimit(),
+  });
+
   return {
-    ...s,
-    limit,
-    monthLimit,
-    monthRemaining,
-    remaining: s.exhausted
-      ? 0
-      : Math.min(Math.max(0, limit - s.calls), monthRemaining),
-    dailyPace: Math.floor(monthRemaining / daysLeftInMonth()),
+    ...stateFromStatus(r),
+    limit: r.daily_cap,
+    monthLimit: r.monthly_cap,
+    remaining: r.day_remaining,
+    monthRemaining: r.month_remaining,
+    dailyPace: Math.floor(r.month_remaining / Math.max(1, r.days_left)),
   };
 }
 
-/** Pre-flight. Zovi pre scana da ne pukne na pola. */
-export function assertAvailable(n: number, what = "operacija"): void {
-  const s = status();
+/**
+ * Pre-flight. Zovi pre scana da ne pukne na pola.
+ *
+ * Ovo NIJE rezervacija — između provere i prvog `consume()` može da prođe tuđi
+ * poziv. Sprečava očigledan slučaj („traži 3, ostalo 1"), a stvarnu granicu drži
+ * `consume()`, atomično u bazi.
+ */
+export async function assertAvailable(n: number, what = "operacija"): Promise<void> {
+  const s = await status();
 
   if (s.exhausted) {
     throw new BudgetError(
       `Google kvota iscrpljena (429). Reset za ~${hoursUntilReset()}h.`,
       s,
+      "exhausted",
     );
   }
   if (s.monthRemaining < n) {
@@ -199,6 +274,7 @@ export function assertAvailable(n: number, what = "operacija"): void {
       `MESEČNI budžet: ostalo ${s.monthRemaining} od ${s.monthLimit}, ` +
         `${what} traži ${n}. Reset prvog u mesecu.`,
       s,
+      "monthly",
     );
   }
   if (s.limit - s.calls < n) {
@@ -207,53 +283,71 @@ export function assertAvailable(n: number, what = "operacija"): void {
         `Mesečno ti je ostalo ${s.monthRemaining}. ` +
         `Ako ti stvarno treba danas: GOOGLE_DAILY_LIMIT=${s.calls + n + 10} pnpm scan ...`,
       s,
+      "daily",
     );
   }
 }
 
-/** Rezerviše JEDAN HTTP poziv. Zovi neposredno PRE fetcha, za svaku stranicu. */
-export function consume(kind = "places:searchText"): BudgetState {
-  const s = read();
-  const limit = dailyLimit();
-  const monthLimit = monthlyLimit();
+/**
+ * Rezerviše JEDAN HTTP poziv. Zovi neposredno PRE fetcha, za svaku stranicu.
+ *
+ * Inkrement i provera oba capa se dešavaju u jednoj transakciji u bazi — zato
+ * WORKER_CONCURRENCY=3 plus CLI u terminalu ne mogu zajedno da probiju 900.
+ */
+export async function consume(kind = "places:searchText"): Promise<BudgetState> {
+  const r = await rpcOne<ConsumeRow>("consume_api_call", {
+    p_kind: kind,
+    p_daily_cap: dailyLimit(),
+    p_monthly_cap: monthlyLimit(),
+  });
 
-  if (s.exhausted) {
-    throw new BudgetError(
-      `Google kvota iscrpljena (429). Reset za ~${hoursUntilReset()}h.`,
-      s,
-    );
-  }
-  if (s.monthCalls >= monthLimit) {
-    throw new BudgetError(
-      `Mesečni budžet potrošen: ${s.monthCalls}/${monthLimit}. Reset prvog u mesecu.`,
-      s,
-    );
-  }
-  if (s.calls >= limit) {
-    throw new BudgetError(
-      `Dnevni limit dostignut: ${s.calls}/${limit}. Reset za ~${hoursUntilReset()}h.`,
-      s,
-    );
-  }
+  if (r.ok) return stateFromConsume(r, false);
 
-  s.calls += 1;
-  s.monthCalls += 1;
-  s.byKind[kind] = (s.byKind[kind] ?? 0) + 1;
-  write(s); // upis PRE fetcha
-  return s;
+  const retryAfter = r.retry_after ? new Date(r.retry_after) : undefined;
+  const state = stateFromConsume(r, r.reason === "exhausted");
+
+  switch (r.reason) {
+    case "exhausted":
+      throw new BudgetError(
+        `Google kvota iscrpljena (429). Reset za ~${hoursUntilReset()}h.`,
+        state,
+        "exhausted",
+        retryAfter,
+      );
+    case "monthly_cap":
+      throw new BudgetError(
+        `Mesečni budžet potrošen: ${r.month_calls}/${monthlyLimit()}. ` +
+          `Reset prvog u mesecu.`,
+        state,
+        "monthly",
+        retryAfter,
+      );
+    case "daily_cap":
+      throw new BudgetError(
+        `Dnevni limit dostignut: ${r.day_calls}/${dailyLimit()}. ` +
+          `Reset za ~${hoursUntilReset()}h.`,
+        state,
+        "daily",
+        retryAfter,
+      );
+    default:
+      // Baza je vratila razlog koji ovaj kod ne poznaje — migracija je novija
+      // od klijenta. Padni zatvoreno: Google se ne zove.
+      throw new BudgetError(
+        `Budžet je odbio poziv iz nepoznatog razloga: ${String(r.reason)}`,
+        state,
+      );
+  }
 }
 
 /** Na 429 od Googlea. Zaključava PT dan. */
-export function markExhausted(): BudgetState {
-  const s = read();
-  s.exhausted = true;
-  write(s);
-  return s;
+export async function markExhausted(): Promise<BudgetState> {
+  return stateFromDay(await rpcOne<DayRow>("mark_api_exhausted", {}));
 }
 
 /** Jedan red za CLI ispis. */
-export function budgetSummary(): string {
-  const s = status();
+export async function budgetSummary(): Promise<string> {
+  const s = await status();
   const tail = s.exhausted ? " · ISCRPLJENO (429)" : "";
   return (
     `dan ${s.calls}/${s.limit} · ` +
@@ -263,24 +357,26 @@ export function budgetSummary(): string {
 }
 
 // ── sinhronizacija sa Google Cloud konzolom ─────────────────
+// `setMonthCalls` je nestao sa prelaskom na bazu: mesec više nije brojač nego
+// zbir po danima, pa se ispravlja upisom stvarnih dnevnih vrednosti.
 
-export function setCalls(n: number): BudgetState {
-  const s = read();
-  s.calls = n;
-  write(s);
-  return s;
+export async function setCalls(n: number, day?: string): Promise<BudgetState> {
+  return stateFromDay(
+    await rpcOne<DayRow>("set_api_day_calls", {
+      p_calls: n,
+      p_day: day ?? null,
+      p_clear_exhausted: false,
+    }),
+  );
 }
 
-export function setMonthCalls(n: number): BudgetState {
-  const s = read();
-  s.monthCalls = n;
-  write(s);
-  return s;
-}
-
-/** Samo za testove i za pokvareno stanje. Briše i mesečni brojač. */
-export function reset(): BudgetState {
-  const s = emptyState();
-  write(s);
-  return s;
+/** Skida katanac posle 429 koji se pokazao kao prolazan. Brojač ostaje. */
+export async function clearExhausted(day?: string): Promise<BudgetState> {
+  return stateFromDay(
+    await rpcOne<DayRow>("set_api_day_calls", {
+      p_calls: null,
+      p_day: day ?? null,
+      p_clear_exhausted: true,
+    }),
+  );
 }

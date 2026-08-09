@@ -30,8 +30,18 @@ export function planFor(id: string | null | undefined): Plan {
 // Ovo je tvrdi stop u kodu, ne preporuka. Places daje 1.000 poziva mesečno
 // besplatno; sve preko toga je stvaran novac (CLAUDE.md, sekcija Budžet).
 
-export const GLOBAL_DAILY_API_CAP = 25;    // ispod Google dnevne kvote
-export const GLOBAL_MONTHLY_API_CAP = 900; // ispod 1000 free tier
+// Dnevni cap je MEKA granica — zaštita od odbeglog skripta, ne budžet. Googleu
+// je nebitna dnevna raspodela, bitan mu je zbir za mesec.
+//
+// 75 nije proizvoljno: scan povlači do 3 stranice paginacije, dakle do 3 poziva,
+// pa 75 znači 25 scanova dnevno. Na 25 (koliko je stajalo do F3) jedan korisnik
+// sa beta limitom od 10 cache-miss pretraga dnevno pojede globalni cap pre svog
+// ličnog, i drugi korisnik istog dana dobija „limit dostignut".
+export const GLOBAL_DAILY_API_CAP = 75;
+
+// TVRDA granica. Ispod Googleovog besplatnog praga od 1.000 poziva mesečno za
+// Enterprise SKU (Text Search sa kontakt poljima). Preko toga je stvaran novac.
+export const GLOBAL_MONTHLY_API_CAP = 900;
 
 /** Google resetuje kvotu u 09:00 po lokalnom vremenu Kalifornije. */
 export const BUDGET_TIMEZONE = "America/Los_Angeles";

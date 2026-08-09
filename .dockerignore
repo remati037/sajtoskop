@@ -1,0 +1,39 @@
+# .dockerignore — kontekst builda je koren monorepoa, pa se ovde seče sve što
+# workeru ne treba. Bez ovoga se u kontekst uvlači i `apps/web/.next` i
+# `data/scanovi-arhiva`, pa build traje minutima umesto sekundama.
+
+node_modules
+**/node_modules
+
+# Nikad u sliku: ključevi stižu kroz `env_file` u compose-u.
+.env
+.env.local
+.env*.local
+
+# Ostale aplikacije — worker ih ne uvozi. Njihovi `package.json` MORAJU da
+# prođu (Dockerfile ih kopira izričito) jer `--frozen-lockfile` traži da se
+# workspace poklopi sa lockfile-om; sve ostalo iz njih se seče.
+apps/web/**
+!apps/web/package.json
+apps/cli/**
+!apps/cli/package.json
+.next
+**/.next
+
+# Izlaz CLI-ja i lokalno stanje
+out
+.cache
+dist
+*.tsbuildinfo
+data
+
+# Repo i alati
+.git
+.github
+.githooks
+.claude
+docs
+supabase
+scripts
+*.log
+.DS_Store

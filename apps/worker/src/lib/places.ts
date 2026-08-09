@@ -129,7 +129,10 @@ async function fetchPage(
   // Rezerviši poziv PRE fetcha. Neuspeli pozivi se takođe broje u Googleovu
   // kvotu, a ako proces pukne posle fetcha, poziv je plaćen — bolje ga
   // izbrojati unapred nego ga izgubiti iz evidencije.
-  consume("places:searchText");
+  //
+  // Od F3 je ovo upis u bazu, ne u fajl: jedan atomičan inkrement koji vide i
+  // worker i CLI. Ako baza nije dostupna, ovo baca i fetch se ne dogodi.
+  await consume("places:searchText");
 
   const res = await fetch(ENDPOINT, {
     method: "POST",
@@ -145,7 +148,7 @@ async function fetchPage(
   if (res.status === 429) {
     // Google je rekao da je kvota gotova. Zaključaj dan da sledeći scan
     // ne troši vreme na pozive koji sigurno padaju.
-    const state = markExhausted();
+    const state = await markExhausted();
     throw new BudgetError(
       "Places API 429 RESOURCE_EXHAUSTED — Googleova kvota je potrošena. " +
         "Reset je u 09:00 po lokalnom vremenu.",
@@ -189,7 +192,7 @@ export async function searchText(
 
   // Pre-flight: proveri budžet za CEO scan pre prvog poziva.
   // Bolje pući odmah nego posle prve stranice sa 20 nepotpuno prikupljenih firmi.
-  assertAvailable(pagesNeeded(maxResults), `scan "${textQuery}" (${maxResults} rez.)`);
+  await assertAvailable(pagesNeeded(maxResults), `scan "${textQuery}" (${maxResults} rez.)`);
 
   const seen = new Set<string>();
   const out: Business[] = [];

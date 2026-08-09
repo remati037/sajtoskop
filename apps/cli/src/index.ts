@@ -4,11 +4,10 @@
 
 import Table from "cli-table3";
 import { Command } from "commander";
-import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import type { Business, Niche, ScoreResult, SiteStatus } from "@sajtoskop/shared";
+import type { Business, Niche, ScoreResult } from "@sajtoskop/shared";
 import {
   buildScanQueries,
   foldForSearch,
@@ -18,16 +17,23 @@ import {
   slugify,
   toCsv,
 } from "@sajtoskop/shared";
-import type { SiteFetch } from "@sajtoskop/worker/lib";
+import type { FetchStatus, SiteFetch } from "@sajtoskop/worker/lib";
 import {
   BudgetError,
   budgetSummary,
   fetchAll,
+  loadRootEnv,
   outPath,
   searchText,
   userPath,
   workspaceRoot,
 } from "@sajtoskop/worker/lib";
+
+// Ne `import "dotenv/config"`: on traži `.env` u cwd-u, a pnpm postavlja cwd na
+// koren kod `pnpm scan`, a na apps/cli kod `pnpm --filter @sajtoskop/cli scan`.
+// Od F3 CLI-u trebaju Supabase kredencijali za brojač poziva, pa bi tiho
+// neučitan `.env` značio „budžet nije dostupan" umesto scana.
+loadRootEnv();
 
 /** Za ispis: "out/scan.csv" umesto pune apsolutne putanje. */
 const rel = (f: string): string => path.relative(workspaceRoot(), f);
@@ -51,9 +57,10 @@ type Row = {
   score: ScoreResult | null;
 };
 
-// nema_sajt je najbolji lead, ide na vrh
-const STATUS_RANK: Record<SiteStatus, number> = {
-  nema_sajt: 0, samo_drustvene: 1, mrtav: 2, ok: 3,
+// nema_sajt je najbolji lead, ide na vrh. `blocked` ide na dno jer o njemu
+// nemamo mišljenje — robots.txt nam nije dao da pogledamo sajt (pravilo 12).
+const STATUS_RANK: Record<FetchStatus, number> = {
+  nema_sajt: 0, samo_drustvene: 1, mrtav: 2, ok: 3, blocked: 4,
 };
 
 function sortRows(rows: Row[]): Row[] {
@@ -69,6 +76,7 @@ function statusCell(row: Row): string {
     case "nema_sajt": return "NEMA SAJT";
     case "samo_drustvene": return "SAMO DRUŠTVENE";
     case "mrtav": return `MRTAV`;
+    case "blocked": return "ROBOTS.TXT";
     case "ok": return row.score ? String(row.score.score) : "—";
   }
 }
@@ -77,6 +85,7 @@ function issueCell(row: Row): string {
   if (row.site.status === "mrtav") return row.site.error ?? "nedostupan";
   if (row.site.status === "nema_sajt") return "Google nema zapisan sajt";
   if (row.site.status === "samo_drustvene") return "Samo profil na mreži";
+  if (row.site.status === "blocked") return row.site.error ?? "crawling zabranjen";
   return row.score?.topIssue ?? "—";
 }
 
@@ -102,7 +111,7 @@ function printTable(rows: Row[]): void {
 }
 
 function summary(rows: Row[]): string {
-  const n = (s: SiteStatus) => rows.filter((r) => r.site.status === s).length;
+  const n = (s: FetchStatus) => rows.filter((r) => r.site.status === s).length;
   const ruzni = rows.filter((r) => (r.score?.score ?? 0) >= 45).length;
   const solidni = rows.filter((r) => r.site.status === "ok" && (r.score?.score ?? 0) < 45).length;
   return (
@@ -269,7 +278,10 @@ async function main(): Promise<void> {
   }
 
   console.log(`Vreme: ${((Date.now() - started) / 1000).toFixed(1)}s · API pozivi: ${calls}`);
-  if (!opts.offline) console.log(budgetSummary());
+
+  // `--mock` i `--offline` ne troše kvotu, pa ni ne smeju da traže bazu —
+  // inače lokalni razvoj bez Supabase kredencijala prestane da radi.
+  if (!opts.offline && !opts.mock) console.log(await budgetSummary());
 
   if (!opts.save && !opts.csv) {
     console.warn("  ⚠ Bez --save i --csv rezultat se nigde ne upisuje.\n");

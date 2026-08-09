@@ -66,14 +66,33 @@ export type SearchSummary = {
   ok: number;
 };
 
+/**
+ * `queued` postoji od F3: kombinacija koje nema u kešu više ne završava sa
+ * „nije skenirano" nego pokreće posao. `not_scanned` ostaje samo za slučaj kad
+ * je posao odbijen — tada uz njega stoji i `greska` iz `ApiError`.
+ */
+export type SearchStatus = "cache" | "not_scanned" | "queued";
+
 export type SearchResponse = {
-  status: "cache" | "not_scanned";
+  status: SearchStatus;
   freshness: { refreshedAt: string; stale: boolean } | null;
   total: number;
   page: number;
   pageSize: number;
   results: PublicLead[];
   summary: SearchSummary;
+  /** Samo uz `status: "queued"`. `joined` znači da posao već radi za nekog drugog. */
+  job?: { id: number; joined: boolean };
+};
+
+/** Ono što vraća `GET /api/job/:id`. Klijent po ovome crta stanje pretrage. */
+export type JobStatusResponse = {
+  id: number;
+  status: "pending" | "running" | "done" | "failed";
+  /** Koliko je biznisa nađeno i koliko ih je analizirano. `null` dok se ne zna. */
+  progress: { found: number; analyzed: number } | null;
+  /** Popunjeno samo kad je posao konačno odustao. */
+  greska: string | null;
 };
 
 /** Oblik greške koji rute vraćaju. Poruka je na srpskom i ide direktno korisniku. */

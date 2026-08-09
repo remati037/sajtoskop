@@ -70,6 +70,9 @@ export {
 // ── upiti ──────────────────────────────────────────────────
 export { buildScanQueries, resolveCity, resolveNiche } from "./queries";
 
+// ── mejlovi (čista ekstrakcija, mrežu radi pozivalac) ──────
+export { extractEmails } from "./emails";
+
 // ── transliteracija ────────────────────────────────────────
 export { cirToLat, foldForSearch, slugify } from "./translit";
 
