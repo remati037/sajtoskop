@@ -53,6 +53,60 @@ for (const [name, html, expected] of cases) {
   if (!ok) console.log(`   očekivano: ${expected}`);
 }
 
+// ── dugačak <head> (regresija) ─────────────────────────────
+// Do avgusta 2026. je `head()` tražio ceo `<head>` regexom sa granicom od
+// 20.000 znakova. Kad je `<head>` duži, regex ne nađe ništa i funkcija je padala
+// na prvih 20.000 znakova DOKUMENTA — pa je sve iza toga bilo nevidljivo.
+//
+// Posledica na stvarnom sajtu (matildabig.rs, `<head>` 81.602 znaka, viewport na
+// poziciji 71.648): upisan `no_viewport` — 30 poena, najteži signal — sajtu koji
+// je prilagođen telefonu. Skor 46 („ružan") umesto 12 („solidan").
+//
+// WordPress sa page builderom rutinski pređe 20.000 znakova, pa je signal bio
+// sistematski lažan na najčešćoj platformi u bazi.
+
+console.log("\ndugačak <head>");
+
+const punjenje = "<style>/* " + "x".repeat(60_000) + " */</style>";
+const dugHead = `<!doctype html><html lang="sr"><head>
+<title>Restoran</title>
+${punjenje}
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Opis">
+<meta property="og:title" content="Restoran">
+<link rel="icon" href="/favicon.ico">
+</head><body><p>Sadržaj</p></body></html>`;
+
+const dug = scoreSite({ html: dugHead, httpsOk: true, loadMs: 800, finalUrl: null });
+const kljucevi = dug.signals.map((s) => s.key);
+
+check(
+  !kljucevi.includes("no_viewport"),
+  `viewport iza 20k znakova je viđen  (signali: ${kljucevi.join(", ") || "—"})`,
+);
+check(!kljucevi.includes("no_description"), "description iza 20k znakova je viđen");
+check(!kljucevi.includes("no_og"), "og iza 20k znakova je viđen");
+check(!kljucevi.includes("no_favicon"), "favicon iza 20k znakova je viđen");
+check(dug.score === 0, `sajt sa svim meta podacima ima skor 0 (dobijeno ${dug.score})`);
+
+// Kontrola: kad viewporta stvarno nema, signal MORA da se javi — inače bi ovaj
+// test prolazio i da je provera slučajno ugašena.
+const bezViewporta = dugHead.replace(/<meta name="viewport"[^>]*>/, "");
+const bezVp = scoreSite({ html: bezViewporta, httpsOk: true, loadMs: 800, finalUrl: null });
+check(
+  bezVp.signals.some((s) => s.key === "no_viewport"),
+  "kontrola: sajt bez viewporta i dalje dobija no_viewport",
+);
+
+// Dokument bez `<head>` uopšte — mora da radi, ne da pukne.
+const bezHeada = scoreSite({
+  html: "<html><body><p>Samo telo</p></body></html>",
+  httpsOk: true,
+  loadMs: 800,
+  finalUrl: null,
+});
+check(typeof bezHeada.score === "number", `dokument bez <head> ne puca (skor ${bezHeada.score})`);
+
 // ── transliteracija ────────────────────────────────────────
 
 console.log("\ntransliteracija");

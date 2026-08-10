@@ -26,10 +26,37 @@ const has = (html: string, re: RegExp): boolean => re.test(html);
 
 const count = (html: string, re: RegExp): number => (html.match(re) ?? []).length;
 
-/** <head> deo — dovoljno za većinu meta provera, brže od celog dokumenta. */
+/** Kad dokument uopšte nema uredan `<head>` — koliko znakova gledamo umesto njega. */
+const BEZ_HEADA = 20_000;
+
+/**
+ * `<head>` deo — hrani pet provera: viewport, title, description, favicon i og.
+ *
+ * ── zašto ovde više nema granice od 20.000 znakova ─────────
+ * Prethodna verzija je tražila ceo `<head>` jednim regexom sa granicom
+ * `{0,20000}`. Na sajtu čiji je `<head>` duži od toga regex NE nađe ništa, pa je
+ * funkcija padala na prvih 20.000 znakova DOKUMENTA — a to je često tek pola
+ * `<head>`-a. Sve što stoji posle te granice je za heuristiku nepostojeće.
+ *
+ * Izmereno na matildabig.rs: `<head>` ima 81.602 znaka, `<meta name="viewport">`
+ * stoji na poziciji 71.648. Heuristika ga nije videla i upisala je `no_viewport`
+ * — 30 poena, najteži signal u modelu — sajtu koji je savršeno prilagođen
+ * telefonu. Isto je bilo i sa description, og i favicon proverama.
+ *
+ * To nije retkost nego pravilo: WordPress sa page builderom ili optimizatorom
+ * lako pređe 20.000 znakova u `<head>`-u, a WordPress je najčešća platforma u
+ * bazi. Signal je time bio sistematski lažan na najvećem delu uzorka.
+ *
+ * Sada se traže stvarne granice `<head>`-a, bez ograničenja dužine. Za dokumente
+ * sa kratkim `<head>`-om ponašanje je nepromenjeno.
+ */
 function head(html: string): string {
-  const m = /<head[\s>][\s\S]{0,20000}?<\/head>/i.exec(html);
-  return m?.[0] ?? html.slice(0, 20_000);
+  const start = html.search(/<head[\s>]/i);
+  if (start < 0) return html.slice(0, BEZ_HEADA);
+
+  const rest = html.slice(start);
+  const end = rest.search(/<\/head\s*>/i);
+  return end < 0 ? rest.slice(0, BEZ_HEADA) : rest.slice(0, end);
 }
 
 /** Srpska deklinacija: 1 godinu, 2-4 godine, 5+ godina. */
