@@ -30,6 +30,12 @@
 //    problema, koji je dobijao `solidan: true` da bi lista stala.
 // 3. Provera curenja imena firme. Pravilo „ne pominji ime firme" je do sad bilo
 //    samo molba u promptu. Sad se proverava i, ako procuri, ide retry.
+// 4. Sekcija „Namerne odluke nisu greške". Model je na urednom sajtu prijavio
+//    ukrasne crtice oko naslova („– Dobrodošli –") kao kvar. Slika je bila
+//    savršeno čitka — greška nije bila u opažanju nego u proceni namere, jer
+//    ništa u promptu nije govorilo da je podrazumevani odgovor na „je li ovo
+//    kvar?" — ne. Netačna primedba je skuplja od nijedne: korisnik na osnovu nje
+//    piše strancu.
 //
 // Node-only, isključivo u workeru (pravilo 7).
 
@@ -266,6 +272,20 @@ const RULES = [
   "- Ako sajt izgleda uredno i savremeno, postavi solidan: true i vrati 0 do 2 stavke",
   "  male ozbiljnosti. NE izmišljaj probleme da bi popunio listu.",
   "",
+  "# Namerne odluke nisu greške",
+  "- Dekoracija, ukrasne crtice i tačke oko naslova, neobični fontovi, boje, razmaci,",
+  "  ilustracije i izbor slika su odluka dizajnera. Nikad ih ne prijavljuj kao problem.",
+  "- Prijavi nešto samo ako SMETA posetiocu koji pokušava nešto da uradi: da pročita",
+  "  tekst, nađe broj telefona, otvori jelovnik, vidi cenu, pošalje poruku.",
+  "- Ako ne umeš da odlučiš da li je nešto kvar ili namera — namera je. Ne prijavljuj.",
+  "- ALI namera ne opravdava smetnju. Element koji je namerno tu, a zaklanja sadržaj,",
+  "  otežava čitanje ili traži radnju pre nego što se vidi ponuda, JESTE problem —",
+  "  na primer traka o kolačićima preko pola ekrana na telefonu. Pravilo o nameri",
+  "  važi za ukrase koji ništa ne ometaju, ne za sve što je neko namerno postavio.",
+  "- Prazna lista je potpuno ispravan odgovor i bolji je od izmišljene stavke. Ovu",
+  "  ocenu čita čovek koji na osnovu nje piše vlasniku firme; netačna primedba ga",
+  "  osramoti pred strancem i sruši ceo kontakt.",
+  "",
   "# solidan",
   "- true kad sajt radi, prilagođen je telefonu, izgleda kao da je pravljen u poslednjih",
   "  nekoliko godina i nema nijedan problem visoke ozbiljnosti.",
@@ -321,8 +341,15 @@ function contextBlock(input: AuditInput): string {
   const signals = input.signals.map((s) => `- ${s.label}`).join("\n") || "- (nijedan)";
 
   return [
-    "Tehnički signali (ulazni podaci — u evidence ih PREVEDI na ljudski jezik,",
-    "ne prepisuj ih doslovno):",
+    // [ISPRAVKA] Ranije je ovde pisalo „u evidence ih PREVEDI na ljudski jezik".
+    // To je bilo uputstvo da se svaki signal pretvori u `evidence` rečenicu, a
+    // sto redova niže prompt zabranjuje baš to za signale koji se ne vide u
+    // pregledaču. Model je birao ono što mu je bliže podacima i vraćao rečenice
+    // o Google opisu i deljenju linka uprkos zabrani. Dve odredbe se ne mogu
+    // pomiriti — ostaje ona koja štiti poruku koja se šalje strancu.
+    "Tehnički signali. Ovo je KONTEKST za tvoju procenu, ne spisak stavki koje",
+    "treba prijaviti. Signal koji ne umeš da potvrdiš na slici ne pretvaraj u",
+    "stavku; posluži se njime samo da bolje razumeš šta gledaš:",
     signals,
     "",
     `Platforma: ${input.platform ?? "nepoznata"}`,
