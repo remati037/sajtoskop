@@ -11,6 +11,7 @@
     "check:f1": "tsx apps/cli/src/checks.ts",
     "check:f4": "tsx scripts/check-unlock.ts",
     "backfill:screenshots": "tsx scripts/backfill-screenshots.ts",
+    "backfill:ai": "tsx scripts/backfill-ai.ts",
     "probe:ai": "tsx scripts/probe-ai.ts",
     "rescore": "tsx scripts/rescore-audits.ts",
     "check:secrets": "bash scripts/check-secrets.sh",

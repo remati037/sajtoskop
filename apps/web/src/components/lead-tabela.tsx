@@ -31,7 +31,10 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
           <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wider text-neutral-500 dark:border-neutral-800">
             <th className="py-2 pl-3 font-medium">Prospekt</th>
             <th className="py-2 font-medium">Status sajta</th>
-            <th className="py-2 font-medium">Snimak</th>
+            {/* Zvala se „Snimak" do F6. Iza tog dugmeta sad stoji i cela analiza
+                sa rečenicom za poruku — ime kolone je govorilo da tamo nema šta
+                da se traži. */}
+            <th className="py-2 font-medium">Analiza</th>
             <th className="py-2 font-medium">Grad</th>
             <th className="py-2 font-medium">Telefon</th>
             <th className="py-2 pr-3 text-right font-medium">Kontakt</th>

@@ -65,29 +65,57 @@ export function SnimakDugme({ lead }: { lead: Otkljucan }) {
       <button
         type="button"
         onClick={() => setOtvoren(true)}
-        title="Pogledaj kako sajt izgleda i šta nije u redu"
-        className="group relative h-10 w-10 overflow-hidden rounded border border-neutral-300 transition-colors hover:border-neutral-900 dark:border-neutral-700 dark:hover:border-white"
+        title="Otvori snimke i analizu sajta"
+        className="group flex items-center gap-2 rounded border border-transparent px-1 py-1 text-left transition-colors hover:border-neutral-300 dark:hover:border-neutral-700"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element -- potpisan URL sa
-            tuđeg hosta i rokom od 15 min; next/image bi ga keširao i optimizovao
-            posle isteka potpisa, pa bi prikaz pucao nasumično. */}
-        <img
-          src={prikaz ?? ""}
-          alt=""
-          loading="lazy"
-          className="h-full w-full object-cover object-top"
-        />
-        {/* Tačka govori da iza snimka stoji i analiza, pa vredi kliknuti. */}
-        {lead.aiIssues && lead.aiIssues.length > 0 && (
-          <span
-            aria-hidden
-            className="absolute right-0 top-0 h-2 w-2 rounded-full bg-emerald-500 ring-1 ring-white dark:ring-neutral-950"
+        <span className="h-10 w-10 shrink-0 overflow-hidden rounded border border-neutral-300 transition-colors group-hover:border-neutral-900 dark:border-neutral-700 dark:group-hover:border-white">
+          {/* eslint-disable-next-line @next/next/no-img-element -- potpisan URL sa
+              tuđeg hosta i rokom od 15 min; next/image bi ga keširao i optimizovao
+              posle isteka potpisa, pa bi prikaz pucao nasumično. */}
+          <img
+            src={prikaz ?? ""}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover object-top"
           />
-        )}
+        </span>
+
+        {/* Natpis, a ne gola sličica. Analiza je najvredniji deo F6, a stajala je
+            iza slike od 40×40 bez ijedne reči — u koloni koja se zvala „Snimak".
+            Niko ne klikne ono za šta ne zna da postoji. */}
+        <Oznaka lead={lead} />
       </button>
 
       {otvoren && <Preklop lead={lead} onClose={() => setOtvoren(false)} />}
     </>
+  );
+}
+
+/** Šta se krije iza dugmeta, u dve reči. */
+function Oznaka({ lead }: { lead: Otkljucan }) {
+  const broj = lead.aiIssues?.length ?? null;
+
+  if (broj === null) {
+    return (
+      <span className="whitespace-nowrap text-xs text-neutral-500 underline decoration-dotted underline-offset-2">
+        Snimci
+      </span>
+    );
+  }
+
+  if (broj === 0) {
+    return (
+      <span className="whitespace-nowrap text-xs font-medium text-emerald-700 dark:text-emerald-400">
+        Bez zamerki
+      </span>
+    );
+  }
+
+  return (
+    <span className="whitespace-nowrap text-xs font-medium text-neutral-900 underline decoration-dotted underline-offset-2 dark:text-neutral-100">
+      {/* Najviše je 5 stavki (Zod granica), pa je „nalaz / nalaza" dovoljno. */}
+      {broj} {broj === 1 ? "nalaz" : "nalaza"}
+    </span>
   );
 }
 
