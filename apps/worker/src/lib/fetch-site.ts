@@ -5,19 +5,16 @@
 import pLimit from "p-limit";
 import type { Business, SiteStatus } from "@sajtoskop/shared";
 import { mayCrawl } from "./robots";
+import { toHttpUrl } from "./safe-url";
+import { UA, UA_PLAIN } from "./user-agent";
 
 const TIMEOUT_MS = 15_000;
 const MAX_BYTES = 2_000_000;      // 2MB, dovoljno za svaki legitiman HTML
 const CONCURRENCY = 3;
 
-// Prepoznatljiv token uz Chrome kompatibilni deo (pravilo 12). Chrome deo nije
-// maskiranje nego nužnost: pola zapuštenih sajtova stoji iza WAF-a koji odbija
-// sve što ne liči na pregledač, a taj sajt nam je najvredniji lead.
-export const UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-  "(KHTML, like Gecko) Chrome/126.0 Safari/537.36 Sajtoskop/1.0 " +
-  "(+https://sajtoskop.com/bot)";
-const UA_PLAIN = UA.slice(0, UA.indexOf(" Sajtoskop/1.0"));
+// UA je preseljen u `user-agent.ts` da bi ga i `safe-url.ts` mogao uvesti bez
+// kružnog importa. Re-eksport stoji jer ga pola repoa uvozi odavde.
+export { UA } from "./user-agent";
 
 const SOCIAL_HOSTS = [
   "facebook.com", "fb.com", "instagram.com", "linktr.ee",
@@ -140,8 +137,10 @@ async function readCapped(res: Response): Promise<string> {
 export async function fetchSite(rawUrl: string | null): Promise<SiteFetch> {
   if (!rawUrl) return empty("nema_sajt", null);
 
-  // Business.website je normalizovan (bez protokola), pa ga vraćamo u pun URL
-  const candidate = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+  // Business.website je normalizovan (bez protokola), pa ga vraćamo u pun URL.
+  // Isti normalizator koristi i `screenshot.ts` — dve kopije ovog pravila su
+  // bile tačno onaj bag zbog kog F5 nije pravio nijedan snimak.
+  const candidate = toHttpUrl(rawUrl);
 
   let u: URL;
   try {

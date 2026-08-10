@@ -21,7 +21,7 @@
 
 import dns from "node:dns/promises";
 import ipaddr from "ipaddr.js";
-import { UA } from "./fetch-site";
+import { UA } from "./user-agent";
 
 /** Max broj skokova kroz koje pratimo redirekciju. PRD §2. */
 export const MAX_REDIRECTS = 3;
@@ -70,7 +70,9 @@ const MESSAGES: Record<UnsafeCode, string> = {
 export type UnsafeKind = "blocked" | "unreachable";
 
 const KINDS: Record<UnsafeCode, UnsafeKind> = {
-  invalid_url: "blocked",
+  // String koji `new URL()` ne razume nije pokušaj da nas negde odvede nego
+  // pokvareno polje `website_url`. Ishod je `mrtav`, ne pao posao.
+  invalid_url: "unreachable",
   bad_scheme: "blocked",
   credentials_in_url: "blocked",
   local_host: "blocked",
@@ -118,6 +120,24 @@ export type SafeUrlOptions = {
 const defaultLookup: LookupFn = (hostname) => dns.lookup(hostname, { all: true, verbatim: true });
 
 // ── provera oblika, bez mreže ──────────────────────────────
+
+/**
+ * `businesses.website_url` je normalizovan BEZ protokola — Google vraća
+ * `autodavid.rs/kontakt`, ne `https://autodavid.rs/kontakt`. Bez ovoga svaki
+ * takav red padne na „neispravan URL" još pre nego što se bilo šta proveri.
+ *
+ * URL koji već ima šemu se ne dira ni kad je šema loša: `file:///etc/passwd`
+ * mora da stigne do `checkUrlShape` i da padne kao `bad_scheme`, a ne da se
+ * pretvori u nešto neprepoznatljivo.
+ */
+export function toHttpUrl(raw: string): string {
+  const t = raw.trim();
+  if (t === "") return t;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return t;
+  // Protokol-relativan `//primer.rs` se sreće u `<link>` tagovima.
+  if (t.startsWith("//")) return `https:${t}`;
+  return `https://${t}`;
+}
 
 /** `[::1]` → `::1`, `primer.rs.` → `primer.rs`, sve malim slovima. */
 function hostnameOf(u: URL): string {

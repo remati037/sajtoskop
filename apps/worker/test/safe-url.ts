@@ -10,9 +10,11 @@
 // se ubrizgavaju. Test koji zavisi od tuđe mreže nije test SSRF zaštite.
 
 import {
+  checkUrlShape,
   classifyAddress,
   followSafely,
   resolveSafeUrl,
+  toHttpUrl,
   UnsafeUrlError,
   type FetchFn,
   type LookupFn,
@@ -108,6 +110,32 @@ const opts = { lookup, fetchImpl };
 // ═══════════════════════════════════════════════════════════
 // 1. Oblik URL-a — pada bez ijednog mrežnog poziva
 // ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+// 0. Normalizacija — `businesses.website_url` nema protokol
+// ═══════════════════════════════════════════════════════════
+//
+// [NAUČENO NA SVOJOJ KOŽI] Prva verzija F5 nije napravila nijedan screenshot u
+// produkciji. `screenshot.ts` je gurao `autodavid.rs/kontakt` pravo u
+// `new URL()`, a `mayCrawl` je na to vraćao „neispravan URL", što se u logu
+// pojavljivalo kao „preskočen zbog robots.txt". Pravilo je postojalo u
+// `fetch-site.ts`, ali kao kopija — sad je jedno, ovde.
+
+console.log("\n— normalizacija —");
+
+check(toHttpUrl("autodavid.rs/kontakt") === "https://autodavid.rs/kontakt", "domen bez protokola dobija https://");
+check(toHttpUrl("velesnekretnine.rs") === "https://velesnekretnine.rs", "goli domen dobija https://");
+check(toHttpUrl("  primer.rs  ") === "https://primer.rs", "razmaci se seku");
+check(toHttpUrl("http://primer.rs/") === "http://primer.rs/", "http:// se ne dira");
+check(toHttpUrl("HTTPS://Primer.rs/") === "HTTPS://Primer.rs/", "https:// se ne dira ni u velikim slovima");
+check(toHttpUrl("//primer.rs/x") === "https://primer.rs/x", "protokol-relativan URL dobija https:");
+check(toHttpUrl("") === "", "prazan string ostaje prazan");
+// Loša šema mora da stigne do `checkUrlShape` prepoznatljiva, a ne umotana.
+check(toHttpUrl("file:///etc/passwd") === "file:///etc/passwd", "file:// se ne umotava u https://");
+check(
+  checkUrlShape(toHttpUrl("autodavid.rs/kontakt")).href === "https://autodavid.rs/kontakt",
+  "normalizovan URL prolazi proveru oblika",
+);
 
 console.log("\n— oblik URL-a —");
 
@@ -392,6 +420,11 @@ await expectKind("credentials_in_url", "blocked", "kredencijali su napad", () =>
 );
 await expectKind("dns_failed", "unreachable", "ugašen domen je mrtav sajt", () =>
   resolveSafeUrl("https://nepostojeci.rs/", opts),
+);
+// Pokvareno polje `website_url`, ne napad — `enrich_full` na ovo upisuje
+// `mrtav`, a ne crven red poslova.
+await expectKind("invalid_url", "unreachable", "smeće u website_url je mrtav sajt", () =>
+  resolveSafeUrl("https://primer.rs:nije-port/", opts),
 );
 
 redirects = {

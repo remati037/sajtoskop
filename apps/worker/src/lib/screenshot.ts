@@ -16,9 +16,9 @@ import { randomBytes } from "node:crypto";
 import pLimit from "p-limit";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import sharp from "sharp";
-import { UA } from "./fetch-site";
 import { mayCrawl } from "./robots";
-import { followSafely, resolveSafeUrl, UnsafeUrlError } from "./safe-url";
+import { checkUrlShape, followSafely, resolveSafeUrl, toHttpUrl, UnsafeUrlError } from "./safe-url";
+import { UA } from "./user-agent";
 
 // ── podešavanja ────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ const WEBP_QUALITY = 80;
  */
 const SHOT_CONCURRENCY = Math.min(3, Math.max(1, Number(process.env.SHOT_CONCURRENCY ?? 2)));
 
-const gate = pLimit(SHOT_CONCURRENCY);
+const shotGate = pLimit(SHOT_CONCURRENCY);
 
 /**
  * Tipovi resursa koji ne utiču na izgled prve ekranske strane, a jesu mreža,
@@ -317,18 +317,24 @@ async function capturePage(url: string, spec: VariantSpec, budgetMs: number): Pr
  * Pozivi su ograničeni na `SHOT_CONCURRENCY` istovremeno; višak čeka u redu.
  */
 export function captureSite(rawUrl: string): Promise<CaptureResult> {
-  return gate(() => captureOne(rawUrl));
+  return shotGate(() => captureOne(rawUrl));
 }
 
 async function captureOne(rawUrl: string): Promise<CaptureResult> {
   await recycleIfDue();
 
-  const gate = await mayCrawl(rawUrl, UA);
-  if (!gate.allowed) throw new CrawlBlockedError(rawUrl, gate.reason ?? "robots.txt");
+  // `businesses.website_url` stiže bez protokola (`autodavid.rs/kontakt`).
+  // Provera oblika ide PRE `mayCrawl` namerno: `mayCrawl` na neparsiv URL vraća
+  // `allowed: false` sa razlogom „neispravan URL", što bi se ovde pretvorilo u
+  // „preskočen zbog robots.txt" — poruku koja krije pravi uzrok.
+  const startUrl = checkUrlShape(toHttpUrl(rawUrl)).href;
+
+  const robots = await mayCrawl(startUrl, UA);
+  if (!robots.allowed) throw new CrawlBlockedError(startUrl, robots.reason ?? "robots.txt");
 
   // Redirekcije se prate ručno i svaki hop prolazi kroz SSRF proveru. Chromium
   // dobija isključivo već proveren, konačan URL.
-  const target = await followSafely(rawUrl);
+  const target = await followSafely(startUrl);
   const finalUrl = target.url.href;
 
   const deadline = Date.now() + HARD_TIMEOUT_MS;
