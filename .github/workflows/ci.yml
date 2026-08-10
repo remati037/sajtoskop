@@ -30,6 +30,13 @@ jobs:
     # repo bez tajni u CI-u, pa je automatski patch važniji od zaključanog SHA.
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Puna istorija, zbog `gitleaks` koraka na dnu. On skenira opseg
+          # `<prvi commit u pushu>^..<poslednji>`, a podrazumevani plitak klon
+          # (dubina 1) taj opseg nema — pa git javi „unknown revision" i ceo
+          # posao padne. Sa jednim commitom po pushu se to ne vidi; prvi push sa
+          # dva commita obori CI iako je kod ispravan.
+          fetch-depth: 0
 
       # v6 je prva koja zvanično podržava pnpm 11 (koren `packageManager`).
       - uses: pnpm/action-setup@v6
