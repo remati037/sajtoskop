@@ -48,10 +48,14 @@ const n = (broj: number, severity: Sev = "srednja") =>
 
 console.log("answerSchema");
 
+// Prag je 1, ne 3 — v. superRefine. Ružan sajt sa dva vidljiva problema mora da
+// ostane `solidan: false`, inače ispada iz outreacha.
 check(
-  !answerSchema.safeParse(odgovor(false, n(2))).success,
-  "solidan false sa 2 stavke → puca (superRefine)",
+  !answerSchema.safeParse(odgovor(false, [])).success,
+  "solidan false sa 0 stavki → puca (superRefine)",
 );
+check(answerSchema.safeParse(odgovor(false, n(1))).success, "solidan false sa 1 stavkom → prolazi");
+check(answerSchema.safeParse(odgovor(false, n(2))).success, "solidan false sa 2 stavke → prolazi");
 check(answerSchema.safeParse(odgovor(false, n(3))).success, "solidan false sa 3 stavke → prolazi");
 check(answerSchema.safeParse(odgovor(false, n(5))).success, "solidan false sa 5 stavki → prolazi");
 check(answerSchema.safeParse(odgovor(true, [])).success, "solidan true sa 0 stavki → prolazi");
@@ -323,7 +327,7 @@ const ulaz = (businessName?: string) => ({
 
 // ── 5a. neispravan pa ispravan odgovor ────────────────────
 
-postaviStub({ odgovori: [odgovor(false, n(2)), odgovor(false, n(3))], budzetOk: true });
+postaviStub({ odgovori: [odgovor(false, []), odgovor(false, n(3))], budzetOk: true });
 let r = await analyzeScreenshots(ulaz());
 
 check(r.status === "ok", `prvi neispravan pa ispravan → status "${r.status}"`);
@@ -347,7 +351,7 @@ check(
 
 // ── 5b. oba pokušaja neispravna ───────────────────────────
 
-postaviStub({ odgovori: [odgovor(false, n(2)), odgovor(false, n(1))], budzetOk: true });
+postaviStub({ odgovori: [odgovor(false, []), odgovor(false, [])], budzetOk: true });
 r = await analyzeScreenshots(ulaz());
 
 check(r.status === "failed", `oba neispravna → status "${r.status}"`);

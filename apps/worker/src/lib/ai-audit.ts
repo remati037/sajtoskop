@@ -25,6 +25,9 @@
 //    model na urednom sajtu morao da izmisli tri problema — a pravilo iznad kaže
 //    da ne sme. Dve odredbe su bile u direktnoj kontradikciji i model je birao
 //    koju će prekršiti. Sad kad je `solidan: true`, dozvoljeno je 0 stavki.
+//    Prag za `solidan: false` je posle merenja spušten sa 3 na 1: ista
+//    kontradikcija se inače samo pomerila na ružan sajt sa dva vidljiva
+//    problema, koji je dobijao `solidan: true` da bi lista stala.
 // 3. Provera curenja imena firme. Pravilo „ne pominji ime firme" je do sad bilo
 //    samo molba u promptu. Sad se proverava i, ako procuri, ide retry.
 //
@@ -173,11 +176,16 @@ const answerSchema = z
     verdict: z.string().min(1).max(600),
   })
   .superRefine((v, ctx) => {
-    if (!v.solidan && v.issues.length < 3) {
+    // Prag je 1, ne 3. Sa 3 je model na sajtu koji ima samo jedan ili dva
+    // VIDLJIVA problema imao dva legalna izlaza: izmisliti treći (zabranjeno
+    // pravilom iznad) ili proglasiti sajt urednim. Biralo se drugo, pa je ružan
+    // sajt sa dva problema dobijao `solidan: true` i ispadao iz outreacha —
+    // izmereno na stvarnom leadu sa Ugly Score 46.
+    if (!v.solidan && v.issues.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["issues"],
-        message: `sajt nije označen kao solidan, a ima ${v.issues.length} stavki umesto najmanje 3`,
+        message: "sajt nije označen kao solidan, a nema nijednu stavku",
       });
     }
     if (v.solidan && v.issues.some((i) => i.severity === "visoka")) {
@@ -222,12 +230,15 @@ const RULES = [
   "- Ne izvodi poslovne zaključke: nema 'gubite klijente', 'loše rangirate na Googlu',",
   "  'konkurencija je ispred vas'. To ne znaš i ne vidi se na slici.",
   "- Ako sajt izgleda uredno i savremeno, postavi solidan: true i vrati 0 do 2 stavke",
-  "  male ozbiljnosti. NE izmišljaj tri problema da bi popunio listu.",
+  "  male ozbiljnosti. NE izmišljaj probleme da bi popunio listu.",
   "",
   "# solidan",
   "- true kad sajt radi, prilagođen je telefonu, izgleda kao da je pravljen u poslednjih",
   "  nekoliko godina i nema nijedan problem visoke ozbiljnosti.",
-  "- false u svim ostalim slučajevima; tada mora 3 do 5 stavki.",
+  "- false u svim ostalim slučajevima; tada mora bar 1 stavka, najviše 5.",
+  "- Broj stavki NE sme da utiče na ovu zastavicu. Ako si našao samo jedan pravi",
+  "  problem, a sajt zbog njega ne radi kako treba, to je solidan: false sa jednom",
+  "  stavkom — ne izmišljaj još dve i ne proglašavaj sajt urednim da bi lista stala.",
   "",
   "# issues",
   '- "title": naziv problema, do 6 reči, bez tačke na kraju.',
@@ -574,7 +585,7 @@ export async function analyzeScreenshots(input: AuditInput): Promise<AiOutcome> 
         content:
           "Odgovor nije prošao proveru: " +
           lastProblem +
-          ". Vrati samo validan JSON. Ako je solidan false, mora 3 do 5 stavki. " +
+          ". Vrati samo validan JSON. Ako je solidan false, mora bar jedna stavka. " +
           "Ne pominji naziv firme ni u jednom polju.",
       });
     }
