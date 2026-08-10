@@ -15,6 +15,7 @@ import { creditMonth } from "@sajtoskop/shared";
 import { BudgetError } from "./lib/api-budget";
 import { loadRootEnv } from "./lib/env";
 import { claimJob, completeJob, deferJob, enqueueJob, failJob, reapStuckJobs } from "./lib/queue";
+import { closeBrowser } from "./lib/screenshot";
 import { supabaseAdmin } from "./lib/supabase";
 import { HANDLERS } from "./jobs";
 import type { JobContext } from "./jobs";
@@ -244,6 +245,10 @@ async function main(): Promise<void> {
     reaperLoop(),
     schedulerLoop(),
   ]);
+
+  // Chromium ne umire sa Node procesom — bez ovoga `docker compose down` ostavi
+  // zombi renderere koji drže memoriju do sledećeg restarta hosta.
+  await closeBrowser();
 
   log("worker stao");
 }

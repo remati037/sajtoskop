@@ -59,12 +59,47 @@ export {
   reapStuckJobs,
 } from "./queue";
 
+// ── SSRF kapija (P0-6) ─────────────────────────────────────
+// Jedini put kojim URL sme do Playwrighta ili do lančanog fetch-a.
+export type {
+  LookupFn,
+  SafeTarget,
+  SafeUrl,
+  SafeUrlOptions,
+  UnsafeCode,
+  UnsafeKind,
+} from "./safe-url";
+export {
+  checkUrlShape,
+  classifyAddress,
+  followSafely,
+  MAX_REDIRECTS,
+  resolveSafeUrl,
+  UnsafeUrlError,
+} from "./safe-url";
+
+// ── screenshotovi (F5) ─────────────────────────────────────
+export type { CaptureResult, Shot, ShotVariant } from "./screenshot";
+export {
+  captureSite,
+  closeBrowser,
+  CrawlBlockedError,
+  screenshotPath,
+  SiteUnreachableError,
+} from "./screenshot";
+
+// ── Storage ────────────────────────────────────────────────
+export { removeScreenshots, SCREENSHOT_BUCKET, uploadScreenshot } from "./storage";
+
 // ── upisi u bazu ───────────────────────────────────────────
-export type { AuditWrite, UpsertBusinessesInput } from "./db-writes";
+export type { AuditWrite, ExistingAudit, ScreenshotWrite, UpsertBusinessesInput } from "./db-writes";
 export {
   AUDIT_TTL_DAYS,
+  getAudit,
   getBusinessSite,
+  markSiteDead,
   placeIdsNeedingAudit,
+  saveScreenshots,
   upsertAudit,
   upsertBusinesses,
 } from "./db-writes";

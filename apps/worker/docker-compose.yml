@@ -7,6 +7,30 @@
 # Worker NEMA nijedan otvoren port i nijedan `ports:` unos ovde. On sam vuče
 # posao iz `job_queue`; niko ga ne doziva. To uklanja Caddy, TLS i ceo inbound
 # napadni vektor (00-kontekst §3).
+#
+# ── od F5: unutra radi Chromium ────────────────────────────
+# Od uvođenja screenshotova ovaj kontejner otvara nepoznate sajtove u pravom
+# pregledaču. Sve ispod je pretpostavka da će jedan od tih sajtova jednog dana
+# uspeti da izvrši kod u renderer procesu — cilj nije da se to spreči nego da
+# napadač u tom trenutku ne dobije ništa: ni root, ni upis na disk, ni pristup
+# internoj mreži, ni jedan jedini ključ iz slike.
+#
+# ── egress filter, radi se RUČNO na hostu ──────────────────
+# `networks:` ispod pravi zaseban bridge, ali Docker mrežu ne izoluje od
+# privatnih opsega — kontejner i dalje ruta ka 10/8 i 169.254/16 preko hosta.
+# `resolveSafeUrl` to hvata na nivou aplikacije, ovo je drugi sloj. Na serveru,
+# jednom, kao root (DOCKER-USER se primenjuje pre Dockerovih pravila):
+#
+#   iptables -I DOCKER-USER -i br-sajtoskop -d 169.254.0.0/16 -j REJECT
+#   iptables -I DOCKER-USER -i br-sajtoskop -d 10.0.0.0/8     -j REJECT
+#   iptables -I DOCKER-USER -i br-sajtoskop -d 172.16.0.0/12  -j REJECT
+#   iptables -I DOCKER-USER -i br-sajtoskop -d 192.168.0.0/16 -j REJECT
+#   iptables -I DOCKER-USER -i br-sajtoskop -d 127.0.0.0/8    -j REJECT
+#   netfilter-persistent save
+#
+# Izuzetak koji mora da ostane iznad ovih pravila: Hetznerov DNS i privatna
+# mreža ako je ikad uključiš. Proveri sa `docker compose exec worker
+# node -e "fetch('http://169.254.169.254/').catch(e=>console.log('OK',e.message))"`.
 
 services:
   worker:
@@ -16,20 +40,43 @@ services:
       dockerfile: apps/worker/Dockerfile
     restart: unless-stopped
 
-    # ── ograničenja iz PRD-a §6 ────────────────────────────
+    # Chromium ostavlja zombi procese kad ga ubije hard timeout. Node kao PID 1
+    # ih ne žanje, pa se `pids_limit` posle par stotina sajtova napuni mrtvima.
+    init: true
+
+    # ── ograničenja iz PRD-a §3 ────────────────────────────
     user: "1001:1001"
     read_only: true
     tmpfs:
-      # Jedino mesto na koje proces sme da piše. Od F3 mu ni to zapravo ne treba
-      # — brojač Google poziva je otišao u Postgres, pa nema `.cache/` fajla.
-      # Ostaje zbog Node-ovih privremenih fajlova i budućeg Playwrighta.
-      - /tmp:size=512M,mode=1777
+      # Jedino mesto na koje proces sme da piše. Od F5 mu stvarno treba: tu je
+      # Chromiumov profil, keš i privremeni PNG pre konverzije u webp.
+      # 512M je premalo za tri paralelna konteksta sa `--disable-dev-shm-usage`
+      # (koji /dev/shm preusmerava baš ovde), pa je 1G.
+      - /tmp:size=1g,mode=1777
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: 1g
-    pids_limit: 200
+
+    # [ODSTUPANJE od PRD-a §3 i bezbednost P0-5: 1g → 2g, 200 → 1024]
+    #
+    # Sa `mem_limit: 1g` Chromium sa tri konteksta plus Node plus 1G tmpfs
+    # (tmpfs se broji u memoriju cgroup-a) dobija OOM kill usred screenshota, i
+    # to nedeterministički — posao ispadne „failed" na sajtu koji je ispravan.
+    # CX22 ima 4GB, 2g ostavlja mesta za sistem.
+    #
+    # `pids_limit` u cgroup v2 broji NITI, ne procese. Sam Chromium ih drži
+    # 150-250 po kontekstu; 200 znači da drugi paralelni screenshot pukne na
+    # „Resource temporarily unavailable". 1024 je i dalje red veličine ispod
+    # onoga što treba fork bombi.
+    mem_limit: 2g
+    pids_limit: 1024
+
+    # Chromium sa `--no-sandbox` (nužnim, jer `cap_drop: ALL` uklanja
+    # CAP_SYS_ADMIN za namespace sandbox) oslanja se na seccomp umesto na svoj
+    # sandbox. Podrazumevani Dockerov profil je zato jedina preostala prepreka i
+    # NE sme da se isključi — bez `security_opt: [seccomp:unconfined]`, ma šta
+    # pisalo u Playwright uputstvima.
 
     env_file:
       # Nikad u sliku i nikad u repo. Fajl stoji samo na serveru, chmod 600.
@@ -41,6 +88,12 @@ services:
       # Dan i mesec budžeta se računaju u bazi po America/Los_Angeles, pa TZ ovde
       # utiče samo na vremenske oznake u logu.
       WORKER_CONCURRENCY: "3"
+      # Koliko sajtova se slika istovremeno. Odvojeno od WORKER_CONCURRENCY jer
+      # jedan Chromium kontekst košta red veličine više od jednog HTTP zahteva.
+      SHOT_CONCURRENCY: "2"
+
+    networks:
+      - sajtoskop-egress
 
     # Log rotacija — bez ovoga json-file drajver puni disk dok ne pukne.
     logging:
@@ -56,3 +109,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+networks:
+  sajtoskop-egress:
+    # Fiksno ime bridge uređaja, da se `-i br-sajtoskop` iz iptables pravila
+    # gore ne menja pri svakom `docker compose down && up`.
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-sajtoskop

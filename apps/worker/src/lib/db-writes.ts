@@ -157,3 +157,99 @@ export async function getBusinessSite(
   if (error) throw new Error(`Čitanje biznisa nije uspelo: ${error.message}`);
   return data;
 }
+
+// ── screenshotovi (F5) ─────────────────────────────────────
+
+export type ExistingAudit = {
+  audit_level: number;
+  site_status: SiteStatus;
+  screenshot_desktop: string | null;
+  screenshot_mobile: string | null;
+};
+
+/** Zatečen audit, pre nego što ga `enrich_full` obogati. */
+export async function getAudit(placeId: string): Promise<ExistingAudit | null> {
+  const { data, error } = await supabaseAdmin()
+    .from("website_audits")
+    .select("audit_level, site_status, screenshot_desktop, screenshot_mobile")
+    .eq("place_id", placeId)
+    .maybeSingle<ExistingAudit>();
+
+  if (error) throw new Error(`Čitanje audita nije uspelo: ${error.message}`);
+  return data;
+}
+
+export type ScreenshotWrite = {
+  placeId: string;
+  /** Putanje u bucketu, ne URL-ovi. Potpis pravi web, u trenutku čitanja. */
+  desktopPath: string | null;
+  mobilePath: string | null;
+  finalUrl: string;
+  httpStatus: number | null;
+  /** Zatečen red, ako postoji — određuje da li se `audit_level` diže. */
+  existing: ExistingAudit | null;
+};
+
+/**
+ * Upiši putanje screenshotova.
+ *
+ * `audit_level` ide na 2. Šema ga komentariše kao „2 = +PSI", a PSI stiže tek u
+ * F6 — nivo ovde znači „enrich_full je prošao", što je jedina stvar zbog koje
+ * ga `placeIdsNeedingAudit` i gleda: da bulk `enrich_basic` ne pregazi skup
+ * enrichment. F6 diže na 3 i time se lestvica poravna.
+ *
+ * Sajt bez zatečenog audita se upisuje kao `ok`: upravo smo ga otvorili u
+ * pregledaču, dakle živ je.
+ */
+export async function saveScreenshots(write: ScreenshotWrite): Promise<void> {
+  const row: Record<string, unknown> = {
+    place_id: write.placeId,
+    audit_level: Math.max(write.existing?.audit_level ?? 1, 2),
+    site_status: write.existing?.site_status ?? "ok",
+    final_url: write.finalUrl,
+    http_status: write.httpStatus,
+    enriched_at: new Date().toISOString(),
+  };
+
+  // Neuspela varijanta ne sme da obriše onu koja je ranije uspela.
+  if (write.desktopPath) row.screenshot_desktop = write.desktopPath;
+  if (write.mobilePath) row.screenshot_mobile = write.mobilePath;
+
+  const { error } = await supabaseAdmin()
+    .from("website_audits")
+    .upsert(row, { onConflict: "place_id" });
+
+  if (error) throw new Error(`Upis screenshotova nije uspeo: ${error.message}`);
+}
+
+/**
+ * Sajt se ne otvara ni u pregledaču ni običnim zahtevom → `mrtav` (PRD §5).
+ *
+ * [ODSTUPANJE od PRD-a §5] PRD kaže „timeout, DNS greška, TLS greška →
+ * site_status = 'mrtav'" bez uslova. Ovde se status menja samo ako zatečeni
+ * audit NIJE `ok` sa skorom, ili ako je i naš običan `fetch` pao. Razlog:
+ * pola zapuštenih sajtova stoji iza WAF-a koji pušta `curl` a odbija headless
+ * Chromium. Bez ovog uslova bi svaki takav sajt izgubio ispravan Ugly Score i
+ * pao u „mrtav" na osnovu toga što nas je blokirao bot filter.
+ *
+ * `ugly_score` i pratioci se moraju nulirati zajedno sa statusom —
+ * `website_audits_score_only_when_ok` inače odbija red.
+ */
+export async function markSiteDead(placeId: string): Promise<void> {
+  const { error } = await supabaseAdmin()
+    .from("website_audits")
+    .upsert(
+      {
+        place_id: placeId,
+        audit_level: 1,
+        site_status: "mrtav" satisfies SiteStatus,
+        ugly_score: null,
+        ugly_band: null,
+        platform: null,
+        enriched_at: new Date().toISOString(),
+      },
+      { onConflict: "place_id" },
+    );
+
+  if (error) throw new Error(`Upis statusa 'mrtav' nije uspeo: ${error.message}`);
+}
