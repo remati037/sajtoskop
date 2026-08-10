@@ -201,6 +201,59 @@ async function main(): Promise<void> {
   await db.exec(`select set_api_day_calls(null, null, true)`);
   check((await consume(100, 900))?.reason === "consumed", "set_api_day_calls skida katanac");
 
+  // ── 0005: PSI i Claude imaju svoj brojač ────────────────
+  // Jedina stvar koju ovaj blok stvarno čuva: da otključavanje leada ne troši
+  // Googleovu mesečnu kvotu. Ako `calls` ovde mrdne, mesečni cap od 1.000
+  // Places poziva tiho postane cap na broj unlockova.
+
+  console.log("\nconsume_side_call");
+  type Side = { ok: boolean; reason: string; kind_calls: number; retry_after: string | null };
+  const side = (kind: string, cap: number) =>
+    one<Side>(`select * from consume_side_call($1,$2)`, [kind, cap]);
+
+  const googleBefore = await one<{ calls: number }>(
+    `select calls from api_budget where day = budget_day()`);
+
+  check((await side("psi:mobile", 2))?.reason === "consumed", "prvi PSI poziv → consumed");
+  check((await side("psi:mobile", 2))?.kind_calls === 2, "drugi PSI poziv → kind_calls 2");
+  const psiOver = await side("psi:mobile", 2);
+  check(psiOver?.ok === false && psiOver.reason === "daily_cap", "treći uz cap 2 → daily_cap");
+  check(psiOver?.retry_after !== null, "daily_cap nosi retry_after");
+
+  // Capovi su po ključu: iscrpljen PSI ne sme da zaustavi Claude analizu.
+  check((await side("ai:audit", 1))?.ok === true, "drugi ključ ima svoj cap");
+
+  const googleAfter = await one<{ calls: number }>(
+    `select calls from api_budget where day = budget_day()`);
+  check(
+    googleAfter?.calls === googleBefore?.calls,
+    `PSI i AI ne diraju Googleov brojač (calls ${googleBefore?.calls} → ${googleAfter?.calls})`,
+  );
+
+  const sideKinds = await one<{ by_kind: Record<string, number> }>(
+    `select by_kind from api_budget where day = budget_day()`);
+  check(sideKinds?.by_kind["psi:mobile"] === 2, "by_kind broji PSI odvojeno");
+  check(sideKinds?.by_kind["ai:audit"] === 1, "by_kind broji AI odvojeno");
+
+  await mustFail(
+    `select consume_side_call('places:searchText', 100)`,
+    "Places ključ kroz side brojač odbijen",
+  );
+
+  // ── 0006: zastavica „sajt je uredan" ────────────────────
+  console.log("\nai_solidan");
+  await mustFail(
+    `update website_audits set ai_solidan = true where place_id = 'p1'`,
+    "ai_solidan bez ai_issues odbijen",
+  );
+  await db.exec(
+    `update website_audits set ai_issues = '[]'::jsonb, ai_solidan = true where place_id = 'p1'`,
+  );
+  const solidan = await one<{ ai_solidan: boolean }>(
+    `select ai_solidan from website_audits where place_id = 'p1'`,
+  );
+  check(solidan?.ai_solidan === true, "uredan sajt sme da ima praznu listu stavki");
+
   // ── 0003: red poslova ───────────────────────────────────
 
   console.log("\nenqueue_job i dedup");
@@ -348,7 +401,7 @@ async function main(): Promise<void> {
 
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
-                    "consume_api_call", "api_budget_status", "mark_api_exhausted",
+                    "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
                     "set_api_day_calls", "enqueue_job", "claim_job", "complete_job",
                     "fail_job", "defer_job", "reap_stuck_jobs", "claim_cache_miss",
                     "release_cache_miss", "grant_monthly_credits", "claim_export"]) {

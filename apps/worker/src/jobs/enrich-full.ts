@@ -5,6 +5,15 @@
 // F5: screenshot desktop + mobilni (Playwright)
 // F6: PageSpeed mobile score + Claude vision analiza
 //
+// ── redosled i ko sme da padne ─────────────────────────────
+//   1. screenshot   — bez njega nema ni AI koraka; njegov neuspeh je ishod posla
+//   2. PageSpeed    — sme da padne, `psi_mobile_score` ostaje null (PRD §1)
+//   3. Claude       — sme da padne ili da bude preskočen zbog capa (PRD §3)
+//
+// Posle koraka 1 nijedan izuzetak ne izlazi iz posla. Korisnik je platio kredit
+// za kontakt i vizuelni dokaz; skor i AI su dodatak, a pala grana bi ovde značila
+// ponovno slikanje istog sajta pri sledećem pokušaju — i drugi Playwright poziv.
+//
 // Ishodi po PRD-u §5 — sajt koji se ne otvara je dobar lead, ne greška:
 //
 //   sajt se otvorio          → dva webp-a u bucket, putanje u website_audits
@@ -16,8 +25,16 @@
 // Nijedan od ovih ishoda ne vraća kredit. Korisnik je platio kontakt podatke,
 // a njih ima i kad sajt ne radi — u tom slučaju su čak i vredniji.
 
-import { getAudit, markSiteDead, saveScreenshots } from "../lib/db-writes";
+import { analyzeScreenshots } from "../lib/ai-audit";
+import {
+  getAudit,
+  markSiteDead,
+  saveAiAnalysis,
+  savePsi,
+  saveScreenshots,
+} from "../lib/db-writes";
 import { getBusinessSite } from "../lib/db-writes";
+import { pageSpeedMobile } from "../lib/pagespeed";
 import { UnsafeUrlError } from "../lib/safe-url";
 import {
   captureSite,
@@ -108,5 +125,70 @@ export async function runEnrichFull(raw: unknown, ctx: JobContext): Promise<JobR
   const kb = Math.round(captured.shots.reduce((n, s) => n + s.webp.length, 0) / 1024);
   const which = captured.shots.map((s) => s.variant).join(" + ");
 
-  return { note: `${business.name}: ${which} (${kb}KB)` };
+  // ── PageSpeed (F6 §1) ────────────────────────────────────
+  // Od ove tačke nijedan korak ne sme da obori posao: screenshotovi su upisani,
+  // korisnik je dobio ono za šta je platio kredit. Skor i AI su dodatak.
+
+  let psiScore: number | null = null;
+
+  try {
+    const psi = await pageSpeedMobile(captured.finalUrl);
+
+    if (psi.status === "ok") {
+      await savePsi(placeId, psi);
+      psiScore = psi.score;
+      ctx.log(
+        `${business.name}: PSI ${psi.score ?? "—"}/100` +
+          (psi.lcpMs === null ? "" : `, LCP ${(psi.lcpMs / 1000).toFixed(1)}s`),
+      );
+    } else {
+      ctx.log(`${business.name}: PSI preskočen — ${psi.note}`);
+    }
+  } catch (err) {
+    // Ovde stiže samo nedostupna baza (budžet ili upis). Sam PSI ne baca.
+    ctx.log(`${business.name}: PSI korak pukao — ${message(err)}`);
+  }
+
+  // ── Claude analiza (F6 §2) ───────────────────────────────
+
+  let aiNote = "bez AI";
+
+  try {
+    const ai = await analyzeScreenshots({
+      shots: captured.shots,
+      signals: existing?.signals ?? [],
+      platform: existing?.platform ?? null,
+      uglyScore: existing?.ugly_score ?? null,
+      psiMobileScore: psiScore,
+    });
+
+    if (ai.status === "ok") {
+      await saveAiAnalysis(placeId, {
+        issues: ai.issues,
+        verdict: ai.verdict,
+        solidan: ai.solidan,
+      });
+      aiNote =
+        `AI ${ai.issues.length} stavki` +
+        (ai.solidan ? " (sajt uredan)" : "") +
+        `, $${ai.usage.costUsd.toFixed(4)}`;
+      ctx.log(
+        `${business.name}: ${aiNote} ` +
+          `(${ai.usage.inputTokens}→${ai.usage.outputTokens} tokena, ` +
+          `${ai.usage.attempts} poziv${ai.usage.attempts === 1 ? "" : "a"})`,
+      );
+    } else {
+      aiNote = ai.status === "capped" ? "AI preskočen (cap)" : "AI pao";
+      ctx.log(`${business.name}: ${aiNote} — ${ai.note}`);
+    }
+  } catch (err) {
+    // Nema API ključa ili baza nije dostupna. Lead ostaje na audit_level 2.
+    ctx.log(`${business.name}: AI korak pukao — ${message(err)}`);
+  }
+
+  return { note: `${business.name}: ${which} (${kb}KB) · ${aiNote}` };
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? (err.message.split("\n")[0] ?? err.name) : String(err);
 }

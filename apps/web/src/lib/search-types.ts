@@ -6,7 +6,7 @@
 // Ovde su samo tipovi i konstante. Funkcija koja pravi `PublicLead` je u
 // `public-lead.ts` i ona jeste `server-only`.
 
-import type { PhoneKind, Platform, SiteStatus, UglyBand } from "@sajtoskop/shared";
+import type { AiIssue, PhoneKind, Platform, SiteStatus, UglyBand } from "@sajtoskop/shared";
 
 // Hard cap, bez `limit` parametra iz klijenta (PRD §2: nema bulk endpointa).
 export const PAGE_SIZE = 30;
@@ -50,7 +50,17 @@ export type UnlockedLead = LeadBase & {
    * sa servera — skor se reklamira kao brend, ne kao tabela (00-kontekst, §5).
    */
   signals: string[];
-  aiIssues: string[] | null;
+  /** Mobilni PageSpeed skor, 0–100. `null` kad PSI nije uspeo (F6 §1). */
+  psiMobileScore: number | null;
+  /** Largest Contentful Paint u ms — „sajt ti se otvara 8 sekundi". */
+  psiLcpMs: number | null;
+  /**
+   * 3–5 problema koje je Claude video na snimcima (F6 §2). `null` znači da AI
+   * korak nije prošao — UI tada pada na `signals`, ne na prazno mesto (F6 §4).
+   */
+  aiIssues: AiIssue[] | null;
+  /** Jedna rečenica bez žargona, spremna za kopiranje u poruku vlasniku. */
+  aiVerdict: string | null;
   /**
    * Potpisani URL-ovi, rok 15 minuta. `null` kad snimka nema — sajt bez sajta,
    * mrtav domen, ili lead otključan pre F5 kome `enrich_full` još nije stigao.

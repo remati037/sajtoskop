@@ -8,6 +8,8 @@
 
 // ── tipovi ─────────────────────────────────────────────────
 export type {
+  AiIssue,
+  AiSeverity,
   AuditRecord,
   Business,
   PhoneKind,
@@ -47,6 +49,7 @@ export { bandForScore, copyrightYear, detectPlatform, scoreSite } from "./ugly-s
 // ── planovi i globalni kapovi ──────────────────────────────
 export type { Plan, PlanId } from "./plans";
 export {
+  AI_DAILY_CAP,
   BUDGET_TIMEZONE,
   CREDITS_TIMEZONE,
   creditMonth,
@@ -56,6 +59,7 @@ export {
   GOOGLE_TTL_DAYS,
   PLANS,
   planFor,
+  PSI_DAILY_CAP,
 } from "./plans";
 
 // ── naplata: interfejs bez implementacije (F4 §6) ──────────

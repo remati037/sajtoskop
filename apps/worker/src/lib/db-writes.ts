@@ -8,7 +8,14 @@
 // audit sa `audit_level > 1` (screenshot, PSI, AI iz F5/F6) nikad se ne ruši
 // osnovnim HTML auditom.
 
-import type { Business, ScoreResult, SiteStatus } from "@sajtoskop/shared";
+import type {
+  AiIssue,
+  Business,
+  Platform,
+  ScoreResult,
+  Signal,
+  SiteStatus,
+} from "@sajtoskop/shared";
 import type { SiteFetch } from "./fetch-site";
 import { supabaseAdmin } from "./supabase";
 
@@ -165,13 +172,21 @@ export type ExistingAudit = {
   site_status: SiteStatus;
   screenshot_desktop: string | null;
   screenshot_mobile: string | null;
+  // F6: ulaz u Claude prompt. Dolaze iz osnovnog audita (`enrich_basic`) i AI ih
+  // samo čita — Ugly Score ostaje heuristika sa jednim izvorom istine (pravilo 6).
+  ugly_score: number | null;
+  platform: Platform | null;
+  signals: Signal[];
 };
 
 /** Zatečen audit, pre nego što ga `enrich_full` obogati. */
 export async function getAudit(placeId: string): Promise<ExistingAudit | null> {
   const { data, error } = await supabaseAdmin()
     .from("website_audits")
-    .select("audit_level, site_status, screenshot_desktop, screenshot_mobile")
+    .select(
+      "audit_level, site_status, screenshot_desktop, screenshot_mobile, " +
+        "ugly_score, platform, signals",
+    )
     .eq("place_id", placeId)
     .maybeSingle<ExistingAudit>();
 
@@ -220,6 +235,68 @@ export async function saveScreenshots(write: ScreenshotWrite): Promise<void> {
     .upsert(row, { onConflict: "place_id" });
 
   if (error) throw new Error(`Upis screenshotova nije uspeo: ${error.message}`);
+}
+
+// ── PageSpeed i AI (F6) ────────────────────────────────────
+
+/**
+ * Zajedničko za oba upisa iz F6: red MORA već da postoji.
+ *
+ * `enrich_full` do ovog koraka stiže tek pošto je `saveScreenshots` prošao, pa
+ * prazan rezultat ne znači „nema šta da se upiše" nego da je nešto pojelo red
+ * između dva koraka. Tiho preskakanje bi ostavilo lead bez skora i bez traga o
+ * tome zašto — isti razlog zbog kog F4 glasno puca na prazan RLS upit.
+ */
+async function patchAudit(placeId: string, patch: Record<string, unknown>, what: string) {
+  const { data, error } = await supabaseAdmin()
+    .from("website_audits")
+    .update(patch)
+    .eq("place_id", placeId)
+    .select("place_id")
+    .returns<{ place_id: string }[]>();
+
+  if (error) throw new Error(`Upis ${what} nije uspeo: ${error.message}`);
+  if ((data ?? []).length === 0) {
+    throw new Error(`Upis ${what}: nema audita za ${placeId} — red je nestao usred posla.`);
+  }
+}
+
+/**
+ * Mobilni PageSpeed skor i LCP.
+ *
+ * `audit_level` se namerno NE dira: `saveScreenshots` ga je već digao na 2, a
+ * neuspeo PSI ne sme da ga obori. Na 3 ga diže samo uspešna AI analiza.
+ */
+export async function savePsi(
+  placeId: string,
+  psi: { score: number | null; lcpMs: number | null },
+): Promise<void> {
+  await patchAudit(
+    placeId,
+    { psi_mobile_score: psi.score, psi_lcp_ms: psi.lcpMs },
+    "PageSpeed skora",
+  );
+}
+
+/**
+ * Rezultat Claude analize. Tek ovde `audit_level` ide na 3 (PRD §2) — to je
+ * jedina stvar koja tu trojku znači, i zato se upisuje istim upitom kao i sadržaj.
+ */
+export async function saveAiAnalysis(
+  placeId: string,
+  ai: { issues: AiIssue[]; verdict: string; solidan: boolean },
+): Promise<void> {
+  await patchAudit(
+    placeId,
+    {
+      ai_issues: ai.issues,
+      ai_verdict: ai.verdict,
+      // Eksplicitan odgovor modela, ne zaključak iz broja stavki (v. 0006).
+      ai_solidan: ai.solidan,
+      audit_level: 3,
+    },
+    "AI analize",
+  );
 }
 
 /**

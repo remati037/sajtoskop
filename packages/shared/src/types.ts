@@ -61,6 +61,39 @@ export type Business = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Claude vision analiza (F6)
+// ─────────────────────────────────────────────────────────────
+
+/** Ozbiljnost problema. Vrednosti su na srpskom jer izlaze pravo u UI kao bedž. */
+export type AiSeverity = "visoka" | "srednja" | "niska";
+
+/**
+ * Jedan problem koji je Claude video na screenshotu.
+ *
+ * Za razliku od `Signal`, ovde nema `points` — AI ne ulazi u Ugly Score. Skor je
+ * heuristika sa jednim izvorom istine (`ugly-score.ts`, pravilo 6); AI samo
+ * opisuje ono što se vidi, i ceo objekat sme da izađe klijentu.
+ */
+export type AiIssue = {
+  /** Kratak naslov, do nekoliko reči. */
+  title: string;
+  /** Jedna rečenica na srpskom, latinicom, sa dijakritikom. */
+  detail: string;
+  /**
+   * Proverljiva rečenica u prvom licu — ono što vlasnik vidi kad otvori sajt na
+   * telefonu. Jedino polje koje sme da uđe u outreach poruku (F7); `detail` je
+   * pisan za korisnika alata i nosi žargon koji u poruci strancu zvuči kao
+   * kopiran izveštaj.
+   *
+   * [PAŽNJA] Polje je obavezno u tipu, ali `ai_issues` je `jsonb` — zapisi
+   * nastali pre uvođenja `evidence` ga nemaju, i tip o njima laže. Svaki kod
+   * koji ga čita mora da izdrži `undefined` (v. `auditToDokazi`).
+   */
+  evidence: string;
+  severity: AiSeverity;
+};
+
+// ─────────────────────────────────────────────────────────────
 // Oblici koji se u F1 mapiraju na tabele
 // ─────────────────────────────────────────────────────────────
 
@@ -107,7 +140,10 @@ export type AuditRecord = {
   screenshotDesktop: string | null;
   screenshotMobile: string | null;
   psiMobileScore: number | null;
-  aiIssues: string[] | null;
+  psiLcpMs: number | null;
+  aiIssues: AiIssue[] | null;
   aiVerdict: string | null;
+  /** `null` znači da AI nije uspeo ili nije ni pozvan — nije isto što i `false`. */
+  aiSolidan: boolean | null;
   enrichedAt: string;
 };

@@ -13,6 +13,9 @@ data/scanovi-arhiva/
 supabase/.temp/
 supabase/.branches/
 
+# lokalna podešavanja Claude Code-a (dozvole po mašini) — nisu deo projekta
+.claude/settings.local.json
+
 # stanje Google budzeta (api-budget.ts) — nikad u repo
 .cache/
 # izlaz CLI scanova i harvesta

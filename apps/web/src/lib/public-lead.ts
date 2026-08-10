@@ -46,7 +46,10 @@ export type LeadAudit = Pick<
   | "ugly_score"
   | "signals"
   | "emails"
+  | "psi_mobile_score"
+  | "psi_lcp_ms"
   | "ai_issues"
+  | "ai_verdict"
   | "screenshot_desktop"
   | "screenshot_mobile"
 >;
@@ -59,7 +62,8 @@ export const LEAD_BUSINESS_COLUMNS =
   "place_id, name, city_slug, address, phone, phone_type, website_url, rating";
 
 export const LEAD_AUDIT_COLUMNS =
-  "site_status, ugly_band, platform, ugly_score, signals, emails, ai_issues, " +
+  "site_status, ugly_band, platform, ugly_score, signals, emails, " +
+  "psi_mobile_score, psi_lcp_ms, ai_issues, ai_verdict, " +
   "screenshot_desktop, screenshot_mobile";
 
 /**
@@ -117,7 +121,13 @@ export function toPublicLead(
     email: a?.emails?.[0] ?? null,
     uglyScore: a?.ugly_score ?? null,
     signals: (a?.signals ?? []).map((s) => s.label),
+    // F6: skor, LCP i AI izlaz idu ISKLJUČIVO otključanom leadu (pravilo 4 gore).
+    // `aiVerdict` je rečenica koju korisnik kopira u poruku — to je proizvod, a
+    // ne mamac, i nema šta da radi u odgovoru za zaključan lead.
+    psiMobileScore: a?.psi_mobile_score ?? null,
+    psiLcpMs: a?.psi_lcp_ms ?? null,
     aiIssues: a?.ai_issues ?? null,
+    aiVerdict: a?.ai_verdict ?? null,
     screenshot: screenshotOf(a, signed),
   };
 }

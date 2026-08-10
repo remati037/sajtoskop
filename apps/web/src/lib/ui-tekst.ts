@@ -5,7 +5,7 @@
 // Terminologija je iz tabele u CLAUDE.md: lead → prospekt, unlock → otključaj,
 // band → Solidan / Osrednji / Ružan / Katastrofa, Ugly Score se ne prevodi.
 
-import type { NicheGroup, SiteStatus, UglyBand } from "@sajtoskop/shared";
+import type { AiSeverity, NicheGroup, SiteStatus, UglyBand } from "@sajtoskop/shared";
 import type { SearchSummary } from "./search-types";
 
 export const STATUS_LABEL: Record<SiteStatus, string> = {
@@ -34,6 +34,29 @@ export const GROUP_LABEL: Record<NicheGroup, string> = {
   obrazovanje: "Obrazovanje",
   turizam: "Turizam",
 };
+
+/** Bedž uz svaki problem iz Claude analize (F6 §4). */
+export const SEVERITY_LABEL: Record<AiSeverity, string> = {
+  visoka: "Visoko",
+  srednja: "Srednje",
+  niska: "Nisko",
+};
+
+/**
+ * Opseg PageSpeed skora, po Googleovim pragovima (0–49 loše, 50–89 osrednje,
+ * 90–100 dobro). Stoji ovde, a ne u komponenti, jer ista podela treba i
+ * generatoru poruka u F7.
+ */
+export function psiBand(score: number): "dobar" | "osrednji" | "los" {
+  if (score >= 90) return "dobar";
+  if (score >= 50) return "osrednji";
+  return "los";
+}
+
+/** „8,2 s" — LCP u obliku koji ide pravo u rečenicu vlasniku. */
+export function formatLcp(ms: number): string {
+  return `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
+}
 
 export const PHONE_LABEL: Record<string, string> = {
   mobilni: "Mobilni",

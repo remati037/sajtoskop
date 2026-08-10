@@ -43,6 +43,30 @@ export const GLOBAL_DAILY_API_CAP = 75;
 // Enterprise SKU (Text Search sa kontakt poljima). Preko toga je stvaran novac.
 export const GLOBAL_MONTHLY_API_CAP = 900;
 
+// ── kapovi za ne-Google pozive (F6) ───────────────────────
+// Ovi brojači stoje u `api_budget.by_kind` i NE diraju `calls` — v. migraciju
+// 0005 i `consume_side_call`. Googleov mesečni prag se njima ne troši.
+
+/**
+ * PageSpeed Insights, dnevno. PSI daje 25.000 poziva dnevno uz ključ, pa ovo
+ * nije budžet nego zaštita od odbeglog skripta. Duplo od AI capa jer PSI ume da
+ * se pusti i na backfillu, a ne košta ništa.
+ */
+export const PSI_DAILY_CAP = 120;
+
+/**
+ * Claude vision analiza, dnevno. Ovo je JEDINI cap iza koga stoji stvaran račun.
+ *
+ * 60 nije proizvoljno: 20 beta korisnika × 30 kredita mesečno je gornja granica
+ * od 600 unlockova mesečno (F6 §3), dakle prosek od 20 dnevno. Trostruko od
+ * proseka ostavlja mesta za dan kad se svi jave odjednom, a i dalje drži dnevni
+ * trošak u redu veličine jednog evra.
+ *
+ * Preko capa `enrich_full` PRESKAČE AI korak i ostavlja `audit_level = 2` —
+ * lead i dalje ima skor, screenshot i PSI. Posao se ne odlaže i ne pada.
+ */
+export const AI_DAILY_CAP = 60;
+
 /** Google resetuje kvotu u 09:00 po lokalnom vremenu Kalifornije. */
 export const BUDGET_TIMEZONE = "America/Los_Angeles";
 

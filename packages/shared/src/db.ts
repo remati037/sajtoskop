@@ -11,7 +11,7 @@
 // Camel-case oblici (`PlaceRecord`, `AuditRecord`) su u `types.ts` i koriste se
 // u domenskoj logici. Ovi ovde se koriste na granici sa bazom.
 
-import type { PhoneKind, Platform, Signal, SiteStatus, UglyBand } from "./types";
+import type { AiIssue, PhoneKind, Platform, Signal, SiteStatus, UglyBand } from "./types";
 
 export type ProfileRow = {
   id: string;
@@ -58,8 +58,15 @@ export type WebsiteAuditRow = {
   screenshot_desktop: string | null;
   screenshot_mobile: string | null;
   psi_mobile_score: number | null;
-  ai_issues: string[] | null;
+  /** Largest Contentful Paint u ms. Dodato u 0005. */
+  psi_lcp_ms: number | null;
+  ai_issues: AiIssue[] | null;
   ai_verdict: string | null;
+  /**
+   * Model je ocenio sajt kao uredan. Dodato u 0006.
+   * `null` ≠ `false`: null znači da AI nije uspeo ili nije ni pozvan.
+   */
+  ai_solidan: boolean | null;
   enriched_at: string;
 };
 
