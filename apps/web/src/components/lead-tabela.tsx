@@ -10,6 +10,7 @@
 // nadole, a ne da traži gde mu je otišao lead koji je upravo platio.
 
 import type { PublicLead } from "@/lib/search-types";
+import { SnimakDugme } from "./snimak";
 import { BAND_LABEL, PHONE_LABEL, STATUS_LABEL, telefonHref } from "@/lib/ui-tekst";
 
 type Props = {
@@ -30,6 +31,7 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
           <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wider text-neutral-500 dark:border-neutral-800">
             <th className="py-2 pl-3 font-medium">Prospekt</th>
             <th className="py-2 font-medium">Status sajta</th>
+            <th className="py-2 font-medium">Snimak</th>
             <th className="py-2 font-medium">Grad</th>
             <th className="py-2 font-medium">Telefon</th>
             <th className="py-2 pr-3 text-right font-medium">Kontakt</th>
@@ -59,6 +61,16 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
 
               <td className="py-2.5 align-middle">
                 <StatusBedz lead={lead} />
+              </td>
+
+              <td className="py-2.5 align-middle">
+                {lead.isUnlocked ? (
+                  <SnimakDugme lead={lead} />
+                ) : (
+                  // Zaključan lead ne dobija ni umanjeni prikaz. Snimak je deo
+                  // onoga što se plaća kreditom, a CSS blur nije bezbednost.
+                  <span className="text-xs text-neutral-400">—</span>
+                )}
               </td>
 
               <td className="py-2.5 align-middle text-neutral-600 dark:text-neutral-400">

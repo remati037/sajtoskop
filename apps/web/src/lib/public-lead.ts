@@ -16,10 +16,19 @@
 // 3. `uglyBand` je vidljiv i zaključanom leadu (to je mamac), `uglyScore` nije.
 // 4. Novo polje u `website_audits` je PODRAZUMEVANO zaključano — dodaje se u
 //    `UnlockedLead`, nikad u `LeadBase`, dok se svesno ne odluči drugačije.
+//
+// ── SCREENSHOTOVI (F5) ─────────────────────────────────────
+// Iz baze stiže PUTANJA u privatnom bucketu, iz ove funkcije izlazi POTPISAN URL
+// sa rokom od 15 minuta — i to samo za otključan lead. Potpisivanje je grupno i
+// radi se pre poziva (v. `screenshots.ts`), pa ova funkcija ostaje sinhrona:
+// inače bi svaka strana pretrage pravila 60 poziva ka Storage-u umesto jednog.
+//
+// Putanja zaključanog leada se ne potpisuje jer se ni ne prosleđuje — pozivalac
+// skuplja putanje isključivo iz redova koje je prethodno proglasio otključanim.
 
 import "server-only";
 import type { BusinessRow, WebsiteAuditRow } from "@sajtoskop/shared";
-import type { LeadBase, PublicLead } from "./search-types";
+import type { LeadBase, LeadScreenshot, PublicLead } from "./search-types";
 
 // Ulazni oblici su namerno `Pick<>`, a ne ceo red iz baze: tip je istovremeno i
 // lista kolona koje upit sme da traži. Ako neko doda kolonu u `Pick`, mora da je
@@ -31,7 +40,15 @@ export type LeadBusiness = Pick<
 
 export type LeadAudit = Pick<
   WebsiteAuditRow,
-  "site_status" | "ugly_band" | "platform" | "ugly_score" | "signals" | "emails" | "ai_issues"
+  | "site_status"
+  | "ugly_band"
+  | "platform"
+  | "ugly_score"
+  | "signals"
+  | "emails"
+  | "ai_issues"
+  | "screenshot_desktop"
+  | "screenshot_mobile"
 >;
 
 // `select` liste stoje uz `Pick` tipove, a ne uz upite: pravilo 2 iznad zabranjuje
@@ -42,12 +59,40 @@ export const LEAD_BUSINESS_COLUMNS =
   "place_id, name, city_slug, address, phone, phone_type, website_url, rating";
 
 export const LEAD_AUDIT_COLUMNS =
-  "site_status, ugly_band, platform, ugly_score, signals, emails, ai_issues";
+  "site_status, ugly_band, platform, ugly_score, signals, emails, ai_issues, " +
+  "screenshot_desktop, screenshot_mobile";
+
+/**
+ * Putanje snimaka jednog audita, za grupno potpisivanje.
+ *
+ * Pozivalac ovo sme da pozove SAMO za lead koji je proglasio otključanim.
+ * Potpisan URL za zaključan lead je isto što i procureo telefon.
+ */
+export function screenshotPathsOf(a: LeadAudit | null): (string | null)[] {
+  return a ? [a.screenshot_desktop, a.screenshot_mobile] : [];
+}
+
+function screenshotOf(
+  a: LeadAudit | null,
+  signed: ReadonlyMap<string, string> | undefined,
+): LeadScreenshot | null {
+  if (!a || !signed) return null;
+
+  const desktop = a.screenshot_desktop ? (signed.get(a.screenshot_desktop) ?? null) : null;
+  const mobile = a.screenshot_mobile ? (signed.get(a.screenshot_mobile) ?? null) : null;
+
+  // Ni jedan ni drugi — polje je `null`, a ne objekat sa dva `null`-a. UI na
+  // osnovu toga zna da prikaže poruku „sajt se ne otvara", a ne prazan okvir.
+  if (!desktop && !mobile) return null;
+  return { desktop, mobile };
+}
 
 export function toPublicLead(
   b: LeadBusiness,
   a: LeadAudit | null,
   isUnlocked: boolean,
+  /** Rezultat `signScreenshots()`. Bez njega otključan lead nema snimke. */
+  signed?: ReadonlyMap<string, string>,
 ): PublicLead {
   const base: LeadBase = {
     placeId: b.place_id,
@@ -73,5 +118,6 @@ export function toPublicLead(
     uglyScore: a?.ugly_score ?? null,
     signals: (a?.signals ?? []).map((s) => s.label),
     aiIssues: a?.ai_issues ?? null,
+    screenshot: screenshotOf(a, signed),
   };
 }

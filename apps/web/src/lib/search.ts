@@ -13,10 +13,12 @@ import { adminSupabase, userSupabase } from "./supabase";
 import {
   LEAD_AUDIT_COLUMNS,
   LEAD_BUSINESS_COLUMNS,
+  screenshotPathsOf,
   toPublicLead,
   type LeadAudit,
   type LeadBusiness,
 } from "./public-lead";
+import { signScreenshots } from "./screenshots";
 import { PAGE_SIZE, type SearchFilters, type SearchResponse, type SearchSummary } from "./search-types";
 
 /**
@@ -124,6 +126,14 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
   // Unlock status se traži samo za redove koji stvarno izlaze — najviše 30 id-jeva.
   const unlocked = await getUnlockedPlaceIds(pageRows.map(({ b }) => b.place_id));
 
+  // Potpisuju se ISKLJUČIVO putanje otključanih redova. Potpisan URL za
+  // zaključan lead je isto što i procureo telefon (P0-3).
+  const signed = await signScreenshots(
+    pageRows
+      .filter(({ b }) => unlocked.has(b.place_id))
+      .flatMap(({ a }) => screenshotPathsOf(a)),
+  );
+
   await logSearch({
     userId: input.userId,
     countryCode,
@@ -138,7 +148,7 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
     total: filtered.length,
     page: input.page,
     pageSize: PAGE_SIZE,
-    results: pageRows.map(({ b, a }) => toPublicLead(b, a, unlocked.has(b.place_id))),
+    results: pageRows.map(({ b, a }) => toPublicLead(b, a, unlocked.has(b.place_id), signed)),
     summary: summarize(filtered),
   };
 }

@@ -23,10 +23,12 @@ import { enqueueEnrichFull } from "./jobs";
 import {
   LEAD_AUDIT_COLUMNS,
   LEAD_BUSINESS_COLUMNS,
+  screenshotPathsOf,
   toPublicLead,
   type LeadAudit,
   type LeadBusiness,
 } from "./public-lead";
+import { signScreenshots } from "./screenshots";
 import type { UnlockedLead } from "./search-types";
 import { adminSupabase } from "./supabase";
 
@@ -128,7 +130,12 @@ async function readUnlockedLead(placeId: string): Promise<UnlockedLead> {
 
   if (aErr) throw new Error(`Čitanje audita nije uspelo: ${aErr.message}`);
 
-  const lead = toPublicLead(business, audit, true);
+  // Na svež unlock ovo je gotovo uvek prazno: `enrich_full` je tek upisan u red
+  // i Playwright još nije ni startovao. Snimci se pojave na prvom sledećem
+  // učitavanju liste, u roku od tridesetak sekundi.
+  const signed = await signScreenshots(screenshotPathsOf(audit));
+
+  const lead = toPublicLead(business, audit, true, signed);
   // `isUnlocked: true` je ovde nesporno — prosleđen je literal iznad. Suženje
   // postoji da bi povratni tip bio `UnlockedLead`, a ne unija sa zaključanim.
   if (!lead.isUnlocked) throw new Error("toPublicLead je vratio zaključan lead.");

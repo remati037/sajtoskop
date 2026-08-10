@@ -11,10 +11,12 @@ import "server-only";
 import {
   LEAD_AUDIT_COLUMNS,
   LEAD_BUSINESS_COLUMNS,
+  screenshotPathsOf,
   toPublicLead,
   type LeadAudit,
   type LeadBusiness,
 } from "./public-lead";
+import { signScreenshots } from "./screenshots";
 import type { UnlockedLead } from "./search-types";
 import { adminSupabase, userSupabase } from "./supabase";
 
@@ -83,10 +85,16 @@ export async function getMojaLista(filter: MojaListaFilter = {}): Promise<MojLea
 
   const auditPoMestu = new Map((audits ?? []).map((a) => [a.place_id, a]));
 
+  // Cela lista je po definiciji otključana, pa se potpisuje sve odjednom —
+  // jedan poziv ka Storage-u umesto dva po redu.
+  const signed = await signScreenshots(
+    firme.flatMap((b) => screenshotPathsOf(auditPoMestu.get(b.place_id) ?? null)),
+  );
+
   const lista: MojLead[] = [];
 
   for (const b of firme) {
-    const lead = toPublicLead(b, auditPoMestu.get(b.place_id) ?? null, true);
+    const lead = toPublicLead(b, auditPoMestu.get(b.place_id) ?? null, true, signed);
     // Nemoguće stanje — `true` je prosleđen literalno. Suženje je tu zbog tipa.
     if (!lead.isUnlocked) continue;
     lista.push({ ...lead, unlockedAt: otkljucanoU.get(b.place_id) ?? "" });

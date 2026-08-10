@@ -11,6 +11,7 @@
 import { useMemo, useState } from "react";
 import type { MojLead } from "@/lib/moja-lista";
 import { TelefonLink } from "./lead-tabela";
+import { SnimakDugme } from "./snimak";
 import { BAND_LABEL, formatDatum, plural, STATUS_LABEL } from "@/lib/ui-tekst";
 import type { ApiError } from "@/lib/search-types";
 import { foldForSearch } from "@sajtoskop/shared";
@@ -210,6 +211,7 @@ function Tabela({ leads, cityLabels }: { leads: MojLead[]; cityLabels: Record<st
           <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wider text-neutral-500 dark:border-neutral-800">
             <th className="py-2 pl-3 font-medium">Prospekt</th>
             <th className="py-2 font-medium">Status</th>
+            <th className="py-2 font-medium">Snimak</th>
             <th className="py-2 font-medium">Telefon</th>
             <th className="py-2 font-medium">Mejl</th>
             <th className="py-2 font-medium">Sajt</th>
@@ -244,6 +246,10 @@ function Tabela({ leads, cityLabels }: { leads: MojLead[]; cityLabels: Record<st
                 ) : (
                   <span className="text-neutral-400">—</span>
                 )}
+              </td>
+
+              <td className="py-2.5 align-middle">
+                <SnimakDugme lead={l} />
               </td>
 
               <td className="py-2.5 align-middle">

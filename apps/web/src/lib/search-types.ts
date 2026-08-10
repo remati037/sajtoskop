@@ -29,6 +29,16 @@ export type LeadBase = {
 
 export type LockedLead = LeadBase & { isUnlocked: false };
 
+/**
+ * Potpisani URL-ovi sa rokom od 15 minuta, ne putanje u bucketu (F5 §4).
+ * Bilo koje polje ume da bude `null` — sajt koji se ne otvara nema snimak, a
+ * varijanta ume i da otpadne ako je pojela rok od 30 sekundi za ceo posao.
+ */
+export type LeadScreenshot = {
+  desktop: string | null;
+  mobile: string | null;
+};
+
 export type UnlockedLead = LeadBase & {
   isUnlocked: true;
   phone: string | null;
@@ -41,8 +51,12 @@ export type UnlockedLead = LeadBase & {
    */
   signals: string[];
   aiIssues: string[] | null;
-  // `screenshot` namerno ne postoji u F2: nema screenshotova do F5. Kad stigne,
-  // dolazi kao potpisan URL sa rokom od 15 minuta.
+  /**
+   * Potpisani URL-ovi, rok 15 minuta. `null` kad snimka nema — sajt bez sajta,
+   * mrtav domen, ili lead otključan pre F5 kome `enrich_full` još nije stigao.
+   * UI na `null` prikazuje poruku, ne prazan okvir.
+   */
+  screenshot: LeadScreenshot | null;
 };
 
 /**
