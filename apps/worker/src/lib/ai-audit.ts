@@ -34,7 +34,7 @@
 // Node-only, isključivo u workeru (pravilo 7).
 
 import Anthropic from "@anthropic-ai/sdk";
-import { CITIES, NICHES } from "@sajtoskop/shared";
+import { bandForScore, CITIES, NICHES } from "@sajtoskop/shared";
 import type { AiIssue, Signal } from "@sajtoskop/shared";
 import sharp from "sharp";
 import { z } from "zod";
@@ -208,6 +208,40 @@ const SEVERITY_RANK: Record<Answer["issues"][number]["severity"], number> = {
 /** Najozbiljnija prva. Stabilno — unutar iste ozbiljnosti ostaje redosled modela. */
 function sortIssues(issues: Answer["issues"]): Answer["issues"] {
   return [...issues].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+}
+
+/**
+ * Konačna vrednost `solidan`, posle ukrštanja sa Ugly Score-om.
+ *
+ * ── zašto ovo nije u promptu ───────────────────────────────
+ * Model gleda dva screenshota i ocenjuje ono što VIDI. To je čist zadatak i
+ * takav treba da ostane. Ugly Score zna i ono što se ne vidi — nedostatak opisa
+ * za Google, sliku za deljenje, favikonu — i to je posao koji se naplaćuje iako
+ * na slici izgleda uredno.
+ *
+ * Izmereno na stvarnom leadu: sajt sa Ugly Score 46 (band „ružan") model je
+ * ocenio kao uredan, i bio je u pravu o onome što vidi. Ali `ai_solidan = true`
+ * znači da mu F7 ne piše poruku, a taj sajt jeste posao. Zato zastavica koja
+ * odlučuje o outreachu uzima obe ocene, a prompt ostaje neizmenjen.
+ *
+ * Prag je granica benda, ne broj: `bandForScore` je jedini izvor pragova
+ * (pravilo 6). Sve od „osrednji" naviše (skor 20+) obara vizuelnu ocenu.
+ */
+function effectiveSolidan(
+  modelSolidan: boolean,
+  uglyScore: number | null,
+  brojStavki: number,
+): boolean {
+  if (!modelSolidan) return false;
+
+  // Model nije našao nijedan vidljiv problem. Obaranje zastavice bi napravilo
+  // lead bez ijednog dokaza — F7 bi imao „piši mu" i ništa da napiše.
+  if (brojStavki === 0) return true;
+
+  // Nema heuristike (audit bez skora) — veruj očima, drugog izvora nema.
+  if (uglyScore === null) return true;
+
+  return bandForScore(uglyScore) === "solidan";
 }
 
 // ── prompt ─────────────────────────────────────────────────
@@ -452,8 +486,17 @@ export type AiOutcome =
       status: "ok";
       issues: AiIssue[];
       verdict: string;
-      /** Sajt je uredan. Poziv `enrich_full` je uspeo, ali lead ne ide u outreach. */
+      /**
+       * Sajt je uredan i lead ne ide u outreach. Ovo je KONAČNA ocena: vizuelna
+       * ocena modela ukrštena sa Ugly Score-om (v. `effectiveSolidan`).
+       */
       solidan: boolean;
+      /**
+       * Šta je model rekao gledajući samo slike, pre ukrštanja sa skorom.
+       * Kad se razlikuje od `solidan`, heuristika je oborila vizuelnu ocenu —
+       * bez ovog polja bi to izgledalo kao da model protivreči sam sebi.
+       */
+      solidanModel: boolean;
       usage: AiUsage;
     }
   /** Dnevni cap dostignut. Lead ostaje na `audit_level = 2` (PRD §3). */
@@ -563,7 +606,12 @@ export async function analyzeScreenshots(input: AuditInput): Promise<AiOutcome> 
         status: "ok",
         issues: sortIssues(parsed.data.issues),
         verdict: parsed.data.verdict,
-        solidan: parsed.data.solidan,
+        solidan: effectiveSolidan(
+          parsed.data.solidan,
+          input.uglyScore,
+          parsed.data.issues.length,
+        ),
+        solidanModel: parsed.data.solidan,
         usage: {
           inputTokens,
           outputTokens,
@@ -641,4 +689,10 @@ export function auditToDokazi(outcome: AiOutcome, limit = 5): string[] {
  *
  * Ime sa dve donje crte je namerno ružno: da se vidi da nije javni API modula.
  */
-export const __test = { answerSchema, sortIssues, leaksBusinessName, normalize };
+export const __test = {
+  answerSchema,
+  sortIssues,
+  leaksBusinessName,
+  normalize,
+  effectiveSolidan,
+};

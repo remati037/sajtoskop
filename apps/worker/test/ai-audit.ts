@@ -14,7 +14,7 @@
 import { analyzeScreenshots, auditToDokazi, __test } from "../src/lib/ai-audit";
 import type { AiOutcome } from "../src/lib/ai-audit";
 
-const { answerSchema, sortIssues, leaksBusinessName } = __test;
+const { answerSchema, sortIssues, leaksBusinessName, effectiveSolidan } = __test;
 
 let fail = 0;
 const check = (ok: boolean, line: string) => {
@@ -169,6 +169,25 @@ check(
 );
 
 // ═══════════════════════════════════════════════════════════
+// 3b. effectiveSolidan — vizuelna ocena ukrštena sa Ugly Score-om
+// ═══════════════════════════════════════════════════════════
+
+console.log("\neffectiveSolidan");
+
+// Pragovi su bendovi iz ugly-score: <20 solidan, 20-44 osrednji, 45+ ružan.
+check(effectiveSolidan(true, 0, 1) === true, "model true + skor 0 (solidan) → true");
+check(effectiveSolidan(true, 19, 1) === true, "model true + skor 19 (solidan) → true");
+check(effectiveSolidan(true, 20, 1) === false, "model true + skor 20 (osrednji) → false");
+check(effectiveSolidan(true, 46, 2) === false, "model true + skor 46 (ružan) → false  ← slučaj Matilda");
+
+check(effectiveSolidan(false, 0, 3) === false, "model false + skor 0 → false (skor ne diže zastavicu)");
+
+// Bez ijedne stavke obaranje bi napravilo lead kome F7 nema šta da napiše.
+check(effectiveSolidan(true, 90, 0) === true, "model true + skor 90 ali 0 stavki → true");
+
+check(effectiveSolidan(true, null, 2) === true, "model true + nema skora → true (veruj očima)");
+
+// ═══════════════════════════════════════════════════════════
 // 4. auditToDokazi
 // ═══════════════════════════════════════════════════════════
 
@@ -181,6 +200,7 @@ const ok = (solidan: boolean, issues: ReturnType<typeof stavka>[]): AiOutcome =>
   issues,
   verdict: "Sajt radi.",
   solidan,
+  solidanModel: solidan,
   usage,
 });
 

@@ -224,9 +224,16 @@ for (const [i, red] of redovi.entries()) {
   ukupnoIzlaz += rezultat.usage.outputTokens;
   ukupnoUsd += rezultat.usage.costUsd;
 
+  const oboren = rezultat.solidanModel && !rezultat.solidan;
   console.log(
     `\n   ${naslov("solidan:")} ${rezultat.solidan ? c("32", "true") : c("31", "false")}` +
-      `   ${naslov("stavki:")} ${rezultat.issues.length}`,
+      `   ${naslov("stavki:")} ${rezultat.issues.length}` +
+      (oboren
+        ? c(
+            "33",
+            `   ← model je rekao true, oborio Ugly Score ${red.ugly_score} (${red.ugly_band})`,
+          )
+        : ""),
   );
 
   console.log("");
