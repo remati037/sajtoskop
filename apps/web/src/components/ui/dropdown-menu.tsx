@@ -21,7 +21,7 @@ export function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         sideOffset={sideOffset}
         className={cn(
-          "z-50 min-w-[10rem] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-pop data-[state=open]:animate-uklizi",
+          "z-50 min-w-[10rem] overflow-hidden rounded-xl border border-border bg-bg-elev p-1 text-fg shadow-hero data-[state=open]:animate-uklizi",
           className,
         )}
         {...props}
@@ -37,7 +37,7 @@ export function DropdownMenuItem({
   return (
     <DropdownMenuPrimitive.Item
       className={cn(
-        "flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm outline-none transition-colors focus:bg-surface-hover data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-muted-foreground",
+        "flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm outline-none transition-colors focus:bg-bg-hover data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-fg-muted",
         className,
       )}
       {...props}
@@ -51,7 +51,7 @@ export function DropdownMenuLabel({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Label>) {
   return (
     <DropdownMenuPrimitive.Label
-      className={cn("px-2.5 py-1.5 text-[11px] uppercase tracking-wider text-muted-foreground", className)}
+      className={cn("px-2.5 py-1.5 text-[11px] uppercase tracking-wider text-fg-muted", className)}
       {...props}
     />
   );

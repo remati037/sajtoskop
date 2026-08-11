@@ -14,11 +14,11 @@ const alertVarijante = cva(
   {
     variants: {
       variant: {
-        info: "border-info/25 bg-info-soft text-info-foreground",
-        success: "border-success/25 bg-success-soft text-success-foreground",
-        warning: "border-warning/30 bg-warning-soft text-warning-foreground",
-        danger: "border-danger/25 bg-danger-soft text-danger-foreground",
-        neutral: "border-border bg-surface text-foreground",
+        info: "border-info/25 bg-info-wash text-info-text",
+        success: "border-accent/25 bg-accent-wash text-accent-text",
+        warning: "border-warn/30 bg-warn-wash text-warn-text",
+        danger: "border-danger/25 bg-danger-wash text-danger",
+        neutral: "border-border bg-bg-subtle text-fg",
       },
     },
     defaultVariants: { variant: "info" },

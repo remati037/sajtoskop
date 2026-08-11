@@ -1,45 +1,50 @@
 // apps/web/src/components/znak.tsx
-// Znak proizvoda: lupa u kojoj stoji prozor sajta. Doslovno ono što alat radi —
-// gleda tuđi sajt izbliza.
+// Znak proizvoda po `docs/DIZAJN-SISTEM.md` §2: lupa/nišan — prsten sa metom u
+// centru i drškom.
 //
-// Inline SVG, ne slika: znak stoji u sidebar-u, na landing-u i na ekranima za
-// prijavu, mora da nasledi boju i da ostane oštar na svakom ekranu.
+// Inline SVG, ne slika: znak stoji u bočnoj traci, na ekranu za prijavu i u
+// praznim stanjima, mora da nasledi boju teksta i da ostane oštar na svakom
+// ekranu.
+//
+// Meta je jedini deo u akcentnoj boji — ostalo je `currentColor` da radi na obe
+// teme. Nikad ne prebojavaj ceo znak u zeleno.
 
 import { cn } from "@/lib/cn";
 
 export function Znak({ className }: { className?: string }) {
   return (
-    <span
-      className={cn(
-        "relative inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white shadow-glow",
-        "bg-[linear-gradient(140deg,oklch(0.62_0.2_290),oklch(0.48_0.19_275))]",
-        className,
-      )}
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+      strokeLinecap="round"
+      className={cn("h-[22px] w-[22px] shrink-0 text-fg", className)}
     >
-      {/* Tanka svetla ivica po gornjoj strani — znak deluje kao dugme od stakla,
-          ne kao obojen kvadrat. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-white/25"
-      />
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden
-        className="h-[55%] w-[55%]"
-        strokeWidth={2.1}
+      {/* prsten „skopa" */}
+      <circle cx="10.5" cy="10.5" r="7.25" stroke="currentColor" strokeWidth="1.6" opacity="0.9" />
+      <circle cx="10.5" cy="10.5" r="3.6" stroke="currentColor" strokeWidth="1.2" opacity="0.35" />
+      {/* nišan */}
+      <path
+        d="M10.5 1.6v3.1M10.5 16.3v3.1M1.6 10.5h3.1M16.3 10.5h3.1"
         stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="10.5" cy="10.5" r="7" />
-        <path d="M4.4 7.8h12.2" />
-        <path d="M15.8 15.8 21 21" />
-      </svg>
-    </span>
+        strokeWidth="1.4"
+        opacity="0.55"
+      />
+      {/* drška */}
+      <path d="M15.9 15.9 21.4 21.4" stroke="currentColor" strokeWidth="1.9" />
+      {/* meta */}
+      <circle cx="10.5" cy="10.5" r="1.9" fill="var(--accent)" />
+    </svg>
   );
 }
 
+/**
+ * Znak uz wordmark. Wordmark je **uvek mala slova** — u rečenici se piše
+ * „Sajtoskop", ali logo nikad ne dobija veliko S (§2).
+ *
+ * Rotacija na hover je namerna sitnica; `group` stoji na samom znaku da radi i
+ * kad ga pozivalac ne umota u link.
+ */
 export function ZnakSaImenom({
   className,
   imeKlase,
@@ -48,10 +53,10 @@ export function ZnakSaImenom({
   imeKlase?: string;
 }) {
   return (
-    <span className={cn("flex items-center gap-2.5", className)}>
-      <Znak />
-      <span className={cn("text-[15px] font-semibold tracking-tight", imeKlase)}>
-        Sajtoskop
+    <span className={cn("group inline-flex items-center gap-2.5", className)}>
+      <Znak className="transition-transform duration-300 group-hover:rotate-[-12deg]" />
+      <span className={cn("text-[15px] font-semibold tracking-[-0.03em] text-fg", imeKlase)}>
+        sajtoskop
       </span>
     </span>
   );

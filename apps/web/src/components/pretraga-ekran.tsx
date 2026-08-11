@@ -386,12 +386,12 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
           ) : data.total === 0 ? null : (
             <>
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="text-sm tabular-nums">{summaryLine(data.total, data.summary)}</p>
+                <p className="text-sm num">{summaryLine(data.total, data.summary)}</p>
                 {data.freshness && (
                   <p
                     className={cn(
                       "text-xs",
-                      data.freshness.stale ? "text-warning-foreground" : "text-muted-foreground",
+                      data.freshness.stale ? "text-warn-text" : "text-fg-muted",
                     )}
                   >
                     {data.freshness.stale
@@ -410,7 +410,7 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
 
               {strana_ukupno > 1 && (
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground tabular-nums">
+                  <span className="text-xs text-fg-muted num">
                     Strana {strana} od {strana_ukupno}
                   </span>
                   <div className="flex gap-2">
@@ -473,27 +473,27 @@ function TrakaPosla({ posao }: { posao: JobStatusResponse | null }) {
     <Card className="space-y-3 p-5">
       <div className="flex items-baseline justify-between gap-3">
         <p className="flex items-center gap-2 text-sm font-medium">
-          <Clock className={cn("h-4 w-4 text-primary", nadjeno === 0 && "animate-puls-tanko")} />
+          <Clock className={cn("h-4 w-4 text-accent-text", nadjeno === 0 && "animate-puls-tanko")} />
           {tekst}
         </p>
         {nadjeno > 0 && (
-          <span className="text-xs font-medium tabular-nums text-muted-foreground">
+          <span className="text-xs font-medium num text-fg-muted">
             {procenat}%
           </span>
         )}
       </div>
 
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+      <div className="h-1.5 overflow-hidden rounded-full bg-bg-inset">
         <div
           className={cn(
-            "h-full rounded-full bg-[linear-gradient(90deg,oklch(0.62_0.2_290),oklch(0.5_0.19_275))] transition-[width] duration-500",
+            "h-full rounded-full bg-accent transition-[width] duration-500",
             nadjeno === 0 && "animate-puls-tanko",
           )}
           style={{ width: nadjeno === 0 ? "15%" : `${Math.max(procenat, 4)}%` }}
         />
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-fg-muted">
         Prva pretraga ove kombinacije traje do dva minuta. Sledeći put ide iz keša — instant.
       </p>
     </Card>
@@ -517,7 +517,7 @@ function FilterTraka({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+      <SlidersHorizontal className="h-3.5 w-3.5 text-fg-muted" aria-hidden />
 
       {toggles.map((t) => (
         <Cip
@@ -560,8 +560,8 @@ function Cip({
       className={cn(
         "rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-150 disabled:opacity-50",
         ukljucen
-          ? "border-primary bg-primary text-primary-foreground shadow-glow"
-          : "border-border bg-card text-muted-foreground hover:border-border-strong hover:text-foreground",
+          ? "border-accent bg-accent text-accent-ink shadow-accent"
+          : "border-border bg-bg-elev text-fg-muted hover:border-border-strong hover:text-fg",
         className,
       )}
       {...props}

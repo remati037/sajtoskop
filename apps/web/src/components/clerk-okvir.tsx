@@ -7,42 +7,44 @@
 // prop, a ne kao CSS promenljive, provider mora da bude klijentski i da čita
 // stvarnu temu iz konteksta.
 //
-// Boje su ovde HEX, iako je ceo ostatak proizvoda u oklch: Clerk sam pravi
-// skalu iz `colorPrimary` i njegov parser ne poznaje oklch. Vrednosti su ručno
-// prevedeni parnjaci tokena iz `globals.css`.
+// Vrednosti su doslovno tokeni iz `docs/DIZAJN-SISTEM.md` §3.1 — dokument ih
+// već drži u HEX-u, pa je ovo prepis, ne prevod. Jedini izuzetak je
+// `colorBorder` u tamnoj temi: token je `rgba(255,255,255,0.085)`, a Clerk iz
+// boje ivice izvodi svoju skalu i providnost mu razvali kontrast. Ovde stoji
+// ista boja spljoštena preko `--bg-elev`.
 
 import { ClerkProvider } from "@clerk/nextjs";
 import { srRS } from "@clerk/localizations";
 import { useTema } from "./tema-provider";
 
 const SVETLA = {
-  colorPrimary: "#5b3df5",
-  colorPrimaryForeground: "#ffffff",
-  colorBackground: "#ffffff",
-  colorForeground: "#1e1e2a",
-  colorMutedForeground: "#6f6f80",
-  colorMuted: "#f4f4f7",
-  colorInput: "#ffffff",
-  colorInputForeground: "#1e1e2a",
-  colorBorder: "#e6e6ec",
-  colorDanger: "#dc3a45",
-  colorSuccess: "#1f9d63",
-  colorWarning: "#d18a12",
+  colorPrimary: "#8fd413", // --accent
+  colorPrimaryForeground: "#0a0b0c", // --accent-ink
+  colorBackground: "#ffffff", // --bg-elev
+  colorForeground: "#0a0b0c", // --fg
+  colorMutedForeground: "#575e66", // --fg-muted
+  colorMuted: "#f1f3f1", // --bg-inset
+  colorInput: "#ffffff", // --bg-elev
+  colorInputForeground: "#0a0b0c", // --fg
+  colorBorder: "#e5e7e6", // --border
+  colorDanger: "#d92020", // --danger
+  colorSuccess: "#4e7c0a", // --accent-text
+  colorWarning: "#b45309", // --warn-text
 };
 
 const TAMNA = {
-  colorPrimary: "#8b7bf7",
-  colorPrimaryForeground: "#16101f",
-  colorBackground: "#1c1c28",
-  colorForeground: "#f2f2f5",
-  colorMutedForeground: "#a8a8b8",
-  colorMuted: "#25252f",
-  colorInput: "#25252f",
-  colorInputForeground: "#f2f2f5",
-  colorBorder: "#33333f",
-  colorDanger: "#f0666f",
-  colorSuccess: "#4ec98d",
-  colorWarning: "#e5ac4a",
+  colorPrimary: "#adee2e", // --accent
+  colorPrimaryForeground: "#08090a", // --accent-ink
+  colorBackground: "#101317", // --bg-elev
+  colorForeground: "#f2f4f3", // --fg
+  colorMutedForeground: "#9aa2ab", // --fg-muted
+  colorMuted: "#0e1114", // --bg-inset
+  colorInput: "#0e1114", // --bg-inset
+  colorInputForeground: "#f2f4f3", // --fg
+  colorBorder: "#24272b", // --border, spljošten preko --bg-elev
+  colorDanger: "#ff5a5a", // --danger
+  colorSuccess: "#c4f55c", // --accent-text
+  colorWarning: "#fbbf24", // --warn-text
 };
 
 export function ClerkOkvir({ children }: { children: React.ReactNode }) {
@@ -52,13 +54,16 @@ export function ClerkOkvir({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider
       localization={srRS}
-      signInUrl="/prijava"
-      signUpUrl="/registracija"
+      // Obe forme stoje na početnoj strani; parametar bira karticu. Clerk ovim
+      // gradi svoje unutrašnje linkove, pa mora da pokazuje na `/`, a ne na
+      // `/prijava` — inače svaki taj link ide kroz redirekciju.
+      signInUrl="/"
+      signUpUrl="/?nalog=nov"
       appearance={{
         variables: {
           ...boje,
-          borderRadius: "0.75rem",
-          fontFamily: "var(--font-manrope), ui-sans-serif, system-ui, sans-serif",
+          borderRadius: "0.875rem", // --radius, 14px (§5)
+          fontFamily: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif",
         },
       }}
     >

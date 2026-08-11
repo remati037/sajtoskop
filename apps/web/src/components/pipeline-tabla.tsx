@@ -41,11 +41,11 @@ type Props = {
  * korisnik vuče).
  */
 const BOJA: Record<LeadStatusValue, { tacka: string; ivica: string }> = {
-  nekontaktiran: { tacka: "bg-muted-foreground/50", ivica: "border-l-border-strong" },
+  nekontaktiran: { tacka: "bg-fg-muted/50", ivica: "border-l-border-strong" },
   kontaktiran: { tacka: "bg-info", ivica: "border-l-info" },
-  odgovorio: { tacka: "bg-warning", ivica: "border-l-warning" },
-  potpisan: { tacka: "bg-success", ivica: "border-l-success" },
-  nezainteresovan: { tacka: "bg-muted-foreground/25", ivica: "border-l-border" },
+  odgovorio: { tacka: "bg-warn", ivica: "border-l-warn" },
+  potpisan: { tacka: "bg-accent", ivica: "border-l-accent" },
+  nezainteresovan: { tacka: "bg-fg-muted/25", ivica: "border-l-border" },
 };
 
 export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
@@ -152,13 +152,13 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-bg-elev p-4 shadow-sm">
         <label className="min-w-[14rem] flex-1">
           <Label>Pretraži pipeline</Label>
           <div className="relative">
             <Search
               aria-hidden
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted"
             />
             <Input
               type="search"
@@ -177,7 +177,7 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
           <Izbor naziv="Niša" vrednost={nisa} postavi={setNisa} opcije={nise} sve="Sve niše" />
         )}
 
-        <p className="ml-auto pb-2.5 text-xs tabular-nums text-muted-foreground">
+        <p className="ml-auto pb-2.5 text-xs num text-fg-muted">
           {vidljivi.length} {plural(vidljivi.length, "kartica", "kartice", "kartica")}
           {vidljivi.length !== redovi.length && ` od ${redovi.length}`}
         </p>
@@ -208,14 +208,14 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
               className={cn(
                 "flex min-h-[9rem] flex-col rounded-2xl border p-2.5 transition-all duration-150",
                 nad
-                  ? "border-primary bg-primary-soft/60 ring-2 ring-primary/25"
-                  : "border-border bg-surface/50",
+                  ? "border-accent bg-accent-wash/60 ring-2 ring-accent/25"
+                  : "border-border bg-bg-subtle/50",
               )}
             >
               <h2 className="flex items-center gap-2 px-1 pb-2.5 text-xs font-semibold">
                 <span aria-hidden className={cn("h-2 w-2 rounded-full", BOJA[k].tacka)} />
                 <span>{KOLONA_LABEL[k]}</span>
-                <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+                <span className="ml-auto rounded-full bg-bg-inset px-1.5 py-0.5 text-[11px] font-medium num text-fg-muted">
                   {u.length}
                 </span>
               </h2>
@@ -235,7 +235,7 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
                 ))}
 
                 {u.length === 0 && (
-                  <p className="rounded-xl border border-dashed border-border px-3 py-5 text-center text-[11px] text-muted-foreground/70">
+                  <p className="rounded-xl border border-dashed border-border px-3 py-5 text-center text-[11px] text-fg-muted/70">
                     prevuci karticu ovde
                   </p>
                 )}
@@ -287,15 +287,15 @@ function Kartica({
       }}
       onDragEnd={zavrsiVucu}
       className={cn(
-        "cursor-grab rounded-xl border border-l-[3px] border-border bg-card p-3 text-sm shadow-xs transition-all duration-150",
-        "hover:-translate-y-px hover:shadow-md active:cursor-grabbing",
+        "cursor-grab rounded-xl border border-l-[3px] border-border bg-bg-elev p-3 text-sm shadow-sm transition-all duration-150",
+        "hover:-translate-y-px hover:shadow-card active:cursor-grabbing",
         BOJA[r.status].ivica,
-        vuceSe && "rotate-1 opacity-40 shadow-lg",
+        vuceSe && "rotate-1 opacity-40 shadow-card",
       )}
     >
       <p className="truncate font-medium leading-snug">{r.name}</p>
 
-      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+      <p className="mt-0.5 truncate text-xs text-fg-muted">
         {cityLabels[r.citySlug] ?? r.citySlug}
         {r.contactedAt && ` · ${formatDatum(r.contactedAt)}`}
       </p>
@@ -319,13 +319,13 @@ function Kartica({
         )}
 
         {r.uglyScore !== null && (
-          <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+          <span className="text-[11px] font-medium num text-fg-muted">
             {r.uglyScore}
           </span>
         )}
 
         {r.channel && (
-          <span className="ml-auto text-[11px] text-muted-foreground/80">{r.channel}</span>
+          <span className="ml-auto text-[11px] text-fg-muted/80">{r.channel}</span>
         )}
       </div>
 
@@ -340,13 +340,13 @@ function Kartica({
           }}
           rows={3}
           placeholder="beleška"
-          className="mt-2.5 resize-none bg-surface text-xs"
+          className="mt-2.5 resize-none bg-bg-subtle text-xs"
         />
       ) : (
         <button
           type="button"
           onClick={() => setPisem(true)}
-          className="mt-2.5 flex w-full items-center gap-1.5 truncate rounded-md text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="mt-2.5 flex w-full items-center gap-1.5 truncate rounded-md text-left text-xs text-fg-muted transition-colors hover:text-fg"
         >
           <StickyNote className="h-3 w-3 shrink-0" />
           <span className="truncate">{r.note || "dodaj belešku"}</span>
@@ -356,7 +356,7 @@ function Kartica({
       <button
         type="button"
         onClick={otvoriPoruke}
-        className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-surface py-1.5 text-xs font-medium transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground"
+        className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-subtle py-1.5 text-xs font-medium transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
       >
         <MessageSquareText className="h-3 w-3" />
         Poruka

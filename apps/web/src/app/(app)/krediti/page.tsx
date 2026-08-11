@@ -81,7 +81,7 @@ export default async function Page() {
       {/* Beta status — obećanje se daje eksplicitno, sa rokom (00-kontekst §2). */}
       <Alert variant="neutral" className="mt-4">
         <span className="font-medium">Beta je besplatna dok traje.</span>{" "}
-        <span className="text-muted-foreground">
+        <span className="text-fg-muted">
           Dobijaš {plan.monthlyCredits} kredita prvog u mesecu, bez prenošenja neiskorišćenih u
           sledeći mesec. Kad uvedem planove, javljam ti unapred — nikad neće biti tako da jednog
           jutra ne možeš da uđeš.
@@ -92,19 +92,19 @@ export default async function Page() {
         <NaslovSekcije>Istorija</NaslovSekcije>
 
         {istorija.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">
+          <p className="mt-4 text-sm text-fg-muted">
             Knjiga je prazna. Prva stavka se pojavljuje kad otključaš prvi prospekt —{" "}
-            <Link href="/pretraga" className="font-medium text-primary underline underline-offset-4">
+            <Link href="/pretraga" className="font-medium text-accent-text underline underline-offset-4">
               idi na pretragu
             </Link>
             .
           </p>
         ) : (
-          <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <div className="mt-3 overflow-hidden rounded-xl border border-border bg-bg-elev shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[36rem] border-collapse text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-surface/70 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <tr className="border-b border-border bg-bg-subtle/70 text-left text-[11px] uppercase tracking-wider text-fg-muted">
                     <th className="py-2.5 pl-4 font-medium">Datum</th>
                     <th className="py-2.5 font-medium">Razlog</th>
                     <th className="py-2.5 font-medium">Prospekt</th>
@@ -115,23 +115,23 @@ export default async function Page() {
                   {istorija.map((s) => (
                     <tr
                       key={s.id}
-                      className="border-b border-border/70 transition-colors last:border-0 hover:bg-surface/60"
+                      className="border-b border-border/70 transition-colors last:border-0 hover:bg-bg-subtle/60"
                     >
-                      <td className="py-2.5 pl-4 text-muted-foreground">
+                      <td className="py-2.5 pl-4 text-fg-muted">
                         {formatDatum(s.createdAt)}
                       </td>
                       <td className="py-2.5">{RAZLOG[s.reason]}</td>
-                      <td className="py-2.5 text-muted-foreground">
+                      <td className="py-2.5 text-fg-muted">
                         <span className="block max-w-[18rem] truncate">{s.lead ?? "—"}</span>
                       </td>
                       <td
                         className={cn(
-                          "py-2.5 pr-4 text-right font-semibold tabular-nums",
+                          "py-2.5 pr-4 text-right font-semibold num",
                           s.delta > 0
-                            ? "text-success-foreground"
+                            ? "text-accent-text"
                             : s.delta < 0
-                              ? "text-foreground"
-                              : "text-muted-foreground",
+                              ? "text-fg"
+                              : "text-fg-muted",
                         )}
                       >
                         {s.delta > 0 ? `+${s.delta}` : s.delta}
@@ -145,9 +145,9 @@ export default async function Page() {
         )}
       </section>
 
-      <p className="mt-6 text-xs text-muted-foreground">
+      <p className="mt-6 text-xs text-fg-muted">
         Sledeća dodela: prvog dana narednog meseca. Tekući mesec u knjizi je{" "}
-        <span className="tabular-nums">{creditMonth()}</span>. Neiskorišćeni krediti se ne prenose
+        <span className="num">{creditMonth()}</span>. Neiskorišćeni krediti se ne prenose
         — balans se postavlja na {plan.monthlyCredits}, ne sabira.
       </p>
     </div>

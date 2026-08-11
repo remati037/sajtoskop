@@ -12,16 +12,16 @@ const bedzVarijante = cva(
   {
     variants: {
       variant: {
-        neutral: "bg-muted text-muted-foreground ring-1 ring-inset ring-border",
-        outline: "text-muted-foreground ring-1 ring-inset ring-border",
-        primary: "bg-primary-soft text-accent-foreground ring-1 ring-inset ring-primary/20",
-        success: "bg-success-soft text-success-foreground ring-1 ring-inset ring-success/25",
-        warning: "bg-warning-soft text-warning-foreground ring-1 ring-inset ring-warning/25",
-        danger: "bg-danger-soft text-danger-foreground ring-1 ring-inset ring-danger/25",
-        info: "bg-info-soft text-info-foreground ring-1 ring-inset ring-info/25",
-        "jak-success": "bg-success text-white shadow-xs",
-        "jak-warning": "bg-warning text-[oklch(0.25_0.06_70)] shadow-xs",
-        "jak-info": "bg-info text-white shadow-xs",
+        neutral: "bg-bg-inset text-fg-muted ring-1 ring-inset ring-border",
+        outline: "text-fg-muted ring-1 ring-inset ring-border",
+        primary: "bg-accent-wash text-accent-text ring-1 ring-inset ring-accent/20",
+        success: "bg-accent-wash text-accent-text ring-1 ring-inset ring-accent/25",
+        warning: "bg-warn-wash text-warn-text ring-1 ring-inset ring-warn/25",
+        danger: "bg-danger-wash text-danger ring-1 ring-inset ring-danger/25",
+        info: "bg-info-wash text-info-text ring-1 ring-inset ring-info/25",
+        "jak-success": "bg-accent text-accent-ink shadow-sm",
+        "jak-warning": "bg-warn text-warn-ink shadow-sm",
+        "jak-info": "bg-info text-info-ink shadow-sm",
       },
       size: {
         sm: "px-1.5 py-0.5 text-[10px] uppercase tracking-wider",

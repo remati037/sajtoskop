@@ -40,15 +40,15 @@ const VARIJANTE = [
 ] as const;
 
 const SEVERITY_STIL: Record<AiSeverity, string> = {
-  visoka: "border-danger/30 bg-danger-soft text-danger-foreground",
-  srednja: "border-warning/30 bg-warning-soft text-warning-foreground",
-  niska: "border-border bg-surface text-muted-foreground",
+  visoka: "border-danger/30 bg-danger-wash text-danger",
+  srednja: "border-warn/30 bg-warn-wash text-warn-text",
+  niska: "border-border bg-bg-subtle text-fg-muted",
 };
 
 const PSI_STIL = {
-  dobar: { traka: "bg-success", tekst: "text-success-foreground" },
-  osrednji: { traka: "bg-warning", tekst: "text-warning-foreground" },
-  los: { traka: "bg-danger", tekst: "text-danger-foreground" },
+  dobar: { traka: "bg-accent", tekst: "text-accent-text" },
+  osrednji: { traka: "bg-warn", tekst: "text-warn-text" },
+  los: { traka: "bg-danger", tekst: "text-danger" },
 } as const;
 
 /**
@@ -69,9 +69,9 @@ export function SnimakDugme({ lead }: { lead: Otkljucan }) {
         type="button"
         onClick={() => setOtvoren(true)}
         title="Otvori snimke i analizu sajta"
-        className="group flex items-center gap-2.5 rounded-lg border border-transparent p-1 text-left transition-colors hover:border-border hover:bg-surface"
+        className="group flex items-center gap-2.5 rounded-lg border border-transparent p-1 text-left transition-colors hover:border-border hover:bg-bg-subtle"
       >
-        <span className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-border shadow-xs transition-colors group-hover:border-primary">
+        <span className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-border shadow-sm transition-colors group-hover:border-accent">
           {/* eslint-disable-next-line @next/next/no-img-element -- potpisan URL sa
               tuđeg hosta i rokom od 15 min; next/image bi ga keširao i optimizovao
               posle isteka potpisa, pa bi prikaz pucao nasumično. */}
@@ -100,7 +100,7 @@ function Oznaka({ lead }: { lead: Otkljucan }) {
 
   if (broj === null) {
     return (
-      <span className="whitespace-nowrap text-xs text-muted-foreground underline decoration-dotted underline-offset-2">
+      <span className="whitespace-nowrap text-xs text-fg-muted underline decoration-dotted underline-offset-2">
         Snimci
       </span>
     );
@@ -108,14 +108,14 @@ function Oznaka({ lead }: { lead: Otkljucan }) {
 
   if (broj === 0) {
     return (
-      <span className="whitespace-nowrap text-xs font-medium text-success-foreground">
+      <span className="whitespace-nowrap text-xs font-medium text-accent-text">
         Bez zamerki
       </span>
     );
   }
 
   return (
-    <span className="whitespace-nowrap text-xs font-medium underline decoration-dotted underline-offset-2 group-hover:text-primary">
+    <span className="whitespace-nowrap text-xs font-medium underline decoration-dotted underline-offset-2 group-hover:text-accent-text">
       {/* Najviše je 5 stavki (Zod granica), pa je „nalaz / nalaza" dovoljno. */}
       {broj} {broj === 1 ? "nalaz" : "nalaza"}
     </span>
@@ -136,7 +136,7 @@ function NemaSnimka({ lead }: { lead: Otkljucan }) {
     return (
       <span
         title="Sajt se ne otvara — to je najjači mogući argument u poruci vlasniku."
-        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-success/50 text-[10px] font-semibold leading-tight text-success-foreground"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-accent/50 text-[10px] font-semibold leading-tight text-accent-text"
       >
         nema
       </span>
@@ -146,7 +146,7 @@ function NemaSnimka({ lead }: { lead: Otkljucan }) {
   return (
     <span
       title="Snimak se pravi. Osveži stranicu za koji trenutak."
-      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground/70"
+      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-border text-fg-muted/70"
     >
       <ImageOff className="h-3.5 w-3.5" />
     </span>
@@ -164,7 +164,7 @@ function Preklop({ lead, onClose }: { lead: Otkljucan; onClose: () => void }) {
               href={lead.websiteUrl}
               target="_blank"
               rel="noreferrer noopener nofollow"
-              className="flex items-center gap-1 truncate text-xs text-muted-foreground underline decoration-dotted underline-offset-4 transition-colors hover:text-primary"
+              className="flex items-center gap-1 truncate text-xs text-fg-muted underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
             >
               <ExternalLink className="h-3 w-3 shrink-0" />
               <span className="truncate">
@@ -188,7 +188,7 @@ function Preklop({ lead, onClose }: { lead: Otkljucan; onClose: () => void }) {
 
           <Analiza lead={lead} />
 
-          <p className="mt-5 text-[11px] text-muted-foreground/80">
+          <p className="mt-5 text-[11px] text-fg-muted/80">
             Snimci su privatni i link ističe za 15 minuta. Osveži stranicu ako slika nestane.
           </p>
         </div>
@@ -225,7 +225,7 @@ function Analiza({ lead }: { lead: Otkljucan }) {
               </span>
               <span className="min-w-0">
                 <span className="block text-sm font-medium">{p.title}</span>
-                <span className="block text-sm text-muted-foreground">{p.detail}</span>
+                <span className="block text-sm text-fg-muted">{p.detail}</span>
               </span>
             </li>
           ))}
@@ -250,11 +250,11 @@ function PsiTraka({ score, lcpMs }: { score: number; lcpMs: number | null }) {
     <div className="mb-5">
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <NaslovSekcije>Brzina na telefonu</NaslovSekcije>
-        <span className={cn("text-sm font-semibold tabular-nums", stil.tekst)}>
+        <span className={cn("text-sm font-semibold num", stil.tekst)}>
           {score}
-          <span className="text-xs font-normal text-muted-foreground">/100</span>
+          <span className="text-xs font-normal text-fg-muted">/100</span>
           {lcpMs !== null && (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
+            <span className="ml-2 text-xs font-normal text-fg-muted">
               učitava se {formatLcp(lcpMs)}
             </span>
           )}
@@ -267,7 +267,7 @@ function PsiTraka({ score, lcpMs }: { score: number; lcpMs: number | null }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label="PageSpeed skor na telefonu"
-        className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+        className="h-1.5 w-full overflow-hidden rounded-full bg-bg-inset"
       >
         <div
           className={cn("h-full rounded-full transition-[width] duration-700", stil.traka)}
@@ -300,12 +300,12 @@ function Presuda({ tekst }: { tekst: string }) {
   }
 
   return (
-    <div className="rounded-xl border border-primary/20 bg-primary-soft/70 p-4">
+    <div className="rounded-xl border border-accent/20 bg-accent-wash/70 p-4">
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm leading-relaxed">„{tekst}"</p>
         <Button type="button" variant="outline" size="sm" onClick={kopiraj} className="shrink-0">
           {kopirano ? (
-            <Check className="h-3.5 w-3.5 text-success" />
+            <Check className="h-3.5 w-3.5 text-accent" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
@@ -330,8 +330,8 @@ function Rezerva({ signali }: { signali: string[] }) {
       <NaslovSekcije className="mb-2">Šta je našla provera sajta</NaslovSekcije>
       <ul className="space-y-1.5">
         {signali.map((s) => (
-          <li key={s} className="flex gap-2 text-sm text-muted-foreground">
-            <span aria-hidden className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary/60" />
+          <li key={s} className="flex gap-2 text-sm text-fg-muted">
+            <span aria-hidden className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-accent/60" />
             <span>{s}</span>
           </li>
         ))}
@@ -345,7 +345,7 @@ function Slika({ url, alt }: { url: string | null; alt: string }) {
 
   if (!url) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border text-xs text-muted-foreground/70">
+      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border text-xs text-fg-muted/70">
         nije napravljen
       </div>
     );
@@ -353,7 +353,7 @@ function Slika({ url, alt }: { url: string | null; alt: string }) {
 
   if (pukla) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border px-3 text-center text-xs text-muted-foreground">
+      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border px-3 text-center text-xs text-fg-muted">
         Link je istekao. Osveži stranicu.
       </div>
     );

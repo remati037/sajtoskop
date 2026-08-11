@@ -29,11 +29,11 @@ type Props = {
 
 export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled }: Props) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-bg-elev shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[52rem] border-collapse text-sm">
           <thead>
-            <tr className="border-b border-border bg-surface/70 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr className="border-b border-border bg-bg-subtle/70 text-left text-[11px] uppercase tracking-wider text-fg-muted">
               <th className="py-2.5 pl-4 font-medium">Prospekt</th>
               <th className="py-2.5 font-medium">Status sajta</th>
               {/* Zvala se „Snimak" do F6. Iza tog dugmeta sad stoji i cela analiza
@@ -50,7 +50,7 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
             {leads.map((lead) => (
               <tr
                 key={lead.placeId}
-                className="group border-b border-border/70 transition-colors last:border-0 hover:bg-surface/60"
+                className="group border-b border-border/70 transition-colors last:border-0 hover:bg-bg-subtle/60"
               >
                 <td className="relative py-3 pl-4">
                   {/* Šipka nosi kvalitet leada i vidi se pre nego što se pročita
@@ -64,11 +64,11 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
                   />
                   <div className="min-w-0">
                     <div className="truncate font-medium">{lead.name}</div>
-                    <div className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5 truncate text-xs text-fg-muted">
                       <span className="truncate">{lead.address ?? "—"}</span>
                       {lead.rating !== null && (
-                        <span className="flex shrink-0 items-center gap-0.5 tabular-nums">
-                          <Star className="h-3 w-3 fill-warning text-warning" />
+                        <span className="flex shrink-0 items-center gap-0.5 num">
+                          <Star className="h-3 w-3 fill-warn text-warn" />
                           {lead.rating.toFixed(1)}
                         </span>
                       )}
@@ -86,15 +86,15 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
                   ) : (
                     // Zaključan lead ne dobija ni umanjeni prikaz. Snimak je deo
                     // onoga što se plaća kreditom, a CSS blur nije bezbednost.
-                    <span className="text-xs text-muted-foreground/60">—</span>
+                    <span className="text-xs text-fg-muted/60">—</span>
                   )}
                 </td>
 
-                <td className="py-3 align-middle text-muted-foreground">
+                <td className="py-3 align-middle text-fg-muted">
                   {cityLabels[lead.citySlug] ?? lead.citySlug}
                 </td>
 
-                <td className="py-3 align-middle text-muted-foreground">
+                <td className="py-3 align-middle text-fg-muted">
                   {lead.isUnlocked ? (
                     <TelefonLink phone={lead.phone} tip={lead.phoneType} />
                   ) : (
@@ -113,7 +113,7 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
                       size="sm"
                       disabled={disabled || otkljucavam !== null}
                       onClick={() => onUnlock(lead.placeId)}
-                      className="hover:border-primary hover:bg-primary hover:text-primary-foreground hover:shadow-glow"
+                      className="hover:border-accent hover:bg-accent hover:text-accent-ink hover:shadow-accent"
                     >
                       <Lock className="h-3 w-3" />
                       {otkljucavam === lead.placeId ? "Otključavam…" : "Otključaj · 1 kredit"}
@@ -131,12 +131,12 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
 
 /** Mobilni → Viber, fiksni → poziv (F4 §3). */
 export function TelefonLink({ phone, tip }: { phone: string | null; tip: string | null }) {
-  if (!phone) return <span className="text-muted-foreground/60">—</span>;
+  if (!phone) return <span className="text-fg-muted/60">—</span>;
 
   return (
     <a
       href={telefonHref(phone, tip)}
-      className="font-medium tabular-nums text-foreground underline decoration-dotted decoration-muted-foreground underline-offset-4 transition-colors hover:text-primary hover:decoration-primary"
+      className="font-medium num text-fg underline decoration-dotted decoration-fg-muted underline-offset-4 transition-colors hover:text-accent-text hover:decoration-accent-text"
       title={tip === "mobilni" ? "Otvori Viber" : "Pozovi"}
     >
       {phone}
@@ -150,28 +150,28 @@ function OtkljucanKontakt({ lead: l }: { lead: Extract<PublicLead, { isUnlocked:
       {l.email ? (
         <a
           href={`mailto:${l.email}`}
-          className="max-w-[14rem] truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-primary"
+          className="max-w-[14rem] truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
         >
           {l.email}
         </a>
       ) : (
-        <span className="text-muted-foreground/60">bez mejla</span>
+        <span className="text-fg-muted/60">bez mejla</span>
       )}
 
-      <span className="flex items-center gap-2 text-muted-foreground">
+      <span className="flex items-center gap-2 text-fg-muted">
         {l.websiteUrl && (
           <a
             href={l.websiteUrl}
             target="_blank"
             rel="noreferrer noopener nofollow"
-            className="flex max-w-[10rem] items-center gap-1 truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-primary"
+            className="flex max-w-[10rem] items-center gap-1 truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
           >
             <ExternalLink className="h-3 w-3 shrink-0" />
             <span className="truncate">{l.websiteUrl.replace(/^https?:\/\/(www\.)?/, "")}</span>
           </a>
         )}
         {l.uglyScore !== null && (
-          <Badge variant="neutral" size="md" className="tabular-nums" title="Ugly Score">
+          <Badge variant="neutral" size="md" className="num" title="Ugly Score">
             {l.uglyScore}
           </Badge>
         )}
@@ -183,9 +183,9 @@ function OtkljucanKontakt({ lead: l }: { lead: Extract<PublicLead, { isUnlocked:
 function railColor(lead: PublicLead): string {
   switch (lead.siteStatus) {
     case "nema_sajt":
-      return "bg-success";
+      return "bg-accent";
     case "mrtav":
-      return "bg-warning";
+      return "bg-warn";
     case "samo_drustvene":
       return "bg-info";
     default:
@@ -195,7 +195,7 @@ function railColor(lead: PublicLead): string {
 
 function StatusBedz({ lead }: { lead: PublicLead }) {
   if (!lead.siteStatus) {
-    return <span className="text-xs text-muted-foreground/60">nije analiziran</span>;
+    return <span className="text-xs text-fg-muted/60">nije analiziran</span>;
   }
 
   if (lead.siteStatus === "ok") {
@@ -205,7 +205,7 @@ function StatusBedz({ lead }: { lead: PublicLead }) {
           {lead.uglyBand ? BAND_LABEL[lead.uglyBand] : "Ima sajt"}
         </Badge>
         {lead.platform && (
-          <span className="text-xs text-muted-foreground/70">{lead.platform}</span>
+          <span className="text-xs text-fg-muted/70">{lead.platform}</span>
         )}
       </span>
     );

@@ -3,191 +3,225 @@
 /* ─────────────────────────────────────────────────────────────
    Sajtoskop — vizuelni jezik
 
-   Jedan izvor istine za boje, radijuse i senke. Ništa u komponentama ne sme da
-   piše sirovu boju (`bg-neutral-900`, `border-neutral-200`) — sve ide kroz
-   semantičke tokene ispod, jer se samo tako tema menja na jednom mestu.
+   IZVOR ISTINE JE `docs/DIZAJN-SISTEM.md`. Imena tokena, vrednosti, radijusi,
+   senke i tipografske klase ispod prepisani su odatle. Ako ti treba boja koje
+   nema u tokenima — ona ne postoji; prvo se dopisuje u dokument, pa ovde.
 
-   Tema se prebacuje KLASOM `.dark` na <html>, ne medija upitom. Razlog: korisnik
-   bira „Sistem / Svetla / Tamna", pa čist `prefers-color-scheme` nije dovoljan.
-   Klasu postavlja skripta u <head>-u pre prvog farbanja (v. `tema.ts`), da ne bi
-   bilo belog bleska pri učitavanju tamne teme.
+   Tema se prebacuje KLASOM `.dark` na <html>, ne atributom `data-theme` kao u
+   §7.9 dokumenta. Mehanički su ekvivalentni; obrazloženje iz dokumenta (deljen
+   ključ sa landing sajtom) ne stoji jer je localStorage po origin-u, pa
+   `app.sajtoskop.com` i `sajtoskop.com` ionako ne dele izbor. Klasu postavlja
+   skripta u <head>-u pre prvog farbanja (v. `lib/tema.ts`).
    ───────────────────────────────────────────────────────────── */
 
 @custom-variant dark (&:is(.dark *));
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary-soft: var(--primary-soft);
-
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-
-  --color-success: var(--success);
-  --color-success-soft: var(--success-soft);
-  --color-success-foreground: var(--success-foreground);
-  --color-warning: var(--warning);
-  --color-warning-soft: var(--warning-soft);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-danger: var(--danger);
-  --color-danger-soft: var(--danger-soft);
-  --color-danger-foreground: var(--danger-foreground);
-  --color-info: var(--info);
-  --color-info-soft: var(--info-soft);
-  --color-info-foreground: var(--info-foreground);
-
-  --color-surface: var(--surface);
-  --color-surface-hover: var(--surface-hover);
-
-  --radius-sm: calc(var(--radius) - 0.375rem);
-  --radius-md: calc(var(--radius) - 0.25rem);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 0.25rem);
-  --radius-2xl: calc(var(--radius) + 0.5rem);
-
-  --shadow-xs: var(--elev-xs);
-  --shadow-sm: var(--elev-sm);
-  --shadow-md: var(--elev-md);
-  --shadow-lg: var(--elev-lg);
-  --shadow-pop: var(--elev-pop);
-  --shadow-glow: var(--elev-glow);
-
-  /* Manrope stiže iz `next/font/google` u layout-u, kao CSS promenljiva. */
-  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
-
-  --animate-uklizi: uklizi 0.24s cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-pojavi: pojavi 0.18s ease-out;
-  --animate-puls-tanko: puls-tanko 1.8s ease-in-out infinite;
-}
 
 /* ── svetla tema ───────────────────────────────────────────── */
 :root {
   color-scheme: light;
 
-  --radius: 0.75rem;
+  --bg: #ffffff;
+  --bg-subtle: #f7f8f7;
+  --bg-elev: #ffffff;
+  --bg-inset: #f1f3f1;
+  /* Dopuna dokumentu: hover na `--bg-subtle` površinama (stavka u bočnoj traci,
+     ghost dugme). Dokument nema token za to stanje. */
+  --bg-hover: #eaeeea;
 
-  --background: oklch(0.985 0.003 275);
-  --foreground: oklch(0.22 0.02 275);
+  --fg: #0a0b0c;
+  --fg-muted: #575e66;
+  --fg-faint: #868d95;
 
-  --surface: oklch(0.972 0.004 275);
-  --surface-hover: oklch(0.955 0.006 275);
+  --border: #e5e7e6;
+  --border-strong: #d3d7d4;
+  --border-accent: rgba(112, 168, 10, 0.35);
 
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.02 275);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.02 275);
+  --accent: #8fd413;
+  --accent-hover: #7cbc0c;
+  --accent-ink: #0a0b0c;
+  --accent-text: #4e7c0a;
+  --accent-glow: rgba(143, 212, 19, 0.22);
+  --accent-wash: rgba(143, 212, 19, 0.09);
 
-  --primary: oklch(0.53 0.2 285);
-  --primary-foreground: oklch(0.99 0.004 285);
-  --primary-soft: oklch(0.955 0.022 285);
+  --danger: #d92020;
+  --danger-wash: rgba(217, 32, 32, 0.07);
+  --warn: #d97706;
+  --orange: #ea580c;
+  /* Dopuna dokumentu: `--warn` kao tekst na beloj podlozi daje ~3.4:1, ispod AA.
+     Vrednost je ista kao `--score-mid`, koji dokument već koristi za tekst. */
+  --warn-text: #b45309;
+  --warn-wash: rgba(217, 119, 6, 0.09);
+  /* Tekst NA `--warn` podlozi — ista uloga koju `--accent-ink` ima za akcenat. */
+  --warn-ink: #0a0b0c;
 
-  --muted: oklch(0.965 0.005 275);
-  --muted-foreground: oklch(0.53 0.022 275);
+  /* Dopuna dokumentu: peta boja za `kontaktiran` u pipeline-u i za bedž
+     „Samo društvene". Skala statusa traži pet razdvojivih boja, a dokument
+     plavu ima samo kao `--glow-2`. */
+  --info: #2563eb;
+  --info-text: #1d4ed8;
+  --info-wash: rgba(37, 99, 235, 0.09);
+  --info-ink: #ffffff;
 
-  --accent: oklch(0.955 0.022 285);
-  --accent-foreground: oklch(0.42 0.17 285);
+  /* Zatamnjenje ispod modala i mobilne fioke. Ne može kroz `--bg` jer je u
+     svetloj temi belo — zavesa mora da bude tamna u obe teme. */
+  --scrim: rgba(10, 11, 12, 0.45);
 
-  --border: oklch(0.918 0.006 275);
-  --border-strong: oklch(0.855 0.01 275);
-  --input: oklch(0.9 0.007 275);
-  --ring: oklch(0.58 0.18 285);
+  --score-none: var(--accent-text);
+  --score-none-bg: rgba(143, 212, 19, 0.14);
+  --score-cat: #d92020;
+  --score-cat-bg: rgba(217, 32, 32, 0.09);
+  --score-ugly: #ea580c;
+  --score-ugly-bg: rgba(234, 88, 12, 0.09);
+  --score-mid: #b45309;
+  --score-mid-bg: rgba(217, 119, 6, 0.09);
+  --score-ok: #6b7280;
+  --score-ok-bg: rgba(107, 114, 128, 0.09);
 
-  --success: oklch(0.6 0.15 155);
-  --success-soft: oklch(0.955 0.04 155);
-  --success-foreground: oklch(0.38 0.11 155);
+  /* Sirova imena su `--elev-*`, a ne `--shadow-*` iz dokumenta, jer je
+     `--shadow-*` Tailwind-ov prostor imena u `@theme` — `--shadow-sm:
+     var(--shadow-sm)` bi bila kružna referenca. Vrednosti su nepromenjene. */
+  --elev-sm: 0 1px 2px rgba(10, 11, 12, 0.05);
+  --elev-card: 0 1px 3px rgba(10, 11, 12, 0.06), 0 12px 32px -12px rgba(10, 11, 12, 0.14);
+  --elev-hero: 0 40px 90px -30px rgba(10, 11, 12, 0.28), 0 2px 6px rgba(10, 11, 12, 0.06);
+  --elev-accent: 0 8px 30px -8px rgba(143, 212, 19, 0.5);
 
-  --warning: oklch(0.72 0.15 72);
-  --warning-soft: oklch(0.965 0.05 80);
-  --warning-foreground: oklch(0.45 0.12 62);
+  --grid-line: rgba(10, 11, 12, 0.055);
+  --noise-opacity: 0.032;
+  --glow-1: rgba(143, 212, 19, 0.14);
+  --glow-2: rgba(10, 11, 12, 0.05);
 
-  --danger: oklch(0.57 0.2 25);
-  --danger-soft: oklch(0.965 0.03 25);
-  --danger-foreground: oklch(0.44 0.18 25);
-
-  --info: oklch(0.62 0.14 235);
-  --info-soft: oklch(0.96 0.03 235);
-  --info-foreground: oklch(0.42 0.12 240);
-
-  --elev-xs: 0 1px 2px oklch(0.25 0.03 275 / 0.05);
-  --elev-sm:
-    0 1px 2px oklch(0.25 0.03 275 / 0.05), 0 2px 6px oklch(0.25 0.03 275 / 0.045);
-  --elev-md:
-    0 1px 2px oklch(0.25 0.03 275 / 0.04), 0 6px 16px -4px oklch(0.25 0.03 275 / 0.08);
-  --elev-lg:
-    0 2px 4px oklch(0.25 0.03 275 / 0.04), 0 14px 32px -8px oklch(0.25 0.03 275 / 0.12);
-  --elev-pop:
-    0 4px 10px -2px oklch(0.25 0.03 275 / 0.08), 0 24px 56px -12px oklch(0.25 0.03 275 / 0.18);
-  --elev-glow: 0 6px 20px -6px oklch(0.53 0.2 285 / 0.45);
+  --r-sm: 10px;
+  --r: 14px;
+  --r-lg: 20px;
 }
 
 /* ── tamna tema ────────────────────────────────────────────── */
 .dark {
   color-scheme: dark;
 
-  --background: oklch(0.165 0.014 272);
-  --foreground: oklch(0.955 0.005 275);
+  --bg: #07080a;
+  --bg-subtle: #0b0d10;
+  --bg-elev: #101317;
+  --bg-inset: #0e1114;
+  --bg-hover: #171b21;
 
-  --surface: oklch(0.208 0.016 272);
-  --surface-hover: oklch(0.245 0.018 272);
+  --fg: #f2f4f3;
+  --fg-muted: #9aa2ab;
+  --fg-faint: #6c757f;
 
-  --card: oklch(0.205 0.016 272);
-  --card-foreground: oklch(0.955 0.005 275);
-  --popover: oklch(0.225 0.017 272);
-  --popover-foreground: oklch(0.955 0.005 275);
+  --border: rgba(255, 255, 255, 0.085);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-accent: rgba(173, 238, 46, 0.32);
 
-  --primary: oklch(0.66 0.18 285);
-  --primary-foreground: oklch(0.16 0.03 285);
-  --primary-soft: oklch(0.3 0.06 285);
+  --accent: #adee2e;
+  --accent-hover: #c1fa4d;
+  --accent-ink: #08090a;
+  --accent-text: #c4f55c;
+  --accent-glow: rgba(173, 238, 46, 0.3);
+  --accent-wash: rgba(173, 238, 46, 0.08);
 
-  --muted: oklch(0.245 0.016 272);
-  --muted-foreground: oklch(0.7 0.018 275);
+  --danger: #ff5a5a;
+  --danger-wash: rgba(255, 90, 90, 0.09);
+  --warn: #fbbf24;
+  --orange: #fb923c;
+  --warn-text: #fbbf24;
+  --warn-wash: rgba(251, 191, 36, 0.11);
+  --warn-ink: #08090a;
 
-  --accent: oklch(0.3 0.055 285);
-  --accent-foreground: oklch(0.86 0.09 285);
+  --info: #60a5fa;
+  --info-text: #93c5fd;
+  --info-wash: rgba(96, 165, 250, 0.12);
+  --info-ink: #08090a;
 
-  --border: oklch(0.295 0.017 272);
-  --border-strong: oklch(0.38 0.02 272);
-  --input: oklch(0.33 0.018 272);
-  --ring: oklch(0.66 0.18 285);
+  --scrim: rgba(0, 0, 0, 0.65);
 
-  --success: oklch(0.72 0.15 158);
-  --success-soft: oklch(0.3 0.06 158);
-  --success-foreground: oklch(0.85 0.13 158);
+  --score-none: #c4f55c;
+  --score-none-bg: rgba(173, 238, 46, 0.13);
+  --score-cat: #ff6b6b;
+  --score-cat-bg: rgba(255, 90, 90, 0.12);
+  --score-ugly: #fb923c;
+  --score-ugly-bg: rgba(251, 146, 60, 0.12);
+  --score-mid: #fbbf24;
+  --score-mid-bg: rgba(251, 191, 36, 0.11);
+  --score-ok: #8b949e;
+  --score-ok-bg: rgba(139, 148, 158, 0.11);
 
-  --warning: oklch(0.79 0.14 78);
-  --warning-soft: oklch(0.32 0.06 70);
-  --warning-foreground: oklch(0.88 0.12 82);
+  --elev-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elev-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 16px 40px -18px rgba(0, 0, 0, 0.7);
+  --elev-hero: 0 50px 110px -35px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --elev-accent: 0 8px 34px -8px rgba(173, 238, 46, 0.42);
 
-  --danger: oklch(0.65 0.19 25);
-  --danger-soft: oklch(0.3 0.07 25);
-  --danger-foreground: oklch(0.85 0.11 25);
+  --grid-line: rgba(255, 255, 255, 0.05);
+  --noise-opacity: 0.05;
+  --glow-1: rgba(173, 238, 46, 0.13);
+  --glow-2: rgba(60, 120, 255, 0.06);
+}
 
-  --info: oklch(0.7 0.13 235);
-  --info-soft: oklch(0.3 0.06 235);
-  --info-foreground: oklch(0.85 0.09 235);
+/* ── Tailwind most ka tokenima ─────────────────────────────── */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-bg-elev: var(--bg-elev);
+  --color-bg-inset: var(--bg-inset);
+  --color-bg-hover: var(--bg-hover);
 
-  --elev-xs: 0 1px 2px oklch(0 0 0 / 0.3);
-  --elev-sm: 0 1px 2px oklch(0 0 0 / 0.35), 0 2px 6px oklch(0 0 0 / 0.25);
-  --elev-md: 0 2px 4px oklch(0 0 0 / 0.3), 0 8px 20px -6px oklch(0 0 0 / 0.45);
-  --elev-lg: 0 4px 8px oklch(0 0 0 / 0.35), 0 18px 40px -10px oklch(0 0 0 / 0.55);
-  --elev-pop: 0 8px 16px -4px oklch(0 0 0 / 0.45), 0 32px 64px -16px oklch(0 0 0 / 0.7);
-  --elev-glow: 0 6px 24px -6px oklch(0.66 0.18 285 / 0.5);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-accent: var(--border-accent);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-text: var(--accent-text);
+  --color-accent-wash: var(--accent-wash);
+
+  --color-danger: var(--danger);
+  --color-danger-wash: var(--danger-wash);
+  --color-warn: var(--warn);
+  --color-warn-text: var(--warn-text);
+  --color-warn-wash: var(--warn-wash);
+  --color-warn-ink: var(--warn-ink);
+  --color-orange: var(--orange);
+  --color-info: var(--info);
+  --color-info-text: var(--info-text);
+  --color-info-wash: var(--info-wash);
+  --color-info-ink: var(--info-ink);
+  --color-scrim: var(--scrim);
+
+  --color-score-none: var(--score-none);
+  --color-score-none-bg: var(--score-none-bg);
+  --color-score-cat: var(--score-cat);
+  --color-score-cat-bg: var(--score-cat-bg);
+  --color-score-ugly: var(--score-ugly);
+  --color-score-ugly-bg: var(--score-ugly-bg);
+  --color-score-mid: var(--score-mid);
+  --color-score-mid-bg: var(--score-mid-bg);
+  --color-score-ok: var(--score-ok);
+  --color-score-ok-bg: var(--score-ok-bg);
+
+  /* Geist stiže iz paketa `geist` u layout-u, kao CSS promenljiva (§4). */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  /* §5: 10px dugmad i ikonice, 14px kartice i paneli, 20px veliki paneli. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: var(--r-sm);
+  --radius-xl: var(--r);
+  --radius-2xl: var(--r-lg);
+
+  --shadow-sm: var(--elev-sm);
+  --shadow-card: var(--elev-card);
+  --shadow-hero: var(--elev-hero);
+  --shadow-accent: var(--elev-accent);
+
+  --animate-uklizi: uklizi 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-pojavi: pojavi 0.18s ease-out;
+  --animate-puls-tanko: puls-tanko 1.8s ease-in-out infinite;
 }
 
 @layer base {
@@ -200,32 +234,33 @@
   }
 
   body {
-    background-color: var(--background);
-    color: var(--foreground);
+    background-color: var(--bg);
+    color: var(--fg);
+    /* „cv11" i „ss01" daju jednostruko a i g — bitno za srpsku dijakritiku (§4). */
+    font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Tabela sa skorovima i brojevima traži poravnate cifre. */
-    font-variant-numeric: tabular-nums;
+    overflow-x: clip;
   }
 
-  /* Naslovi u SaaS-u nose ton celog proizvoda: uže razmaknuta slova i malo
-     tamniji ton od tela teksta. */
+  /* §4: negativan letter-spacing je potpis brenda; što je tekst veći, uži je. */
   h1,
   h2,
   h3 {
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
   }
 
-  /* Vidljiv fokus na svemu što se dohvata tastaturom — combobox se bez ovoga
-     ne može koristiti bez miša. */
+  /* §7.3: fokus prsten se ne gasi. Bez njega se combobox ne može koristiti bez
+     miša. */
   :focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 4px;
   }
 
   ::selection {
-    background-color: var(--accent);
-    color: var(--accent-foreground);
+    background-color: var(--accent-wash);
+    color: var(--fg);
   }
 
   /* Tanak, nenametljiv skrol — pun sistemski skrol u tamnoj temi izgleda
@@ -248,7 +283,7 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--muted-foreground);
+    background-color: var(--fg-faint);
   }
 
   ::-webkit-scrollbar-track {
@@ -256,20 +291,133 @@
   }
 }
 
+/* ── tipografija (§4) ──────────────────────────────────────── */
+
+.h-display {
+  font-size: clamp(2.6rem, 7.4vw, 5.4rem);
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.h1 {
+  font-size: clamp(2.1rem, 4.8vw, 3.4rem);
+  line-height: 1.03;
+  letter-spacing: -0.038em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.h2 {
+  font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+/* Mono labela iznad naslova i u zaglavljima tabela. Jedini pozitivan tracking
+   u celom sistemu. */
+.eyebrow {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  font-weight: 500;
+}
+
+.lede {
+  font-size: clamp(1.02rem, 1.35vw, 1.18rem);
+  line-height: 1.62;
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+
+/* Svaki broj, ID, URL i telefon. Tabular figure sprečava skakanje kolona —
+   tabela sa brojevima koji skaču je pokvarena tabela (pravilo 6). */
+.num {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+/* ── pozadinski slojevi (§6) ───────────────────────────────── */
+
+/* Tehnička mreža koja bledi. Roditelj mora biti `relative`. */
+.grid-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 100% 70% at 50% 0%, #000 30%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 100% 70% at 50% 0%, #000 30%, transparent 78%);
+}
+
+/* Zamućeni odsjaj iza ključnog elementa. Boja se daje kroz `style`. */
+.glow {
+  position: absolute;
+  pointer-events: none;
+  filter: blur(90px);
+  border-radius: 999px;
+}
+
+/* Film zrno preko površine. Roditelj mora biti `relative overflow-hidden`. */
+.noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scroll-x::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scroll-x::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
 /* ── pomoćne klase ─────────────────────────────────────────── */
 
 /* Poluprovidna površina sa zamućenjem — gornja traka koja stoji iznad sadržaja
-   dok se skroluje. Jedini „trik" u celom sistemu. */
+   dok se skroluje (§7.8). */
 @utility staklo {
-  background-color: color-mix(in oklab, var(--card) 78%, transparent);
-  backdrop-filter: blur(12px) saturate(140%);
+  background-color: color-mix(in oklab, var(--bg) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
 }
 
-/* Blagi šum/gradijent iza glavnog sadržaja — daje dubinu praznom ekranu. */
+/* Blagi odsjaj iza glavnog sadržaja — daje dubinu praznom ekranu. Isti par
+   glow-ova koji dokument koristi u hero sekciji. */
 @utility pozadina-aure {
   background-image:
-    radial-gradient(60rem 30rem at 15% -10%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 60%),
-    radial-gradient(50rem 26rem at 95% 0%, color-mix(in oklab, var(--info) 10%, transparent), transparent 55%);
+    radial-gradient(60rem 30rem at 15% -10%, var(--glow-1), transparent 60%),
+    radial-gradient(50rem 26rem at 95% 0%, var(--glow-2), transparent 55%);
+}
+
+/* Clerk kartica na početnoj strani nosi u podnožju svoj link „Nemaš nalog?".
+   Prekidač Prijava/Registracija stoji odmah iznad nje (v. `auth-ekran.tsx`), pa
+   bi to bio drugi prekidač za istu stvar. Sklanja se samo taj red — „Secured by
+   Clerk" i upozorenje o development ključu ostaju.
+
+   Ako Clerk ikad promeni imena klasa, link se prosto vrati na svoje mesto:
+   vodi na `/?nalog=nov`, dakle na istu stranu i istu karticu. */
+.auth-forma :is(.cl-footerAction, .cl-footerAction__signIn, .cl-footerAction__signUp) {
+  display: none;
 }
 
 @keyframes uklizi {
@@ -302,7 +450,12 @@
   }
 }
 
+/* §8: sadržaj mora biti čitljiv i bez animacije. */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
   *,
   *::before,
   *::after {

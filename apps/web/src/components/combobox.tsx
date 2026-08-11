@@ -102,9 +102,9 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
           aria-controls={`${id}-list`}
           autoComplete="off"
           className={cn(
-            "h-11 w-full rounded-xl border border-input bg-card pl-3.5 pr-9 text-sm shadow-xs outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70",
-            "focus:border-primary focus:ring-2 focus:ring-primary/25",
-            open && "border-primary ring-2 ring-primary/25",
+            "h-11 w-full rounded-xl border border-border bg-bg-elev pl-3.5 pr-9 text-sm shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-fg-muted/70",
+            "focus:border-accent focus:ring-2 focus:ring-accent/25",
+            open && "border-accent ring-2 ring-accent/25",
           )}
           placeholder={selected ? selected.label : placeholder}
           value={open ? query : (selected?.label ?? "")}
@@ -119,7 +119,7 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
         <ChevronDown
           aria-hidden
           className={cn(
-            "pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-transform duration-200",
+            "pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted transition-transform duration-200",
             open && "rotate-180",
           )}
         />
@@ -130,16 +130,16 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
           id={`${id}-list`}
           ref={listRef}
           role="listbox"
-          className="absolute z-30 mt-1.5 max-h-72 w-full animate-uklizi overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-pop"
+          className="absolute z-30 mt-1.5 max-h-72 w-full animate-uklizi overflow-y-auto rounded-xl border border-border bg-bg-elev p-1 shadow-hero"
         >
           {flat.length === 0 && (
-            <li className="px-3 py-2.5 text-sm text-muted-foreground">Nema pogodaka.</li>
+            <li className="px-3 py-2.5 text-sm text-fg-muted">Nema pogodaka.</li>
           )}
 
           {filtered.map((group) => (
             <li key={group.label}>
               {groups.length > 1 && (
-                <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">
+                <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-fg-muted/80">
                   {group.label}
                 </div>
               )}
@@ -158,12 +158,12 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
                         onClick={() => pick(option)}
                         className={cn(
                           "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
-                          "data-[active=true]:bg-surface-hover",
+                          "data-[active=true]:bg-bg-hover",
                           izabrana && "font-medium",
                         )}
                       >
                         <span className="truncate">{option.label}</span>
-                        {izabrana && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                        {izabrana && <Check className="h-3.5 w-3.5 shrink-0 text-accent-text" />}
                       </button>
                     </li>
                   );

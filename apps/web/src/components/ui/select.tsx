@@ -20,14 +20,14 @@ export function SelectTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "inline-flex h-10 items-center justify-between gap-2 rounded-lg border border-input bg-card px-3 text-sm shadow-xs outline-none transition-[border-color,box-shadow] focus:border-primary focus:ring-2 focus:ring-primary/25 data-[placeholder]:text-muted-foreground",
+        "inline-flex h-10 items-center justify-between gap-2 rounded-lg border border-border bg-bg-elev px-3 text-sm shadow-sm outline-none transition-[border-color,box-shadow] focus:border-accent focus:ring-2 focus:ring-accent/25 data-[placeholder]:text-fg-muted",
         className,
       )}
       {...props}
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <ChevronDown className="h-4 w-4 shrink-0 text-fg-muted" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
@@ -45,7 +45,7 @@ export function SelectContent({
         position={position}
         sideOffset={6}
         className={cn(
-          "z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-pop data-[state=open]:animate-uklizi",
+          "z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-border bg-bg-elev p-1 text-fg shadow-hero data-[state=open]:animate-uklizi",
           className,
         )}
         {...props}
@@ -64,14 +64,14 @@ export function SelectItem({
   return (
     <SelectPrimitive.Item
       className={cn(
-        "flex cursor-pointer select-none items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm outline-none data-[highlighted]:bg-surface-hover data-[state=checked]:font-medium",
+        "flex cursor-pointer select-none items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm outline-none data-[highlighted]:bg-bg-hover data-[state=checked]:font-medium",
         className,
       )}
       {...props}
     >
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
       <SelectPrimitive.ItemIndicator>
-        <Check className="h-3.5 w-3.5 text-primary" />
+        <Check className="h-3.5 w-3.5 text-accent-text" />
       </SelectPrimitive.ItemIndicator>
     </SelectPrimitive.Item>
   );

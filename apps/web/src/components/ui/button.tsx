@@ -18,15 +18,24 @@ const dugmeVarijante = cva(
   {
     variants: {
       variant: {
+        // §7.1: akcentna podloga, `--accent-ink` tekst, `--shadow-accent` stalno
+        // (ne tek na hover) — primarno dugme je jedino koje sme da svetli.
+        // Hover menja podlogu na `--accent-hover`, ne `brightness`: filter bi
+        // razvukao i senku.
+        // `disabled:shadow-none` je obavezno: `opacity` ne dira box-shadow, pa
+        // isključeno dugme inače i dalje svetli zeleno kao da poziva na klik.
         primary:
-          "bg-primary text-primary-foreground shadow-sm hover:brightness-110 hover:shadow-glow",
+          "bg-accent text-accent-ink shadow-accent hover:bg-accent-hover disabled:shadow-none",
         secondary:
-          "bg-surface text-foreground ring-1 ring-inset ring-border hover:bg-surface-hover hover:ring-border-strong",
+          "bg-bg-subtle text-fg ring-1 ring-inset ring-border hover:bg-bg-hover hover:ring-border-strong",
         outline:
-          "border border-border bg-card text-foreground shadow-xs hover:border-border-strong hover:bg-surface",
-        ghost: "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
-        danger: "bg-danger text-white shadow-sm hover:brightness-110",
-        link: "text-primary underline-offset-4 hover:underline",
+          "border border-border bg-bg-elev text-fg shadow-sm hover:border-border-strong hover:bg-bg-subtle",
+        ghost: "text-fg-muted hover:bg-bg-hover hover:text-fg",
+        // §7.1: destruktivna radnja je ghost dugme sa `--danger` tekstom, nikad
+        // crveni fill. Crveni pravougaonik na ekranu vuče oko jače nego radnja
+        // koja se stvarno traži od korisnika.
+        danger: "text-danger hover:bg-danger-wash",
+        link: "text-accent-text underline-offset-4 hover:underline",
       },
       size: {
         sm: "h-8 px-3 text-xs",

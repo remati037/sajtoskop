@@ -33,14 +33,14 @@ export function PrekidacTeme({ className }: { className?: string }) {
       role="radiogroup"
       aria-label="Tema"
       className={cn(
-        "relative grid grid-cols-3 gap-0.5 rounded-full border border-border bg-muted/60 p-1",
+        "relative grid grid-cols-3 gap-0.5 rounded-full border border-border bg-bg-inset/60 p-1",
         className,
       )}
     >
       {/* Indikator je jedan element koji klizi, ne tri pozadine koje se pale. */}
       <span
         aria-hidden
-        className="absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/3)] rounded-full bg-card shadow-sm ring-1 ring-border transition-transform duration-200 ease-out"
+        className="absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/3)] rounded-full bg-bg-elev shadow-sm ring-1 ring-border transition-transform duration-200 ease-out"
         style={{ transform: `translateX(calc(${Math.max(index, 0)} * 100%))` }}
       />
 
@@ -56,7 +56,7 @@ export function PrekidacTeme({ className }: { className?: string }) {
             onClick={() => postaviTemu(vrednost)}
             className={cn(
               "relative z-10 flex h-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
-              aktivna ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              aktivna ? "text-fg" : "text-fg-muted hover:text-fg",
             )}
           >
             <Ikona className="h-3.5 w-3.5" strokeWidth={2} />
@@ -77,7 +77,7 @@ export function PrekidacTemeDugme({ className }: { className?: string }) {
       <DropdownMenuTrigger
         aria-label="Promeni temu"
         className={cn(
-          "inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground",
+          "inline-flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg",
           className,
         )}
       >
@@ -89,7 +89,7 @@ export function PrekidacTemeDugme({ className }: { className?: string }) {
           <DropdownMenuItem
             key={vrednost}
             onSelect={() => postaviTemu(vrednost)}
-            className={cn(vrednost === tema && "text-accent-foreground")}
+            className={cn(vrednost === tema && "text-accent-text")}
           >
             <Ikona className="h-4 w-4" />
             {naziv}

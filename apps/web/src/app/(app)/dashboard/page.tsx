@@ -79,12 +79,12 @@ export default async function Page() {
       <section className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {PRECICE.map(({ href, naslov, opis, Ikona }) => (
           <Link key={href} href={href} className="group">
-            <Card className="h-full p-4 transition-all duration-150 group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-md">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft text-primary">
+            <Card className="h-full p-4 transition-all duration-150 group-hover:-translate-y-0.5 group-hover:border-accent/40 group-hover:shadow-card">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-wash text-accent-text">
                 <Ikona className="h-4 w-4" />
               </span>
               <p className="mt-3 text-sm font-semibold">{naslov}</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{opis}</p>
+              <p className="mt-1 text-xs leading-relaxed text-fg-muted">{opis}</p>
             </Card>
           </Link>
         ))}

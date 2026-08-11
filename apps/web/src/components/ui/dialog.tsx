@@ -21,7 +21,7 @@ export function DialogOverlay({
   return (
     <DialogPrimitive.Overlay
       className={cn(
-        "fixed inset-0 z-50 bg-[oklch(0.15_0.02_272/0.55)] backdrop-blur-sm data-[state=open]:animate-pojavi",
+        "fixed inset-0 z-50 bg-scrim backdrop-blur-sm data-[state=open]:animate-pojavi",
         className,
       )}
       {...props}
@@ -43,7 +43,7 @@ export function DialogContent({
       <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
         <DialogPrimitive.Content
           className={cn(
-            "relative my-auto w-full max-w-2xl rounded-2xl border border-border bg-card text-card-foreground shadow-pop outline-none data-[state=open]:animate-uklizi",
+            "relative my-auto w-full max-w-2xl rounded-2xl border border-border bg-bg-elev text-fg shadow-hero outline-none data-[state=open]:animate-uklizi",
             className,
           )}
           {...props}
@@ -53,7 +53,7 @@ export function DialogContent({
           {showClose && (
             <DialogPrimitive.Close
               aria-label="Zatvori"
-              className="absolute right-3.5 top-3.5 inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+              className="absolute right-3.5 top-3.5 inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
             >
               <X className="h-4 w-4" />
             </DialogPrimitive.Close>
@@ -91,7 +91,7 @@ export function DialogDescription({
 }: React.ComponentProps<typeof DialogPrimitive.Description>) {
   return (
     <DialogPrimitive.Description
-      className={cn("text-xs text-muted-foreground", className)}
+      className={cn("text-xs text-fg-muted", className)}
       {...props}
     />
   );

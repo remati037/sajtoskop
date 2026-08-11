@@ -25,7 +25,7 @@ export function ZaglavljeStranice({
     >
       <div className="min-w-0">
         <h1 className="text-2xl font-semibold tracking-tight">{naslov}</h1>
-        {opis && <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{opis}</p>}
+        {opis && <p className="mt-1.5 max-w-2xl text-sm text-fg-muted">{opis}</p>}
       </div>
       {children && <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>}
     </header>
@@ -48,17 +48,17 @@ export function PraznoStanje({
   return (
     <div
       className={cn(
-        "flex flex-col items-center rounded-2xl border border-dashed border-border bg-card/60 px-6 py-12 text-center",
+        "flex flex-col items-center rounded-2xl border border-dashed border-border bg-bg-elev/60 px-6 py-12 text-center",
         className,
       )}
     >
       {ikona && (
-        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary-soft text-accent-foreground [&_svg]:h-5 [&_svg]:w-5">
+        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-accent-wash text-accent-text [&_svg]:h-5 [&_svg]:w-5">
           {ikona}
         </div>
       )}
       <p className="text-base font-medium">{naslov}</p>
-      {opis && <p className="mt-1.5 max-w-lg text-sm text-muted-foreground">{opis}</p>}
+      {opis && <p className="mt-1.5 max-w-lg text-sm text-fg-muted">{opis}</p>}
       {children && <div className="mt-5 flex flex-wrap justify-center gap-2">{children}</div>}
     </div>
   );
@@ -69,7 +69,7 @@ export function NaslovSekcije({ className, ...props }: React.ComponentProps<"h2"
   return (
     <h2
       className={cn(
-        "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground",
+        "text-[11px] font-semibold uppercase tracking-wider text-fg-muted",
         className,
       )}
       {...props}

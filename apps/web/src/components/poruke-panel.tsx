@@ -94,20 +94,20 @@ export function PorukePanel({ placeId, naziv, zatvori, naKontakt }: Props) {
           ) : !odgovor ? (
             <div className="space-y-3 py-4">
               {/* Kostur, ne spinner: modal ne sme da skače u visini kad tekst stigne. */}
-              <div className="h-8 w-48 animate-puls-tanko rounded-lg bg-muted" />
-              <div className="h-28 animate-puls-tanko rounded-xl bg-muted" />
-              <p className="text-center text-sm text-muted-foreground">Pišem poruke…</p>
+              <div className="h-8 w-48 animate-puls-tanko rounded-lg bg-bg-inset" />
+              <div className="h-28 animate-puls-tanko rounded-xl bg-bg-inset" />
+              <p className="text-center text-sm text-fg-muted">Pišem poruke…</p>
             </div>
           ) : !odgovor.ok ? (
             // Generator je svesno odbio da piše. Ovo nije greška nego nalaz, i
             // korisniku štedi lošu poruku — zato stoji mirno, bez crvenog okvira.
-            <div className="rounded-xl border border-border bg-surface px-4 py-4">
+            <div className="rounded-xl border border-border bg-bg-subtle px-4 py-4">
               <p className="text-sm font-medium">
                 {odgovor.razlog === "solidan"
                   ? "Ovom sajtu nema šta da se zameri"
                   : "Nema osnova za poruku"}
               </p>
-              <p className="mt-1 text-sm text-muted-foreground">{odgovor.poruka}</p>
+              <p className="mt-1 text-sm text-fg-muted">{odgovor.poruka}</p>
             </div>
           ) : (
             <Poruke
@@ -143,7 +143,7 @@ function Poruke({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         {/* Segmentna traka kanala — isti jezik kao prekidač teme u sidebar-u. */}
-        <div className="inline-flex rounded-full border border-border bg-muted/60 p-1">
+        <div className="inline-flex rounded-full border border-border bg-bg-inset/60 p-1">
           {(Object.keys(odgovor.poruke) as MessageChannel[]).map((k) => (
             <button
               key={k}
@@ -153,26 +153,26 @@ function Poruke({
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
                 k === kanal
-                  ? "bg-card text-foreground shadow-sm ring-1 ring-border"
-                  : "text-muted-foreground hover:text-foreground",
+                  ? "bg-bg-elev text-fg shadow-sm ring-1 ring-border"
+                  : "text-fg-muted hover:text-fg",
               )}
             >
               {KANAL_LABEL[k]}
               {odgovor.predlog === k && (
-                <span className="ml-1.5 text-[10px] font-normal text-primary">predlog</span>
+                <span className="ml-1.5 text-[10px] font-normal text-accent-text">predlog</span>
               )}
             </button>
           ))}
         </div>
 
         {odgovor.predlog === "poziv" && (
-          <span className="ml-auto text-xs text-muted-foreground">
+          <span className="ml-auto text-xs text-fg-muted">
             Broj je fiksni — bolje pozovi nego da pišeš.
           </span>
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground">{KANAL_OPIS[kanal]}</p>
+      <p className="text-xs text-fg-muted">{KANAL_OPIS[kanal]}</p>
 
       <PorukaBlok poruka={p} placeId={placeId} kanal={kanal} naKontakt={naKontakt} />
 
@@ -188,7 +188,7 @@ function Poruke({
         />
       )}
 
-      <p className="border-t border-border pt-3 text-xs text-muted-foreground/80">
+      <p className="border-t border-border pt-3 text-xs text-fg-muted/80">
         Prva rečenica je{" "}
         {odgovor.izvor === "ai"
           ? "iz analize snimka"
@@ -305,7 +305,7 @@ function AiVarijanta({
         {stanje === "cekam" ? "Pišem…" : "Napiši drugačije"}
       </Button>
 
-      {greska && <span className="text-xs text-muted-foreground">{greska}</span>}
+      {greska && <span className="text-xs text-fg-muted">{greska}</span>}
     </div>
   );
 }
@@ -380,16 +380,16 @@ function PorukaBlok({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface/40">
+    <div className="overflow-hidden rounded-xl border border-border bg-bg-subtle/40">
       {naslov && (
-        <p className="border-b border-border bg-surface px-4 py-2 text-xs font-medium text-muted-foreground">
+        <p className="border-b border-border bg-bg-subtle px-4 py-2 text-xs font-medium text-fg-muted">
           {naslov}
         </p>
       )}
 
       {poruka.subject && (
         <p className="border-b border-border px-4 py-2.5 text-sm">
-          <span className="text-xs text-muted-foreground">Naslov: </span>
+          <span className="text-xs text-fg-muted">Naslov: </span>
           {poruka.subject}
         </p>
       )}
@@ -399,7 +399,7 @@ function PorukaBlok({
       </pre>
 
       <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5">
-        <span className="text-xs tabular-nums text-muted-foreground">{poruka.words} reči</span>
+        <span className="text-xs num text-fg-muted">{poruka.words} reči</span>
 
         <Button
           type="button"
@@ -409,7 +409,7 @@ function PorukaBlok({
           disabled={stanje === "radim"}
         >
           {stanje === "kopirano" ? (
-            <Check className="h-3.5 w-3.5 text-success" />
+            <Check className="h-3.5 w-3.5 text-accent" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}

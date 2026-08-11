@@ -5,7 +5,7 @@
 import { cn } from "@/lib/cn";
 
 export const poljeKlase =
-  "h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground shadow-xs outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70 focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50";
+  "h-10 w-full rounded-lg border border-border bg-bg-elev px-3 text-sm text-fg shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-fg-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-50";
 
 export function Input({ className, ...props }: React.ComponentProps<"input">) {
   return <input className={cn(poljeKlase, className)} {...props} />;
@@ -18,7 +18,7 @@ export function Textarea({ className, ...props }: React.ComponentProps<"textarea
 export function Label({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
-      className={cn("mb-1.5 block text-xs font-medium text-muted-foreground", className)}
+      className={cn("mb-1.5 block text-xs font-medium text-fg-muted", className)}
       {...props}
     />
   );

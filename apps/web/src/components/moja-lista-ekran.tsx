@@ -130,7 +130,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
             <div className="relative">
               <Search
                 aria-hidden
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted"
               />
               <Input
                 type="search"
@@ -159,8 +159,8 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
             className={cn(
               "h-10 rounded-lg border px-3.5 text-xs font-medium transition-all",
               samoBezSajta
-                ? "border-primary bg-primary text-primary-foreground shadow-glow"
-                : "border-border bg-card text-muted-foreground hover:border-border-strong hover:text-foreground",
+                ? "border-accent bg-accent text-accent-ink shadow-accent"
+                : "border-border bg-bg-elev text-fg-muted hover:border-border-strong hover:text-fg",
             )}
           >
             Bez funkcionalnog sajta
@@ -184,12 +184,12 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
       {poruka && <Alert variant="success">{poruka}</Alert>}
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-        <p className="tabular-nums">
+        <p className="num">
           {vidljivi.length === leads.length
             ? `${leads.length} otključanih ${plural(leads.length, "prospekt", "prospekta", "prospekata")}`
             : `${vidljivi.length} od ${leads.length} prospekata`}
         </p>
-        <p className="text-xs tabular-nums text-muted-foreground">
+        <p className="text-xs num text-fg-muted">
           izvezeno danas: {exportedToday} od {exportPerDay}
         </p>
       </div>
@@ -225,11 +225,11 @@ function Tabela({
   otvoriPoruke: (l: MojLead) => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-bg-elev shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[58rem] border-collapse text-sm">
           <thead>
-            <tr className="border-b border-border bg-surface/70 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr className="border-b border-border bg-bg-subtle/70 text-left text-[11px] uppercase tracking-wider text-fg-muted">
               <th className="py-2.5 pl-4 font-medium">Prospekt</th>
               <th className="py-2.5 font-medium">Status</th>
               <th className="py-2.5 font-medium">Snimak</th>
@@ -246,12 +246,12 @@ function Tabela({
             {leads.map((l) => (
               <tr
                 key={l.placeId}
-                className="border-b border-border/70 transition-colors last:border-0 hover:bg-surface/60"
+                className="border-b border-border/70 transition-colors last:border-0 hover:bg-bg-subtle/60"
               >
                 <td className="py-3 pl-4">
                   <div className="min-w-0">
                     <div className="truncate font-medium">{l.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
+                    <div className="truncate text-xs text-fg-muted">
                       {cityLabels[l.citySlug] ?? l.citySlug}
                       {l.address && ` · ${l.address}`}
                     </div>
@@ -277,7 +277,7 @@ function Tabela({
                       {STATUS_LABEL[l.siteStatus]}
                     </Badge>
                   ) : (
-                    <span className="text-muted-foreground/60">—</span>
+                    <span className="text-fg-muted/60">—</span>
                   )}
                 </td>
 
@@ -293,12 +293,12 @@ function Tabela({
                   {l.email ? (
                     <a
                       href={`mailto:${l.email}`}
-                      className="block max-w-[14rem] truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-primary"
+                      className="block max-w-[14rem] truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
                     >
                       {l.email}
                     </a>
                   ) : (
-                    <span className="text-xs text-muted-foreground/60">—</span>
+                    <span className="text-xs text-fg-muted/60">—</span>
                   )}
                 </td>
 
@@ -308,7 +308,7 @@ function Tabela({
                       href={l.websiteUrl}
                       target="_blank"
                       rel="noreferrer noopener nofollow"
-                      className="flex max-w-[12rem] items-center gap-1 truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-primary"
+                      className="flex max-w-[12rem] items-center gap-1 truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
                     >
                       <ExternalLink className="h-3 w-3 shrink-0" />
                       <span className="truncate">
@@ -316,15 +316,15 @@ function Tabela({
                       </span>
                     </a>
                   ) : (
-                    <span className="text-xs text-muted-foreground/60">—</span>
+                    <span className="text-xs text-fg-muted/60">—</span>
                   )}
                 </td>
 
-                <td className="py-3 text-right align-middle font-medium tabular-nums">
-                  {l.uglyScore ?? <span className="text-muted-foreground/60">—</span>}
+                <td className="py-3 text-right align-middle font-medium num">
+                  {l.uglyScore ?? <span className="text-fg-muted/60">—</span>}
                 </td>
 
-                <td className="py-3 text-right align-middle text-xs text-muted-foreground">
+                <td className="py-3 text-right align-middle text-xs text-fg-muted">
                   {l.unlockedAt ? formatDatum(l.unlockedAt) : "—"}
                 </td>
 

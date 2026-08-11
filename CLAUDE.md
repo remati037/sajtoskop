@@ -12,6 +12,7 @@ Pre rada na bilo kojoj fazi pročitaj:
 - `docs/00-kontekst.md` — proizvod, arhitektura, model podataka, terminologija
 - `docs/F{N}-*.md` — PRD za trenutnu fazu; **radi samo iz jednog PRD-a u jednoj sesiji**
 - `docs/bezbednost.md` — P0 lista, referenciraj kad faza dodiruje kredite, storage ili renderovanje sajtova
+- `docs/DIZAJN-SISTEM.md` — **obavezno pre bilo kakvog UI rada**; v. „Dizajn" niže
 
 Ne implementiraj funkcije iz kasnijih faza jer su „usput". Faze su namerno sekvencijalne.
 
@@ -95,3 +96,40 @@ Ako predlažeš kod koji povećava broj Places poziva, reci mi to eksplicitno pr
 - Pre veće izmene reci u jednoj rečenici šta menjaš i zašto
 - Ako nešto u PRD-u ne radi u praksi, reci mi — ne improvizuj tiho zaobilaznicu
 - Migracije baze pišem kao numerisane SQL fajlove u `supabase/migrations/`, nikad ručno u konzoli
+
+## Dizajn
+
+**Pre bilo kakvog UI rada pročitaj `docs/DIZAJN-SISTEM.md`.** Boje, fontovi, logo,
+radijusi, senke i komponente su fiksni. Ne izmišljaj nove tokene ni nove nijanse zelene.
+
+- **Nijedan hex ni oklch u JSX-u.** Sve ide kroz tokene iz `apps/web/src/app/globals.css`,
+  koji su prepis §3.1 dokumenta. Treba ti boja koje nema → prvo se dopisuje u dokument,
+  pa u `globals.css`, pa se koristi. Pitaj pre nego što je dodaš.
+- **Jedan akcenat, limeta zelena.** Crvena, narandžasta i žuta postoje samo kao semantika
+  Ugly Score-a i grešaka, nikad kao dekoracija.
+- `--accent` je za **podloge**. Zelena kao tekst ide isključivo kroz `--accent-text` —
+  `--accent` na `--bg` pada na kontrastu u svetloj temi.
+- **Obe teme se testiraju**, ne samo tamna. `.dark` klasa se dobija skriptom u `<head>`-u.
+- **`.num` na svaki broj**, ID, URL i telefon. Tabela sa brojevima koji skaču je pokvarena.
+- Font-weight staje na **600**. Ikonice iz `lucide-react`, bez emodžija.
+- Jedna senka po elementu, jedno primarno dugme po ekranu, bez ugnježđenih kartica.
+
+### Odstupanja od dokumenta — namerna, ne previd
+
+| Dokument | Kod | Zašto |
+|---|---|---|
+| `data-theme="dark"` + ključ `sajtoskop-theme` (§7.9) | `.dark` klasa + ključ `sajtoskop-tema` | Mehanički ekvivalentno. Obrazloženje iz dokumenta (deljen izbor sa landing sajtom) ne stoji — `localStorage` je po origin-u, pa `app.` i goli domen ionako ne dele ključ. |
+| `--shadow-*` kao imena sirovih promenljivih | `--elev-*`, pa `@theme inline` mapira na `--shadow-*` | `--shadow-*` je Tailwind-ov prostor imena; direktno bi bila kružna referenca. Vrednosti iste. |
+
+### Tokeni dopisani mimo dokumenta
+
+Nema ih u §3.1; dodati su jer ih proizvod stvarno traži. Ako se dokument ikad ažurira,
+ovi idu u njega.
+
+- `--bg-hover` — hover na `--bg-subtle` površinama (stavka u bočnoj traci, ghost dugme)
+- `--warn-text`, `--warn-wash`, `--warn-ink` — `--warn` kao tekst na beloj podlozi daje
+  ~3.4:1, ispod AA
+- `--info`, `--info-text`, `--info-wash`, `--info-ink` — skala statusa u pipeline-u traži
+  pet razdvojivih boja; dokument plavu ima samo kao `--glow-2`
+- `--scrim` — zavesa ispod modala i mobilne fioke; ne može kroz `--bg` jer je u svetloj
+  temi bela

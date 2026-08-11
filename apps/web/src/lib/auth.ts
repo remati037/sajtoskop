@@ -25,7 +25,8 @@ export async function getCurrentUserId(): Promise<string | null> {
  */
 export async function requireSession(): Promise<string> {
   const userId = await getCurrentUserId();
-  if (!userId) redirect("/prijava");
+  // Početna strana JESTE prijava — v. `app/page.tsx`.
+  if (!userId) redirect("/");
   return userId;
 }
 

@@ -1,30 +1,31 @@
-import Link from "next/link";
-import { Show } from "@clerk/nextjs";
-import { ArrowRight, Camera, Filter, MessageSquareText, Phone } from "lucide-react";
-import { Button } from "@/components/ui/button";
+// apps/web/src/app/page.tsx
+// Početna strana app-a JESTE ulaz u nalog — prijava ili registracija, sa
+// prekidačem između njih.
+//
+// Marketinški landing (hero, brojke iz seed izveštaja, FAQ) živi na
+// `sajtoskop.com` i radi se u F8. Držati privremenu verziju i ovde značilo bi
+// dva izvora istine za istu kopiju, pa je ovde nema.
+//
+// Raspored: levo brend i jedna rečenica šta alat radi, desno forma. Na telefonu
+// ostaje samo desna kolona sa znakom iznad forme.
+
+import { redirect } from "next/navigation";
+import { Filter, MessageSquareText, Phone } from "lucide-react";
+import { getCurrentUserId } from "@/lib/auth";
+import { AuthEkran, type Rezim } from "@/components/auth-ekran";
 import { PrekidacTemeDugme } from "@/components/prekidac-teme";
 import { ZnakSaImenom } from "@/components/znak";
-
-// Privremena javna stranica. Pravi landing sa brojkama iz seed izveštaja
-// dolazi u F8 — ovde nema nijedne izmišljene brojke, samo ono što alat stvarno
-// radi. Vizuelni jezik je isti kao u aplikaciji, da prelaz sa landing-a na
-// proizvod ne izgleda kao dva različita sajta.
 
 const SVOJSTVA = [
   {
     Ikona: Filter,
     naslov: 'Filter „nema sajt"',
-    opis: "Kod nas je najbolji lead firma koja sajt uopšte nema — ne firma sa ružnim sajtom.",
+    opis: "Najbolji lead je firma koja sajt uopšte nema — ne firma sa ružnim sajtom.",
   },
   {
     Ikona: Phone,
     naslov: "Tip telefona iz prefiksa",
     opis: "Znaš unapred da li ide Viber ili poziv, pre nego što otvoriš broj.",
-  },
-  {
-    Ikona: Camera,
-    naslov: "Snimak i analiza",
-    opis: "Mobilni i desktop prikaz, Ugly Score i lista konkretnih problema na srpskom.",
   },
   {
     Ikona: MessageSquareText,
@@ -33,83 +34,80 @@ const SVOJSTVA = [
   },
 ];
 
-export default function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ nalog?: string }>;
+}) {
+  // Ulogovan korisnik na početnoj nema šta da traži — forma bi mu bila ćorsokak.
+  if (await getCurrentUserId()) redirect("/pretraga");
+
+  // `/registracija` preusmerava ovamo sa `?nalog=nov`, pa stari linkovi i dalje
+  // otvaraju pravu karticu.
+  const { nalog } = await searchParams;
+  const pocetni: Rezim = nalog === "nov" ? "registracija" : "prijava";
+
   return (
-    <div className="relative min-h-screen">
-      <div aria-hidden className="pozadina-aure pointer-events-none fixed inset-0 -z-10" />
+    <div className="relative flex min-h-screen flex-col lg:grid lg:grid-cols-[1.05fr_1fr]">
+      <div className="absolute right-4 top-4 z-10 sm:right-6 sm:top-6">
+        <PrekidacTemeDugme />
+      </div>
 
-      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-6">
-        <ZnakSaImenom />
-        <div className="flex items-center gap-2">
-          <PrekidacTemeDugme />
-          <Show when="signed-out">
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/prijava">Prijavi se</Link>
-            </Button>
-          </Show>
+      {/* ── brend, samo desktop ──────────────────────────────── */}
+      <aside className="relative hidden flex-col justify-between overflow-hidden border-r border-border bg-bg-subtle/60 p-10 lg:flex xl:p-14">
+        <div aria-hidden className="pozadina-aure pointer-events-none absolute inset-0" />
+
+        <ZnakSaImenom className="relative" imeKlase="text-base" />
+
+        <div className="relative max-w-md">
+          <h1 className="text-3xl font-semibold leading-[1.12] tracking-tight xl:text-4xl">
+            Biznisi u Srbiji kojima sajt ne valja —{" "}
+            {/* Istaknuta reč u naslovu ide kroz `--accent-text`, ne kroz
+                `--accent` — zelena kao tekst na `--bg` pada na kontrastu u
+                svetloj temi (dizajn sistem, pravilo 3). */}
+            <span className="text-accent-text">ili ga uopšte nema.</span>
+          </h1>
+
+          <p className="mt-4 text-[15px] leading-relaxed text-fg-muted">
+            Izabereš grad i nišu. Alat prođe kroz Google Maps, oceni svaki sajt i vrati ti
+            kontakt, listu konkretnih problema i pripremljenu poruku — spremno za slanje.
+          </p>
+
+          {/* Lista, ne kartice: kartica u koloni koja već ima svoju podlogu je
+              kartica u kartici (dizajn sistem §7.2). */}
+          <ul className="mt-9 space-y-5">
+            {SVOJSTVA.map(({ Ikona, naslov, opis }) => (
+              <li key={naslov} className="flex gap-3.5">
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-wash text-accent-text">
+                  <Ikona className="h-4 w-4" strokeWidth={2} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{naslov}</p>
+                  <p className="mt-0.5 text-sm leading-relaxed text-fg-muted">{opis}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
-      </header>
 
-      <main className="mx-auto w-full max-w-5xl px-6 pb-24 pt-10 sm:pt-20">
-        <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-xs">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" />
-          Beta je besplatna dok traje — ne zauvek.
-        </span>
-
-        <h1 className="mt-6 max-w-3xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">
-          Biznisi u Srbiji kojima sajt ne valja —{" "}
-          <span className="bg-[linear-gradient(100deg,oklch(0.62_0.2_290),oklch(0.55_0.16_250))] bg-clip-text text-transparent">
-            ili ga uopšte nema.
-          </span>
-        </h1>
-
-        <p className="mt-5 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-          Izabereš grad i nišu. Alat prođe kroz Google Maps, oceni svaki sajt i vrati ti kontakt,
-          listu konkretnih problema i pripremljenu poruku — spremno za slanje.
+        <p className="relative max-w-sm text-xs leading-relaxed text-fg-muted">
+          Podaci su javni, sa Google Maps-a, preko zvaničnog API-ja.
         </p>
+      </aside>
 
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          {/* Clerk 7: `<Show when="...">` je zamenio `<SignedIn>` / `<SignedOut>`. */}
-          <Show when="signed-out">
-            <Button asChild variant="primary" size="lg">
-              <Link href="/registracija">
-                Uđi u besplatnu betu
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-            <Button asChild variant="outline" size="lg">
-              <Link href="/prijava">Prijavi se</Link>
-            </Button>
-          </Show>
+      {/* ── forma ────────────────────────────────────────────── */}
+      <main className="relative flex flex-1 flex-col items-center justify-center gap-7 overflow-hidden px-5 py-14 sm:px-8">
+        <div
+          aria-hidden
+          className="pozadina-aure pointer-events-none absolute inset-0 opacity-70 lg:hidden"
+        />
 
-          <Show when="signed-in">
-            <Button asChild variant="primary" size="lg">
-              <Link href="/pretraga">
-                Nastavi na pretragu
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          </Show>
-        </div>
+        <ZnakSaImenom className="relative lg:hidden" />
 
-        <section className="mt-20 grid gap-3 sm:grid-cols-2">
-          {SVOJSTVA.map(({ Ikona, naslov, opis }) => (
-            <div
-              key={naslov}
-              className="rounded-xl border border-border bg-card p-5 shadow-sm transition-shadow hover:shadow-md"
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                <Ikona className="h-4 w-4" />
-              </span>
-              <p className="mt-3.5 text-sm font-semibold">{naslov}</p>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{opis}</p>
-            </div>
-          ))}
-        </section>
+        <AuthEkran key={pocetni} pocetni={pocetni} />
 
-        <p className="mt-12 text-xs text-muted-foreground">
-          Podaci su javni, sa Google Maps-a, preko zvaničnog API-ja. 30 kredita mesečno, bez
-          kartice.
+        <p className="relative max-w-[25rem] text-center text-xs leading-relaxed text-fg-muted">
+          Beta je besplatna dok traje. 30 kredita mesečno, bez kartice.
         </p>
       </main>
     </div>

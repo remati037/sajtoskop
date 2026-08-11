@@ -13,8 +13,8 @@
 // `@/lib/auth`. Nema podrazumevane zaštite — provera je uz podatak, ne uz putanju.
 //
 // Izuzeci koji je namerno nemaju:
-//   /                      marketing, javno
-//   /prijava, /registracija Clerk ekrani
+//   /                      prijava i registracija; javno po definiciji
+//   /prijava, /registracija redirekcije na `/`, zbog starih linkova
 //   /api/webhooks/clerk    Clerk zove bez sesije; potpis JESTE autentikacija
 
 import { clerkMiddleware } from "@clerk/nextjs/server";

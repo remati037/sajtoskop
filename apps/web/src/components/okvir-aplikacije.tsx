@@ -68,7 +68,7 @@ export function OkvirAplikacije({ krediti, mesecniKrediti, children }: Props) {
       {/* ── bočna traka, desktop ─────────────────────────────── */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-border bg-surface/85 backdrop-blur-xl transition-[width] duration-200 ease-out lg:flex",
+          "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-border bg-bg-subtle/85 backdrop-blur-xl transition-[width] duration-200 ease-out lg:flex",
           skupljen ? "w-[4.75rem]" : "w-64",
         )}
       >
@@ -84,15 +84,15 @@ export function OkvirAplikacije({ krediti, mesecniKrediti, children }: Props) {
       {/* ── bočna traka, telefon: fioka ──────────────────────── */}
       <DialogPrimitive.Root open={mobilni} onOpenChange={setMobilni}>
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[oklch(0.15_0.02_272/0.55)] backdrop-blur-sm data-[state=open]:animate-pojavi lg:hidden" />
+          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-scrim backdrop-blur-sm data-[state=open]:animate-pojavi lg:hidden" />
           <DialogPrimitive.Content
             aria-label="Navigacija"
-            className="fixed inset-y-0 left-0 z-50 flex w-[17rem] flex-col border-r border-border bg-card shadow-pop outline-none data-[state=open]:animate-uklizi lg:hidden"
+            className="fixed inset-y-0 left-0 z-50 flex w-[17rem] flex-col border-r border-border bg-bg-elev shadow-hero outline-none data-[state=open]:animate-uklizi lg:hidden"
           >
             <DialogPrimitive.Title className="sr-only">Navigacija</DialogPrimitive.Title>
             <DialogPrimitive.Close
               aria-label="Zatvori meni"
-              className="absolute right-3 top-3.5 inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+              className="absolute right-3 top-3.5 inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted hover:bg-bg-hover hover:text-fg"
             >
               <X className="h-4 w-4" />
             </DialogPrimitive.Close>
@@ -119,7 +119,7 @@ export function OkvirAplikacije({ krediti, mesecniKrediti, children }: Props) {
             type="button"
             onClick={() => setMobilni(true)}
             aria-label="Otvori meni"
-            className="-ml-1 inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground lg:hidden"
+            className="-ml-1 inline-flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg lg:hidden"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -133,10 +133,10 @@ export function OkvirAplikacije({ krediti, mesecniKrediti, children }: Props) {
           <Link
             href="/krediti"
             title="Krediti se troše na otključavanje prospekata"
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs shadow-xs transition-colors hover:border-border-strong lg:hidden"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-bg-elev px-3 text-xs shadow-sm transition-colors hover:border-border-strong lg:hidden"
           >
-            <Coins className="h-3.5 w-3.5 text-primary" />
-            <span className="font-semibold tabular-nums">{krediti ?? "—"}</span>
+            <Coins className="h-3.5 w-3.5 text-accent-text" />
+            <span className="font-semibold num">{krediti ?? "—"}</span>
           </Link>
 
           <PrekidacTemeDugme className="lg:hidden" />
@@ -185,7 +185,7 @@ function SadrzajTrake({
             type="button"
             onClick={prebaci}
             aria-label="Skupi bočnu traku"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
           >
             <PanelLeftClose className="h-4 w-4" />
           </button>
@@ -196,7 +196,7 @@ function SadrzajTrake({
         {NAVIGACIJA.map((grupa) => (
           <div key={grupa.naslov}>
             {!skupljen && (
-              <p className="mb-2 px-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">
+              <p className="mb-2 px-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-fg-muted/80">
                 {grupa.naslov}
               </p>
             )}
@@ -222,7 +222,7 @@ function SadrzajTrake({
                 type="button"
                 onClick={prebaci}
                 aria-label="Raširi bočnu traku"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
               >
                 <PanelLeftOpen className="h-4 w-4" />
               </button>
@@ -256,22 +256,22 @@ function NavLink({
         "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
         skupljen && "justify-center px-0",
         aktivan
-          ? "bg-primary-soft text-accent-foreground"
-          : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
+          ? "bg-accent-wash text-accent-text"
+          : "text-fg-muted hover:bg-bg-hover hover:text-fg",
       )}
     >
       {/* Tanka šipka levo — aktivna stavka se prepoznaje i periferno, bez čitanja. */}
       <span
         aria-hidden
         className={cn(
-          "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary transition-opacity",
+          "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-accent transition-opacity",
           aktivan ? "opacity-100" : "opacity-0",
         )}
       />
       <Ikona
         className={cn(
           "h-[18px] w-[18px] shrink-0 transition-colors",
-          aktivan ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
+          aktivan ? "text-accent-text" : "text-fg-muted group-hover:text-fg",
         )}
         strokeWidth={2}
       />
@@ -288,7 +288,7 @@ function NavLink({
       <TooltipTrigger asChild>{link}</TooltipTrigger>
       <TooltipContent side="right">
         <span className="font-semibold">{stavka.label}</span>
-        <span className="ml-2 font-normal text-muted-foreground">{stavka.opis}</span>
+        <span className="ml-2 font-normal text-fg-muted">{stavka.opis}</span>
       </TooltipContent>
     </Tooltip>
   );
@@ -319,10 +319,10 @@ function KarticaKredita({
         <TooltipTrigger asChild>
           <Link
             href="/krediti"
-            className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-card py-2 text-center transition-colors hover:border-border-strong"
+            className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-bg-elev py-2 text-center transition-colors hover:border-border-strong"
           >
-            <Coins className="h-4 w-4 text-primary" />
-            <span className="text-xs font-semibold tabular-nums">{krediti ?? "—"}</span>
+            <Coins className="h-4 w-4 text-accent-text" />
+            <span className="text-xs font-semibold num">{krediti ?? "—"}</span>
           </Link>
         </TooltipTrigger>
         <TooltipContent side="right">
@@ -336,27 +336,27 @@ function KarticaKredita({
     <Link
       href="/krediti"
       title="Krediti se troše na otključavanje prospekata"
-      className="block rounded-xl border border-border bg-card p-3 shadow-xs transition-colors hover:border-border-strong"
+      className="block rounded-xl border border-border bg-bg-elev p-3 shadow-sm transition-colors hover:border-border-strong"
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Coins className="h-3.5 w-3.5 text-primary" />
+        <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
+          <Coins className="h-3.5 w-3.5 text-accent-text" />
           Krediti
         </span>
-        <span className="text-sm font-semibold tabular-nums">
+        <span className="text-sm font-semibold num">
           {krediti ?? "—"}
-          <span className="text-xs font-normal text-muted-foreground">/{mesecni}</span>
+          <span className="text-xs font-normal text-fg-muted">/{mesecni}</span>
         </span>
       </div>
 
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-bg-inset">
         <div
-          className="h-full rounded-full bg-[linear-gradient(90deg,oklch(0.62_0.2_290),oklch(0.5_0.19_275))] transition-[width] duration-500"
+          className="h-full rounded-full bg-accent transition-[width] duration-500"
           style={{ width: `${procenat}%` }}
         />
       </div>
 
-      <p className="mt-2 text-[11px] leading-tight text-muted-foreground">
+      <p className="mt-2 text-[11px] leading-tight text-fg-muted">
         Obnavlja se prvog u mesecu. Pretraga iz keša je besplatna.
       </p>
     </Link>
