@@ -20,7 +20,9 @@ export function SelectTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "inline-flex h-10 items-center justify-between gap-2 rounded-lg border border-border bg-bg-elev px-3 text-sm shadow-sm outline-none transition-[border-color,box-shadow] focus:border-accent focus:ring-2 focus:ring-accent/25 data-[placeholder]:text-fg-muted",
+        // Okidač je kontrola — `--border-strong` (§3.2.1). Panel ispod je
+        // površina i ostaje na `--border`.
+        "inline-flex h-10 items-center justify-between gap-2 rounded-lg border border-border-strong bg-bg-elev px-3 text-sm shadow-sm outline-none transition-[border-color,box-shadow] hover:border-fg-muted focus:border-accent focus:ring-2 focus:ring-accent/25 data-[placeholder]:text-fg-muted",
         className,
       )}
       {...props}

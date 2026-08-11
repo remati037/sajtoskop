@@ -1,11 +1,14 @@
 // apps/web/src/components/ui/input.tsx
 // Polje za unos i etiketa uz njega. Fokus se vidi kao prsten u boji brenda —
 // isti prsten kao na dugmadima, da ceo obrazac deluje kao jedan sistem.
+//
+// Ivica je `--border-strong`, ne `--border`: oblik polja nosi isključivo ona,
+// pa po §3.2.1 mora da drži 3:1 prema podlozi. `--border` je za površine.
 
 import { cn } from "@/lib/cn";
 
 export const poljeKlase =
-  "h-10 w-full rounded-lg border border-border bg-bg-elev px-3 text-sm text-fg shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-fg-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-50";
+  "h-10 w-full rounded-lg border border-border-strong bg-bg-elev px-3 text-sm text-fg shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-fg-muted/70 hover:border-fg-muted focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-50";
 
 export function Input({ className, ...props }: React.ComponentProps<"input">) {
   return <input className={cn(poljeKlase, className)} {...props} />;

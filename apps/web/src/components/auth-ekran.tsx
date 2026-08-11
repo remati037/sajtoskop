@@ -55,13 +55,13 @@ export function AuthEkran({ pocetni }: { pocetni: Rezim }) {
         aria-label="Prijava ili registracija"
         // 25rem je širina Clerk-ove kartice ispod. Poravnanje je namerno —
         // prekidač koji je uži od kartice izgleda kao da je slučajno tu.
-        className="relative grid w-full max-w-[25rem] grid-cols-2 gap-0.5 rounded-full border border-border bg-bg-inset/60 p-1 shadow-sm"
+        className="relative grid w-full max-w-[25rem] grid-cols-2 gap-0.5 rounded-full border border-border-strong bg-bg-inset/60 p-1 shadow-sm"
       >
         {/* Isti klizni indikator kao u prekidaču teme — jedan element koji se
             pomera, ne dve pozadine koje se pale. */}
         <span
           aria-hidden
-          className="absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/2)] rounded-full bg-bg-elev shadow-sm ring-1 ring-border transition-transform duration-200 ease-out"
+          className="absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/2)] rounded-full bg-bg-elev shadow-sm ring-1 ring-border-strong transition-transform duration-200 ease-out"
           style={{ transform: `translateX(calc(${Math.max(index, 0)} * 100%))` }}
         />
 

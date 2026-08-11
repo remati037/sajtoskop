@@ -143,7 +143,7 @@ function Poruke({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         {/* Segmentna traka kanala — isti jezik kao prekidač teme u sidebar-u. */}
-        <div className="inline-flex rounded-full border border-border bg-bg-inset/60 p-1">
+        <div className="inline-flex rounded-full border border-border-strong bg-bg-inset/60 p-1">
           {(Object.keys(odgovor.poruke) as MessageChannel[]).map((k) => (
             <button
               key={k}
@@ -153,7 +153,7 @@ function Poruke({
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
                 k === kanal
-                  ? "bg-bg-elev text-fg shadow-sm ring-1 ring-border"
+                  ? "bg-bg-elev text-fg shadow-sm ring-1 ring-border-strong"
                   : "text-fg-muted hover:text-fg",
               )}
             >

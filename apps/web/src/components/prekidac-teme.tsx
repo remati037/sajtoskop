@@ -33,14 +33,17 @@ export function PrekidacTeme({ className }: { className?: string }) {
       role="radiogroup"
       aria-label="Tema"
       className={cn(
-        "relative grid grid-cols-3 gap-0.5 rounded-full border border-border bg-bg-inset/60 p-1",
+        // Segmentni prekidač je kontrola: i staza i klizač idu `--border-strong`
+        // (§3.2.1). Podloga `--bg-inset/60` je 1.1:1 prema strani, pa oblik nosi
+        // isključivo linija.
+        "relative grid grid-cols-3 gap-0.5 rounded-full border border-border-strong bg-bg-inset/60 p-1",
         className,
       )}
     >
       {/* Indikator je jedan element koji klizi, ne tri pozadine koje se pale. */}
       <span
         aria-hidden
-        className="absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/3)] rounded-full bg-bg-elev shadow-sm ring-1 ring-border transition-transform duration-200 ease-out"
+        className="absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/3)] rounded-full bg-bg-elev shadow-sm ring-1 ring-border-strong transition-transform duration-200 ease-out"
         style={{ transform: `translateX(calc(${Math.max(index, 0)} * 100%))` }}
       />
 

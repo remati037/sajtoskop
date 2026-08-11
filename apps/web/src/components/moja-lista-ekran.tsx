@@ -160,7 +160,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
               "h-10 rounded-lg border px-3.5 text-xs font-medium transition-all",
               samoBezSajta
                 ? "border-accent bg-accent text-accent-ink shadow-accent"
-                : "border-border bg-bg-elev text-fg-muted hover:border-border-strong hover:text-fg",
+                : "border-border-strong bg-bg-elev text-fg-muted hover:border-fg-muted hover:text-fg",
             )}
           >
             Bez funkcionalnog sajta

@@ -69,7 +69,7 @@ export function SnimakDugme({ lead }: { lead: Otkljucan }) {
         type="button"
         onClick={() => setOtvoren(true)}
         title="Otvori snimke i analizu sajta"
-        className="group flex items-center gap-2.5 rounded-lg border border-transparent p-1 text-left transition-colors hover:border-border hover:bg-bg-subtle"
+        className="group flex items-center gap-2.5 rounded-lg border border-transparent p-1 text-left transition-colors hover:border-border-strong hover:bg-bg-subtle"
       >
         <span className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-border shadow-sm transition-colors group-hover:border-accent">
           {/* eslint-disable-next-line @next/next/no-img-element -- potpisan URL sa

@@ -133,7 +133,7 @@ export function OkvirAplikacije({ krediti, mesecniKrediti, children }: Props) {
           <Link
             href="/krediti"
             title="Krediti se troše na otključavanje prospekata"
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-bg-elev px-3 text-xs shadow-sm transition-colors hover:border-border-strong lg:hidden"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border-strong bg-bg-elev px-3 text-xs shadow-sm transition-colors hover:border-fg-muted lg:hidden"
           >
             <Coins className="h-3.5 w-3.5 text-accent-text" />
             <span className="font-semibold num">{krediti ?? "—"}</span>
@@ -319,7 +319,7 @@ function KarticaKredita({
         <TooltipTrigger asChild>
           <Link
             href="/krediti"
-            className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-bg-elev py-2 text-center transition-colors hover:border-border-strong"
+            className="flex flex-col items-center gap-0.5 rounded-lg border border-border-strong bg-bg-elev py-2 text-center transition-colors hover:border-fg-muted"
           >
             <Coins className="h-4 w-4 text-accent-text" />
             <span className="text-xs font-semibold num">{krediti ?? "—"}</span>
@@ -336,7 +336,7 @@ function KarticaKredita({
     <Link
       href="/krediti"
       title="Krediti se troše na otključavanje prospekata"
-      className="block rounded-xl border border-border bg-bg-elev p-3 shadow-sm transition-colors hover:border-border-strong"
+      className="block rounded-xl border border-border-strong bg-bg-elev p-3 shadow-sm transition-colors hover:border-fg-muted"
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">

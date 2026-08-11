@@ -95,7 +95,7 @@ export function PipelineUvoz() {
             ref={input}
             type="file"
             accept=".csv,text/csv"
-            className="w-full rounded-lg border border-dashed border-border bg-bg-subtle/50 p-3 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-accent-ink hover:file:brightness-110"
+            className="w-full rounded-lg border border-dashed border-border-strong bg-bg-subtle/50 p-3 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-accent-ink hover:file:brightness-110"
           />
 
           <label className="flex items-start gap-2.5 rounded-xl border border-border bg-bg-subtle/50 p-3 text-xs text-fg-muted">

@@ -127,8 +127,11 @@ nema u tokenima, ne postoji — pitaj pre nego što je dodaš.
   --fg-muted: #575e66;
   --fg-faint: #868d95;
 
-  --border: #e5e7e6;
-  --border-strong: #d3d7d4;
+  /* Revizija kontrasta: prethodno #e5e7e6 / #d3d7d4 davali su 1.24:1 odnosno
+     1.45:1 na beloj, a 1.11:1 na `--bg-inset` — ispod praga na kom se linija
+     uopšte razaznaje. Nove vrednosti: v. §3.2.1. */
+  --border: #c6cbc7;
+  --border-strong: #878e89;
   --border-accent: rgba(112, 168, 10, 0.35);
 
   --accent: #8fd413;
@@ -181,8 +184,9 @@ nema u tokenima, ne postoji — pitaj pre nego što je dodaš.
   --fg-muted: #9aa2ab;
   --fg-faint: #6c757f;
 
-  --border: rgba(255, 255, 255, 0.085);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  /* Revizija kontrasta — v. §3.2.1. Ranije 0.085 / 0.16. */
+  --border: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.36);
   --border-accent: rgba(173, 238, 46, 0.32);
 
   --accent: #adee2e;
@@ -260,8 +264,8 @@ nema u tokenima, ne postoji — pitaj pre nego što je dodaš.
 | `--fg` | glavni tekst, naslovi |
 | `--fg-muted` | opisi, sekundarni tekst, vrednosti u tabeli |
 | `--fg-faint` | labele, placeholder, metapodaci, ikonice u mirovanju |
-| `--border` | sve hairline linije, default |
-| `--border-strong` | ghost dugme, hover na bordere |
+| `--border` | hairline linije na **površinama** — kartice, tabele, modali, separatori |
+| `--border-strong` | obris **kontrole** — input, select, combobox, ghost dugme, segmentni prekidač |
 | `--border-accent` | okvir istaknutog elementa (naša kolona u tabeli, beta panel) |
 | `--accent` | pozadina primarnog dugmeta, tačke, meta u logu, badge |
 | `--accent-ink` | tekst **na** akcentnoj pozadini (nikad obrnuto) |
@@ -271,6 +275,39 @@ nema u tokenima, ne postoji — pitaj pre nego što je dodaš.
 
 **Nikad ne koristi `--accent` kao boju teksta na `--bg`.** Kontrast u svetloj
 temi pada. Za tekst postoji `--accent-text`.
+
+### 3.2.1 Ivice: površina naspram kontrole
+
+Dva tokena za ivice nisu „ista linija, jedna jača". Oni su dve različite uloge,
+i biraju se po tome **šta** element jeste, ne po tome koliko jako želiš da se vidi.
+
+- **Površina** — kartica, red u tabeli, separator, panel modala, bočna traka.
+  Linija tu samo grupiše sadržaj. Ide `--border`.
+- **Kontrola** — sve što korisnik može da klikne, upiše ili izabere, a čiji je
+  oblik definisan **isključivo** ivicom: input, select, combobox, ghost i outline
+  dugme, segmentni prekidač. Ide `--border-strong`.
+
+Razlika je normativna, ne estetska. WCAG 2.2 SC 1.4.11 (Non-text Contrast) traži
+**3:1** za granicu koja identifikuje kontrolu. Za dekorativnu liniju između dve
+kartice ne traži ništa — ali linija ispod 1.3:1 se praktično ne vidi, pa i tamo
+postoji donji prag.
+
+Izmereno na stvarnim podlogama proizvoda:
+
+| Token | Tema | `--bg` | `--bg-subtle` | `--bg-inset` |
+|---|---|---|---|---|
+| `--border` | svetla | 1.64:1 | 1.54:1 | 1.47:1 |
+| `--border` | tamna | 1.52:1 | 1.56:1 | 1.59:1 |
+| `--border-strong` | svetla | 3.35:1 | 3.15:1 | 3.01:1 |
+| `--border-strong` | tamna | 3.23:1 | 3.28:1 | 3.33:1 |
+
+`--border-strong` prelazi 3:1 na **svakoj** podlozi u obe teme, ne samo na `--bg`.
+Zato je svetla vrednost `#878e89`, a ne svetlija nijansa koja bi prošla na beloj
+pa pala na `--bg-inset`.
+
+**Hover na kontroli ide `--fg-muted`.** `--fg-faint` je u svetloj temi 3.36:1 —
+praktično nerazlučivo od `--border-strong` na 3.35:1, pa hover ne bi bio korak.
+`--fg-muted` je 6.57:1 u svetloj i 7.76:1 u tamnoj: vidljiv korak u obe.
 
 ### 3.3 Ugly Score bendovi
 
@@ -498,7 +535,9 @@ Upotreba: roditelj mora biti `relative` (i `overflow-hidden` za `.noise`).
 
 .btn-ghost         { background-color: transparent; color: var(--fg);
                      border: 1px solid var(--border-strong); }
-.btn-ghost:hover   { background-color: var(--bg-subtle); border-color: var(--fg-faint); }
+/* Hover je `--fg-muted`, ne `--fg-faint` — v. §3.2.1: posle revizije kontrasta
+   `--fg-faint` i `--border-strong` su u svetloj temi na istoj vrednosti. */
+.btn-ghost:hover   { background-color: var(--bg-subtle); border-color: var(--fg-muted); }
 
 .btn-lg { height: 3.25rem; padding-inline: 1.6rem; font-size: 1.02rem; }
 .btn-md { height: 2.5rem;  padding-inline: 1rem;   font-size: 0.9rem; }
@@ -657,7 +696,9 @@ Ikonica u mirovanju je `--fg-faint`; boju dobija samo kad nosi značenje
 `--orange` = problem na sajtu).
 
 Kvadratna dugmad-ikonice: `grid h-8 w-8 place-items-center rounded-lg border
-border-border text-fg-faint hover:text-fg`.
+border-border-strong text-fg-faint hover:border-fg-muted hover:text-fg`.
+Kontrola, dakle `--border-strong` (§3.2.1) — kod dugmeta koje je samo ikonica
+ivica je jedino što uopšte pokazuje da tu ima šta da se klikne.
 
 ### 7.8 Header
 

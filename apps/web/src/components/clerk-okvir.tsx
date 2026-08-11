@@ -9,9 +9,14 @@
 //
 // Vrednosti su doslovno tokeni iz `docs/DIZAJN-SISTEM.md` §3.1 — dokument ih
 // već drži u HEX-u, pa je ovo prepis, ne prevod. Jedini izuzetak je
-// `colorBorder` u tamnoj temi: token je `rgba(255,255,255,0.085)`, a Clerk iz
-// boje ivice izvodi svoju skalu i providnost mu razvali kontrast. Ovde stoji
-// ista boja spljoštena preko `--bg-elev`.
+// `colorBorder` u tamnoj temi: token je `rgba(...)`, a Clerk iz boje ivice
+// izvodi svoju skalu i providnost mu razvali kontrast. Ovde stoji ista boja
+// spljoštena preko `--bg-elev`.
+//
+// `colorBorder` je namerno `--border-strong`, a ne `--border`: sve što Clerk
+// ovom bojom crta jesu polja za unos i dugmad za socijalne prijave, dakle
+// kontrole — a one po §3.2.1 drže 3:1. Clerk nema odvojen token za površinu,
+// pa bi `--border` ovde značio da forma jedina u proizvodu ima nevidljiva polja.
 
 import { ClerkProvider } from "@clerk/nextjs";
 import { srRS } from "@clerk/localizations";
@@ -26,7 +31,7 @@ const SVETLA = {
   colorMuted: "#f1f3f1", // --bg-inset
   colorInput: "#ffffff", // --bg-elev
   colorInputForeground: "#0a0b0c", // --fg
-  colorBorder: "#e5e7e6", // --border
+  colorBorder: "#878e89", // --border-strong
   colorDanger: "#d92020", // --danger
   colorSuccess: "#4e7c0a", // --accent-text
   colorWarning: "#b45309", // --warn-text
@@ -41,7 +46,7 @@ const TAMNA = {
   colorMuted: "#0e1114", // --bg-inset
   colorInput: "#0e1114", // --bg-inset
   colorInputForeground: "#f2f4f3", // --fg
-  colorBorder: "#24272b", // --border, spljošten preko --bg-elev
+  colorBorder: "#66686b", // --border-strong, spljošten preko --bg-elev
   colorDanger: "#ff5a5a", // --danger
   colorSuccess: "#c4f55c", // --accent-text
   colorWarning: "#fbbf24", // --warn-text

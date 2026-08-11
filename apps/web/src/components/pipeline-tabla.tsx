@@ -356,7 +356,7 @@ function Kartica({
       <button
         type="button"
         onClick={otvoriPoruke}
-        className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-subtle py-1.5 text-xs font-medium transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
+        className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border-strong bg-bg-subtle py-1.5 text-xs font-medium transition-colors hover:border-accent hover:bg-accent hover:text-accent-ink"
       >
         <MessageSquareText className="h-3 w-3" />
         Poruka

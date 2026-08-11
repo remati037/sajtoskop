@@ -102,8 +102,9 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
           aria-controls={`${id}-list`}
           autoComplete="off"
           className={cn(
-            "h-11 w-full rounded-xl border border-border bg-bg-elev pl-3.5 pr-9 text-sm shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-fg-muted/70",
-            "focus:border-accent focus:ring-2 focus:ring-accent/25",
+            // Kontrola → `--border-strong` (§3.2.1); lista ispod je površina.
+            "h-11 w-full rounded-xl border border-border-strong bg-bg-elev pl-3.5 pr-9 text-sm shadow-sm outline-none transition-[border-color,box-shadow] placeholder:text-fg-muted/70",
+            "hover:border-fg-muted focus:border-accent focus:ring-2 focus:ring-accent/25",
             open && "border-accent ring-2 ring-accent/25",
           )}
           placeholder={selected ? selected.label : placeholder}
