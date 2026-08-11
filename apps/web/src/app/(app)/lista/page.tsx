@@ -2,15 +2,21 @@
 // Otključani prospekti (F4 §3). Ovo je jedini ekran na kome korisnik vidi ono
 // za šta je platio kredite — i jedini iz kog izlazi CSV.
 
+import type { Metadata } from "next";
 import Link from "next/link";
+import { ListChecks } from "lucide-react";
 import { CITIES, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
 import { getMojaLista } from "@/lib/moja-lista";
 import { getOwnProfile } from "@/lib/profile";
 import { MojaListaEkran } from "@/components/moja-lista-ekran";
 import { VezaGreska } from "@/components/veza-greska";
+import { Button } from "@/components/ui/button";
+import { PraznoStanje, ZaglavljeStranice } from "@/components/ui/stranica";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = { title: "Moja lista" };
 
 export default async function Page() {
   // Prva linija svake zaštićene stranice — ni middleware ni layout ovo ne rade.
@@ -21,14 +27,11 @@ export default async function Page() {
   const cityLabels = Object.fromEntries(CITIES.map((c) => [c.slug, c.label]));
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Moja lista</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Prospekti koje si otključao. Ostaju ti zauvek — otključan lead se nikad ne
-          naplaćuje drugi put.
-        </p>
-      </header>
+    <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <ZaglavljeStranice
+        naslov="Moja lista"
+        opis="Prospekti koje si otključao. Ostaju ti zauvek — otključan lead se nikad ne naplaćuje drugi put."
+      />
 
       {/* Redosled je bitan: prvo se isključuje mogućnost da je lista prazna zato
           što RLS ne prepoznaje korisnika, pa tek onda ide prijateljsko prazno
@@ -36,7 +39,15 @@ export default async function Page() {
       {!profile ? (
         <VezaGreska sta="Otključani prospekti" />
       ) : leads.length === 0 ? (
-        <PraznoStanje />
+        <PraznoStanje
+          ikona={<ListChecks />}
+          naslov="Još nemaš nijedan otključan prospekt."
+          opis="Otključavanje troši jedan kredit i otvara telefon, mejl, adresu sajta i pun Ugly Score. Kad otključaš prvi, ovde se pojavljuje tabela koju možeš da izvezeš u CSV i zalepiš u svoj Sheet."
+        >
+          <Button asChild variant="primary">
+            <Link href="/pretraga">Idi na pretragu</Link>
+          </Button>
+        </PraznoStanje>
       ) : (
         <MojaListaEkran
           leads={leads}
@@ -45,27 +56,6 @@ export default async function Page() {
           exportedToday={profile.export_count}
         />
       )}
-    </main>
-  );
-}
-
-/**
- * Prazno stanje sa jasnim uputstvom, ne praznom tabelom (F4 §3).
- * Korisnik koji ovde stigne pre prvog otključavanja treba da zna tačno šta dobija
- * za kredit i gde se to radi.
- */
-function PraznoStanje() {
-  return (
-    <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-5 py-6 dark:border-neutral-800 dark:bg-neutral-900/50">
-      <p className="font-medium">Još nemaš nijedan otključan prospekt.</p>
-      <p className="mt-1 max-w-xl text-sm text-neutral-500">
-        Otključavanje troši jedan kredit i otvara telefon, mejl, adresu sajta i pun Ugly
-        Score. Kad otključaš prvi, ovde se pojavljuje tabela koju možeš da izvezeš u CSV
-        i zalepiš u svoj Sheet.
-      </p>
-      <Link href="/pretraga" className="mt-4 inline-block text-sm underline underline-offset-4">
-        Idi na pretragu
-      </Link>
     </div>
   );
 }

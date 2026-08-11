@@ -34,7 +34,13 @@ export type {
   JobQueueRow,
   JobStatus,
   JobType,
+  LeadChannel,
+  LeadStatusRow,
+  LeadStatusRpcReason,
+  LeadStatusValue,
+  OutreachMessageRow,
   ProfileRow,
+  SignedEventRow,
   RpcResult,
   SearchRow,
   SpendReason,
@@ -46,10 +52,34 @@ export type {
 export type { ScoreInput, ScoreResult } from "./ugly-score";
 export { bandForScore, copyrightYear, detectPlatform, scoreSite } from "./ugly-score";
 
+// ── generator outreach poruka (F7) ─────────────────────────
+export type {
+  ContactChannel,
+  MessageChannel,
+  OutreachInput,
+  OutreachOk,
+  OutreachResult,
+  OutreachSkip,
+  Poruka,
+} from "./outreach";
+export {
+  brojReci,
+  domen,
+  GRANICE,
+  napisiPoruke,
+  proveriPoruku,
+  repZauzima,
+  sastaviVarijantu,
+} from "./outreach";
+
+// ── padežni oblici za generator poruka ─────────────────────
+export { bezOblika, gradLokativ, nisaAkuzativ } from "./sklonidba";
+
 // ── planovi i globalni kapovi ──────────────────────────────
 export type { Plan, PlanId } from "./plans";
 export {
   AI_DAILY_CAP,
+  AI_OUTREACH_DAILY_CAP,
   BUDGET_TIMEZONE,
   CREDITS_TIMEZONE,
   creditMonth,

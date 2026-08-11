@@ -136,6 +136,35 @@ export async function enqueueEnrichFull(args: {
   });
 }
 
+/**
+ * „Napiši drugačije" — AI varijanta poruke (F7 §2, migracija 0008).
+ *
+ * Ide kroz red poslova, a ne pozivom iz ove funkcije, jer se Anthropic zove
+ * isključivo iz workera (00-kontekst §3). Cena je pollovanje `/api/job/:id`;
+ * dobit je da sve što troši pare ima jedno mesto, jedan retry i jedan brojač.
+ *
+ * `dedupeKey` nosi i kanal i korisnika: dva klika na isto dugme u istoj sekundi
+ * dele jedan poziv, a ista poruka za Viber i za mejl su dva različita posla.
+ */
+export async function enqueueRewrite(args: {
+  userId: string;
+  placeId: string;
+  channel: "mejl" | "viber" | "instagram";
+  senderName: string | null;
+}): Promise<EnqueuedJob> {
+  return enqueue({
+    type: "rewrite_message",
+    payload: {
+      userId: args.userId,
+      placeId: args.placeId,
+      channel: args.channel,
+      senderName: args.senderName,
+    },
+    dedupeKey: `${args.userId}:${args.placeId}:${args.channel}`,
+    userId: args.userId,
+  });
+}
+
 /** Koliko dugo posle osvežavanja se isto ne pokušava ponovo. */
 const REFRESH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 

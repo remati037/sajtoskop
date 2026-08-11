@@ -105,7 +105,9 @@ export type JobType =
   | "enrich_basic"
   | "enrich_full"
   | "refresh_google"
-  | "monthly_grant";
+  | "monthly_grant"
+  /** F7 §2: „Napiši drugačije" — AI varijanta outreach poruke (0008). */
+  | "rewrite_message";
 export type JobStatus = "pending" | "running" | "done" | "failed";
 
 export type JobQueueRow = {
@@ -120,6 +122,59 @@ export type JobQueueRow = {
   last_error: string | null;
   created_at: string;
   finished_at: string | null;
+};
+
+// ── F7: kanban, poruke, događaj „potpisan" (0007) ──────────
+
+/** Tačno ovih pet, redom kojim stoje kolone u kanbanu. */
+export type LeadStatusValue =
+  | "nekontaktiran"
+  | "kontaktiran"
+  | "odgovorio"
+  | "potpisan"
+  | "nezainteresovan";
+
+/** Kanal kontakta. Širi od `MessageChannel` — `poziv` nema generisanu poruku. */
+export type LeadChannel = "mejl" | "viber" | "instagram" | "poziv";
+
+export type LeadStatusRow = {
+  user_id: string;
+  place_id: string;
+  status: LeadStatusValue;
+  note: string | null;
+  channel: LeadChannel | null;
+  /** Datum PRVOG kontakta. `null` tačno kad je status `nekontaktiran` (0007). */
+  contacted_at: string | null;
+  updated_at: string;
+};
+
+export type OutreachMessageRow = {
+  id: string;
+  user_id: string;
+  place_id: string;
+  channel: "mejl" | "viber" | "instagram";
+  body: string;
+  source: "sablon" | "ai";
+  created_at: string;
+};
+
+/**
+ * Snimak atributa leada u trenutku potpisivanja (F7 §3).
+ * Vrednosti su prepisane, ne referencirane — `businesses` ima TTL 30 dana.
+ */
+export type SignedEventRow = {
+  id: number;
+  user_id: string;
+  place_id: string;
+  country_code: string;
+  city_slug: string | null;
+  niche_slug: string | null;
+  site_status: SiteStatus | null;
+  ugly_band: UglyBand | null;
+  ugly_score: number | null;
+  platform: Platform | null;
+  channel: LeadChannel | null;
+  created_at: string;
 };
 
 export type ApiBudgetRow = {
@@ -157,6 +212,15 @@ export type MonthlyGrantReason =
   | "no_user";
 
 export type ExportClaimReason = "claimed" | "limit_reached" | "nothing_to_export" | "no_user";
+
+/** `set_lead_status` / `mark_contacted` / `set_lead_note` iz 0007. */
+export type LeadStatusRpcReason =
+  | "updated"
+  | "contacted"
+  | "saved"
+  | "invalid_status"
+  | "invalid_channel"
+  | "not_unlocked";
 
 export type RpcResult<R extends string> = { ok: boolean; reason: R };
 

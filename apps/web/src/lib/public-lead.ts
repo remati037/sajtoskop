@@ -33,9 +33,22 @@ import type { LeadBase, LeadScreenshot, PublicLead } from "./search-types";
 // Ulazni oblici su namerno `Pick<>`, a ne ceo red iz baze: tip je istovremeno i
 // lista kolona koje upit sme da traži. Ako neko doda kolonu u `Pick`, mora da je
 // doda i u `select`.
+// `niche_slug` je dodat u F7: generator poruka bez niše ume samo „male firme"
+// umesto „auto placeve u Kraljevu". Nije osetljiv — korisnik je po niši i tražio.
 export type LeadBusiness = Pick<
   BusinessRow,
-  "place_id" | "name" | "city_slug" | "address" | "phone" | "phone_type" | "website_url" | "rating"
+  | "place_id"
+  | "name"
+  | "city_slug"
+  | "niche_slug"
+  | "address"
+  | "phone"
+  | "phone_type"
+  | "website_url"
+  | "rating"
+  // F7: broj ocena ulazi u poruku („imate 4,8 sa 157 ocena"). To je jedina
+  // rečenica u generatoru koja je nesumnjivo o toj firmi i ni o kojoj drugoj.
+  | "user_ratings_total"
 >;
 
 export type LeadAudit = Pick<
@@ -50,6 +63,9 @@ export type LeadAudit = Pick<
   | "psi_lcp_ms"
   | "ai_issues"
   | "ai_verdict"
+  // F7: generator mora da razlikuje „sajt je proveren i uredan" (ne piši mu) od
+  // „sajt nije proveren" (nemaš osnov). Bez ove kolone bi obe izgledale isto.
+  | "ai_solidan"
   | "screenshot_desktop"
   | "screenshot_mobile"
 >;
@@ -59,11 +75,12 @@ export type LeadAudit = Pick<
 // fajlovima, dodata kolona se doda u jednu i zaboravi u drugoj — tip i dalje
 // prolazi kroz `tsc`, a polje u odgovoru je `undefined`. Ovde su jednom.
 export const LEAD_BUSINESS_COLUMNS =
-  "place_id, name, city_slug, address, phone, phone_type, website_url, rating";
+  "place_id, name, city_slug, niche_slug, address, phone, phone_type, website_url, " +
+  "rating, user_ratings_total";
 
 export const LEAD_AUDIT_COLUMNS =
   "site_status, ugly_band, platform, ugly_score, signals, emails, " +
-  "psi_mobile_score, psi_lcp_ms, ai_issues, ai_verdict, " +
+  "psi_mobile_score, psi_lcp_ms, ai_issues, ai_verdict, ai_solidan, " +
   "screenshot_desktop, screenshot_mobile";
 
 /**
@@ -102,6 +119,7 @@ export function toPublicLead(
     placeId: b.place_id,
     name: b.name,
     citySlug: b.city_slug,
+    nicheSlug: b.niche_slug,
     address: b.address,
     hasWebsite: !!b.website_url,
     phoneType: b.phone_type,
@@ -128,6 +146,7 @@ export function toPublicLead(
     psiLcpMs: a?.psi_lcp_ms ?? null,
     aiIssues: a?.ai_issues ?? null,
     aiVerdict: a?.ai_verdict ?? null,
+    aiSolidan: a?.ai_solidan ?? null,
     screenshot: screenshotOf(a, signed),
   };
 }

@@ -54,6 +54,27 @@ export const monthlyGrantPayloadSchema = z.strictObject({
   month: z.string().regex(/^\d{4}-\d{2}$/, { error: "Mesec mora biti u obliku 2026-09." }),
 });
 
+/**
+ * „Napiši drugačije" (F7 §2, migracija 0008).
+ *
+ * `userId` je ovde deo payload-a, a ne pretplatnika, jer posao piše u
+ * `outreach_messages` gde je vlasnik reda obavezan. Posao ga svejedno proverava
+ * nad tabelom `unlocks` pre nego što išta uradi — red poslova je `jsonb`, ne
+ * poziv funkcije, i ne sme da se veruje da je upisan iz proverene rute.
+ *
+ * `senderName` se prosleđuje, a ne čita iz baze: ime je u Clerku, koji worker
+ * nema. Bez njega bi AI varijanta stigla bez potpisa, a šablon sa njim — i
+ * korisnik bi tu razliku video kao kvar.
+ */
+export const rewritePayloadSchema = z.strictObject({
+  userId: z.string().min(1),
+  placeId: z.string().min(1),
+  channel: z.enum(["mejl", "viber", "instagram"]),
+  senderName: z.string().max(80).nullable().default(null),
+});
+
+export type RewritePayload = z.infer<typeof rewritePayloadSchema>;
+
 export type ScanPayload = z.infer<typeof scanPayloadSchema>;
 export type EnrichBasicPayload = z.infer<typeof enrichBasicPayloadSchema>;
 export type RefreshGooglePayload = z.infer<typeof refreshGooglePayloadSchema>;

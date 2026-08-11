@@ -67,6 +67,20 @@ export const PSI_DAILY_CAP = 120;
  */
 export const AI_DAILY_CAP = 60;
 
+/**
+ * „Napiši drugačije" — AI varijanta outreach poruke (F7 §2), dnevno.
+ *
+ * Zaseban cap od `AI_DAILY_CAP`, i to je cela poenta: analiza otključanog leada
+ * je jednokratna i korisnik je platio kreditom, a dugme „Napiši drugačije" se
+ * pritiska iz radoznalosti i može da se pritisne deset puta za isti lead.
+ * Sa zajedničkim capom bi to pojelo budžet za analizu — a analiza je proizvod,
+ * varijanta poruke je začin.
+ *
+ * 40 je red veličine desetak korisnika koji svaki dan probaju po nekoliko puta.
+ * Poziv je tekstualan i bez slika, pa je i višestruko jeftiniji od `ai:audit`.
+ */
+export const AI_OUTREACH_DAILY_CAP = 40;
+
 /** Google resetuje kvotu u 09:00 po lokalnom vremenu Kalifornije. */
 export const BUDGET_TIMEZONE = "America/Los_Angeles";
 

@@ -1,14 +1,18 @@
 "use client";
 
-// Select sa pretragom u dropdownu, bez ijedne zavisnosti.
-// shadcn/ui dolazi tek u F8 (F1, §9), a `<select>` nema pretragu — sa 54 grada i
-// 48 niša to je 100 klikova skrolovanja.
+// Select sa pretragom u dropdownu, bez ijedne zavisnosti od `cmdk`.
+// `<select>` nema pretragu — sa 54 grada i 48 niša to je 100 klikova skrolovanja.
 //
 // Pretraga ide kroz `foldForSearch` iz shared paketa: „sabac" nalazi „Šabac",
 // „djordje" nalazi „Đorđe". Bez toga bi korisnik morao da kuca dijakritiku.
+// Zato ovo nije zamenjeno shadcn-ovim Command-om ni posle redizajna: srpsko
+// preklapanje slova je poenta komponente, a ne stil.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown } from "lucide-react";
 import { foldForSearch } from "@sajtoskop/shared";
+import { cn } from "@/lib/cn";
+import { Label } from "./ui/input";
 
 export type ComboOption = { value: string; label: string };
 export type ComboGroup = { label: string; options: ComboOption[] };
@@ -86,61 +90,80 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
 
   return (
     <div ref={boxRef} className="relative">
-      <label htmlFor={id} className="block text-xs font-medium uppercase tracking-wide text-neutral-500">
-        {label}
+      <label htmlFor={id}>
+        <Label>{label}</Label>
       </label>
 
-      <input
-        id={id}
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={`${id}-list`}
-        autoComplete="off"
-        className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none transition-colors placeholder:text-neutral-400 focus:border-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-300"
-        placeholder={selected ? selected.label : placeholder}
-        value={open ? query : (selected?.label ?? "")}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={onKeyDown}
-      />
+      <div className="relative">
+        <input
+          id={id}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={`${id}-list`}
+          autoComplete="off"
+          className={cn(
+            "h-11 w-full rounded-xl border border-input bg-card pl-3.5 pr-9 text-sm shadow-xs outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/70",
+            "focus:border-primary focus:ring-2 focus:ring-primary/25",
+            open && "border-primary ring-2 ring-primary/25",
+          )}
+          placeholder={selected ? selected.label : placeholder}
+          value={open ? query : (selected?.label ?? "")}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+        />
+
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-transform duration-200",
+            open && "rotate-180",
+          )}
+        />
+      </div>
 
       {open && (
         <ul
           id={`${id}-list`}
           ref={listRef}
           role="listbox"
-          className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
+          className="absolute z-30 mt-1.5 max-h-72 w-full animate-uklizi overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-pop"
         >
           {flat.length === 0 && (
-            <li className="px-3 py-2 text-sm text-neutral-500">Nema pogodaka.</li>
+            <li className="px-3 py-2.5 text-sm text-muted-foreground">Nema pogodaka.</li>
           )}
 
           {filtered.map((group) => (
             <li key={group.label}>
               {groups.length > 1 && (
-                <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
+                <div className="px-2.5 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">
                   {group.label}
                 </div>
               )}
               <ul>
                 {group.options.map((option) => {
                   const index = flat.indexOf(option);
+                  const izabrana = option.value === value;
                   return (
                     <li key={option.value}>
                       <button
                         type="button"
                         role="option"
-                        aria-selected={option.value === value}
+                        aria-selected={izabrana}
                         data-active={index === active}
                         onMouseEnter={() => setActive(index)}
                         onClick={() => pick(option)}
-                        className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm data-[active=true]:bg-neutral-100 dark:data-[active=true]:bg-neutral-800"
+                        className={cn(
+                          "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+                          "data-[active=true]:bg-surface-hover",
+                          izabrana && "font-medium",
+                        )}
                       >
-                        <span>{option.label}</span>
-                        {option.value === value && <span className="text-xs text-neutral-400">✓</span>}
+                        <span className="truncate">{option.label}</span>
+                        {izabrana && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
                       </button>
                     </li>
                   );

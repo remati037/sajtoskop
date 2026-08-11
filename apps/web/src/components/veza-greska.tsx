@@ -22,9 +22,11 @@
 // Zato stranice ne rade nikakvu dodatnu proveru: prosleđuju profil koji su
 // ionako učitale.
 
+import { Alert } from "./ui/alert";
+
 export function VezaGreska({ sta }: { sta: string }) {
   return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+    <Alert variant="warning">
       <p className="font-medium">{sta} trenutno ne mogu da se učitaju.</p>
       <p className="mt-1 max-w-2xl">
         Tvoj nalog postoji, ali baza ga ne prepoznaje — najverovatnije Clerk nije
@@ -35,6 +37,6 @@ export function VezaGreska({ sta }: { sta: string }) {
         Ovo NE znači da si izgubio podatke. Otključani prospekti i krediti stoje u
         bazi netaknuti — samo se trenutno ne mogu pročitati.
       </p>
-    </div>
+    </Alert>
   );
 }

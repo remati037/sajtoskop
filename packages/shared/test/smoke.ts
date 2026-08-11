@@ -5,8 +5,17 @@
 // translit.ts. Morali su da odu iz src/ jer su uvozili `node:url` — a nijedan fajl
 // u packages/shared/src ne sme da dodirne `node:` (F0, sekcija 5).
 
-import type { UglyBand } from "../src/index";
-import { cirToLat, foldForSearch, scoreSite } from "../src/index";
+import type { OutreachInput, UglyBand } from "../src/index";
+import {
+  bezOblika,
+  cirToLat,
+  CITY_SLUGS,
+  foldForSearch,
+  napisiPoruke,
+  NICHE_SLUGS,
+  proveriPoruku,
+  scoreSite,
+} from "../src/index";
 
 let fail = 0;
 
@@ -131,6 +140,119 @@ for (const [input, expected] of folds) {
   const got = foldForSearch(input);
   check(got === expected, `fold: ${input} → ${got}${got === expected ? "" : `  očekivano: ${expected}`}`);
 }
+
+// ── generator outreach poruka (F7) ─────────────────────────
+//
+// Testira se ono što se ne vidi golim okom pri čitanju šablona: da granice reči
+// drže i za najduže kombinacije niše i grada, da generator ODBIJE da piše kad
+// nema osnova, i da nijedan slug iz taksonomije nije ostao bez padežnog oblika.
+
+console.log("\noutreach generator");
+
+const bezPadeza = bezOblika(CITY_SLUGS, NICHE_SLUGS);
+check(
+  bezPadeza.gradovi.length === 0 && bezPadeza.nise.length === 0,
+  `svaki slug ima padežni oblik${
+    bezPadeza.gradovi.length || bezPadeza.nise.length
+      ? ` — fale: ${[...bezPadeza.gradovi, ...bezPadeza.nise].join(", ")}`
+      : ""
+  }`,
+);
+
+const osnovni: OutreachInput = {
+  name: "Auto David",
+  citySlug: "kraljevo",
+  nicheSlug: "autoplac",
+  siteStatus: "ok",
+  websiteUrl: "autodavid.rs/kontakt",
+  signals: [{ key: "no_viewport", points: 30, label: "Sajt nije prilagođen telefonu" }],
+  aiIssues: null,
+  aiSolidan: null,
+  phoneType: "mobilni",
+  rating: 4.5,
+  reviewCount: 85,
+  senderName: "Marko",
+};
+
+// Najgori slučaj za granice reči: najduži padežni oblik niše i najduži grad.
+// Ako ijedan kanal probije granicu, probiće je ovde.
+const najduzi: OutreachInput = {
+  ...osnovni,
+  citySlug: "smederevska-palanka",
+  nicheSlug: "gradjevinski-materijal",
+  siteStatus: "nema_sajt",
+  websiteUrl: null,
+};
+
+for (const [ime, ulaz] of [
+  ["tipičan lead", osnovni],
+  ["najduža niša i grad", najduzi],
+] as const) {
+  const r = napisiPoruke(ulaz);
+  if (!r.ok) {
+    check(false, `${ime}: generator odbio (${r.razlog})`);
+    continue;
+  }
+
+  for (const kanal of ["mejl", "viber", "instagram"] as const) {
+    const p = r.poruke[kanal];
+    const greske = proveriPoruku(p);
+    check(
+      greske.length === 0,
+      `${ime} · ${kanal.padEnd(9)} ${String(p.words).padStart(3)} reči${
+        greske.length ? ` — ${greske.join("; ")}` : ""
+      }`,
+    );
+  }
+}
+
+// Uredan sajt: model je već rekao da nema šta da se zameri. Poruka bi morala da
+// izmisli problem, a izmišljen problem je jedina greška koja outreach ubija odmah.
+const solidan = napisiPoruke({ ...osnovni, aiSolidan: true, signals: [] });
+check(!solidan.ok && solidan.razlog === "solidan", "uredan sajt → generator odbija");
+
+// Slabi signali nisu razlog da se čoveku javiš. Sajt bez favicona i bez Open
+// Grapha nema nijednu rečenicu koja sme da nosi prvu rečenicu poruke.
+const slabi = napisiPoruke({
+  ...osnovni,
+  signals: [
+    { key: "no_favicon", points: 4, label: "Nema favicon" },
+    { key: "no_og", points: 5, label: "Bez Open Graph" },
+  ],
+});
+check(!slabi.ok && slabi.razlog === "nema_osnova", "samo slabi signali → generator odbija");
+
+// Težine u bazi umeju da budu nule (zapisi iz starijih scanova). Redosled tada
+// mora da padne na poredak iz `scoreSite`, koji je već po jačini.
+const nulteTezine = napisiPoruke({
+  ...osnovni,
+  signals: [
+    { key: "no_viewport", points: 0, label: "Sajt nije prilagođen telefonu" },
+    { key: "no_favicon", points: 0, label: "Nema favicon" },
+  ],
+});
+check(
+  nulteTezine.ok && nulteTezine.izvor === "signal",
+  "signali sa nultim težinama i dalje daju kuku",
+);
+
+// Viber bez linka je pravilo, ne preporuka: link od nepoznatog broja se ne
+// otvara. Adresa sajta ne sme da procuri ni kroz nalaz analize.
+const saLinkom = napisiPoruke({
+  ...osnovni,
+  aiIssues: [
+    {
+      title: "Sajt ne radi",
+      detail: "x",
+      evidence: "Otvorim autodavid.rs i vidim samo poruku o održavanju.",
+      severity: "visoka",
+    },
+  ],
+});
+check(
+  saLinkom.ok && !/autodavid\.rs/.test(saLinkom.poruke.viber.body),
+  "domen iz AI nalaza ne procuri u Viber poruku",
+);
 
 console.log(fail === 0 ? "\nSve prošlo." : `\n${fail} palo.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -10,8 +10,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight, Clock, Search, SlidersHorizontal } from "lucide-react";
 import { Combobox, type ComboGroup } from "./combobox";
 import { LeadTabela } from "./lead-tabela";
+import { cn } from "@/lib/cn";
+import { Alert } from "./ui/alert";
+import { Button } from "./ui/button";
+import { Card } from "./ui/card";
+import { PraznoStanje } from "./ui/stranica";
 import {
   MAX_PAGE,
   type ApiError,
@@ -282,7 +288,7 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
           : `${odgovor.lead.name} otključan. Ostalo ti je ${odgovor.creditsLeft} ${plural(odgovor.creditsLeft, "kredit", "kredita", "kredita")}.`,
       );
 
-      // Balans u headeru crta serverski layout, pa ga osvežava samo ovo.
+      // Balans u bočnoj traci crta serverski layout, pa ga osvežava samo ovo.
       router.refresh();
     } catch {
       setGreska("Nema veze sa serverom. Prospekt nije otključan i kredit nije skinut.");
@@ -303,59 +309,54 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
   const ceka = posao !== null && !predugo;
 
   return (
-    <div className="space-y-8">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void pretrazi(filters, 1);
-        }}
-        className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-      >
-        <Combobox
-          label="Grad"
-          placeholder="npr. Šabac"
-          groups={cities}
-          value={city}
-          onChange={setCity}
-        />
-        <Combobox
-          label="Niša"
-          placeholder="npr. PVC stolarija"
-          groups={niches}
-          value={niche}
-          onChange={setNiche}
-        />
-        <button
-          type="submit"
-          disabled={ucitava || ceka}
-          className="h-[42px] rounded-lg bg-neutral-900 px-5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+    <div className="space-y-6">
+      <Card className="overflow-visible p-5">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void pretrazi(filters, 1);
+          }}
+          className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
         >
-          {ucitava ? "Tražim…" : "Pretraži"}
-        </button>
-      </form>
+          <Combobox
+            label="Grad"
+            placeholder="npr. Šabac"
+            groups={cities}
+            value={city}
+            onChange={setCity}
+          />
+          <Combobox
+            label="Niša"
+            placeholder="npr. PVC stolarija"
+            groups={niches}
+            value={niche}
+            onChange={setNiche}
+          />
+          <Button type="submit" variant="primary" size="lg" disabled={ucitava || ceka}>
+            <Search className="h-4 w-4" />
+            {ucitava ? "Tražim…" : "Pretraži"}
+          </Button>
+        </form>
+      </Card>
 
-      {greska && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-          {greska}
-        </p>
-      )}
+      {greska && <Alert variant="danger">{greska}</Alert>}
 
       {otkljucano && (
-        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
-          {otkljucano}{" "}
-          <a href="/lista" className="underline underline-offset-4">
-            Moja lista
-          </a>
-        </p>
+        <Alert variant="success">
+          {otkljucano} <a href="/lista">Moja lista</a>
+        </Alert>
       )}
 
       {ceka && <TrakaPosla posao={posao} />}
 
       {predugo && (
-        <Poruka
-          naslov="Traje duže nego obično."
-          telo="Skeniranje se nastavlja u pozadini. Rezultat će biti ovde kad se vratiš — ova pretraga tada ide iz keša, besplatno i bez čekanja."
-        />
+        <Alert variant="warning">
+          <p className="font-medium">Traje duže nego obično.</p>
+          <p className="mt-0.5 opacity-90">
+            Skeniranje se nastavlja u pozadini. Rezultat će biti ovde kad se vratiš — ova
+            pretraga tada ide iz keša, besplatno i bez čekanja.
+          </p>
+        </Alert>
       )}
 
       {data && (
@@ -369,13 +370,14 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
           />
 
           {data.total === 0 && !ceka && !predugo ? (
-            <Poruka
+            <PraznoStanje
+              ikona={<Search />}
               naslov={
                 data.status === "cache"
                   ? "Nijedan prospekt ne odgovara filterima."
                   : "Ova kombinacija još nije skenirana."
               }
-              telo={
+              opis={
                 data.status === "cache"
                   ? "Baza za ovaj grad i nišu nije prazna — filteri su preuski. Isključi neki toggle iznad."
                   : "Skeniranje je pokrenuto. Ako se ništa ne pojavi, Google za ovu kombinaciju nema nijednu firmu."
@@ -383,11 +385,14 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
             />
           ) : data.total === 0 ? null : (
             <>
-              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-800">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <p className="text-sm tabular-nums">{summaryLine(data.total, data.summary)}</p>
                 {data.freshness && (
                   <p
-                    className={`text-xs ${data.freshness.stale ? "text-amber-600 dark:text-amber-400" : "text-neutral-500"}`}
+                    className={cn(
+                      "text-xs",
+                      data.freshness.stale ? "text-warning-foreground" : "text-muted-foreground",
+                    )}
                   >
                     {data.freshness.stale
                       ? `Podaci stariji od 30 dana (${formatDatum(data.freshness.refreshedAt)}) — osvežavanje je pokrenuto u pozadini.`
@@ -404,27 +409,31 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
               />
 
               {strana_ukupno > 1 && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-neutral-500 tabular-nums">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground tabular-nums">
                     Strana {strana} od {strana_ukupno}
                   </span>
                   <div className="flex gap-2">
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="sm"
                       disabled={strana <= 1 || ucitava}
                       onClick={() => void pretrazi(filters, strana - 1)}
-                      className="rounded-md border border-neutral-300 px-3 py-1.5 disabled:opacity-40 dark:border-neutral-700"
                     >
+                      <ChevronLeft className="h-3.5 w-3.5" />
                       Prethodna
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="sm"
                       disabled={strana >= strana_ukupno || ucitava}
                       onClick={() => void pretrazi(filters, strana + 1)}
-                      className="rounded-md border border-neutral-300 px-3 py-1.5 disabled:opacity-40 dark:border-neutral-700"
                     >
                       Sledeća
-                    </button>
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
               )}
@@ -434,9 +443,11 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
       )}
 
       {!data && !greska && !ceka && (
-        <p className="text-sm text-neutral-500">
-          Izaberi grad i nišu. Pretraga iz keša je besplatna, neograničena i ne troši kredite.
-        </p>
+        <PraznoStanje
+          ikona={<Search />}
+          naslov="Izaberi grad i nišu."
+          opis="Pretraga iz keša je besplatna, neograničena i ne troši kredite. Kredit se skida tek kad otključaš prospekt."
+        />
       )}
     </div>
   );
@@ -459,25 +470,33 @@ function TrakaPosla({ posao }: { posao: JobStatusResponse | null }) {
         `analizirano ${analizirano}`;
 
   return (
-    <div className="space-y-2 rounded-lg border border-neutral-200 bg-neutral-50 px-5 py-4 dark:border-neutral-800 dark:bg-neutral-900/50">
+    <Card className="space-y-3 p-5">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-sm font-medium">{tekst}</p>
+        <p className="flex items-center gap-2 text-sm font-medium">
+          <Clock className={cn("h-4 w-4 text-primary", nadjeno === 0 && "animate-puls-tanko")} />
+          {tekst}
+        </p>
         {nadjeno > 0 && (
-          <span className="text-xs tabular-nums text-neutral-500">{procenat}%</span>
+          <span className="text-xs font-medium tabular-nums text-muted-foreground">
+            {procenat}%
+          </span>
         )}
       </div>
 
-      <div className="h-1 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
         <div
-          className={`h-full bg-neutral-900 transition-all duration-500 dark:bg-white ${nadjeno === 0 ? "animate-pulse" : ""}`}
+          className={cn(
+            "h-full rounded-full bg-[linear-gradient(90deg,oklch(0.62_0.2_290),oklch(0.5_0.19_275))] transition-[width] duration-500",
+            nadjeno === 0 && "animate-puls-tanko",
+          )}
           style={{ width: nadjeno === 0 ? "15%" : `${Math.max(procenat, 4)}%` }}
         />
       </div>
 
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-muted-foreground">
         Prva pretraga ove kombinacije traje do dva minuta. Sledeći put ide iz keša — instant.
       </p>
-    </div>
+    </Card>
   );
 }
 
@@ -498,54 +517,56 @@ function FilterTraka({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {toggles.map((t) => {
-        const on = filters[t.key] === true;
-        return (
-          <button
-            key={t.key}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange({ ...filters, [t.key]: !on })}
-            aria-pressed={on}
-            className={`rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50 ${
-              on
-                ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-                : "border-neutral-300 text-neutral-600 hover:border-neutral-400 dark:border-neutral-700 dark:text-neutral-400"
-            }`}
-          >
-            {t.label}
-          </button>
-        );
-      })}
+      <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+
+      {toggles.map((t) => (
+        <Cip
+          key={t.key}
+          ukljucen={filters[t.key] === true}
+          disabled={disabled}
+          onClick={() => onChange({ ...filters, [t.key]: !(filters[t.key] === true) })}
+        >
+          {t.label}
+        </Cip>
+      ))}
 
       {/* Odvojeno: skor postoji samo za žive sajtove, pa ovaj filter po definiciji
           isključuje `nema sajt` i `mrtav domen`. Zato stoji iza crte, ne uz njih. */}
-      <span className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-800" />
-      <button
-        type="button"
+      <span className="mx-1 h-4 w-px bg-border" />
+      <Cip
+        ukljucen={filters.minScore !== undefined}
         disabled={disabled}
-        aria-pressed={filters.minScore !== undefined}
         title="Ugly Score 45+ (band Ružan i Katastrofa). Sajtovi kojih nema nemaju skor, pa ispadaju iz rezultata."
         onClick={() =>
           onChange({ ...filters, minScore: filters.minScore === undefined ? 45 : undefined })
         }
-        className={`rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50 ${
-          filters.minScore !== undefined
-            ? "border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900"
-            : "border-neutral-300 text-neutral-600 hover:border-neutral-400 dark:border-neutral-700 dark:text-neutral-400"
-        }`}
       >
         Ugly Score 45+
-      </button>
+      </Cip>
     </div>
   );
 }
 
-function Poruka({ naslov, telo }: { naslov: string; telo: string }) {
+function Cip({
+  ukljucen,
+  children,
+  className,
+  ...props
+}: React.ComponentProps<"button"> & { ukljucen: boolean }) {
   return (
-    <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-5 py-6 dark:border-neutral-800 dark:bg-neutral-900/50">
-      <p className="font-medium">{naslov}</p>
-      <p className="mt-1 max-w-xl text-sm text-neutral-500">{telo}</p>
-    </div>
+    <button
+      type="button"
+      aria-pressed={ukljucen}
+      className={cn(
+        "rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-150 disabled:opacity-50",
+        ukljucen
+          ? "border-primary bg-primary text-primary-foreground shadow-glow"
+          : "border-border bg-card text-muted-foreground hover:border-border-strong hover:text-foreground",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
   );
 }

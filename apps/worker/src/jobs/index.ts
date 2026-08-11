@@ -8,6 +8,7 @@ import { runEnrichBasic } from "./enrich-basic";
 import { runEnrichFull } from "./enrich-full";
 import { runMonthlyGrant } from "./monthly-grant";
 import { runRefreshGoogle } from "./refresh-google";
+import { runRewriteMessage } from "./rewrite-message";
 import { runScan } from "./scan";
 
 export const HANDLERS: JobRegistry = {
@@ -16,6 +17,7 @@ export const HANDLERS: JobRegistry = {
   enrich_full: runEnrichFull,
   refresh_google: runRefreshGoogle,
   monthly_grant: runMonthlyGrant,
+  rewrite_message: runRewriteMessage,
 };
 
 export type { JobContext, JobHandler, JobResult } from "./types";

@@ -9,8 +9,12 @@
 // premešta i ne menja boju: korisnik treba da nastavi da čita listu odozgo
 // nadole, a ne da traži gde mu je otišao lead koji je upravo platio.
 
+import { ExternalLink, Lock, Star } from "lucide-react";
 import type { PublicLead } from "@/lib/search-types";
+import { cn } from "@/lib/cn";
 import { SnimakDugme } from "./snimak";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
 import { BAND_LABEL, PHONE_LABEL, STATUS_LABEL, telefonHref } from "@/lib/ui-tekst";
 
 type Props = {
@@ -25,100 +29,114 @@ type Props = {
 
 export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled }: Props) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[46rem] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wider text-neutral-500 dark:border-neutral-800">
-            <th className="py-2 pl-3 font-medium">Prospekt</th>
-            <th className="py-2 font-medium">Status sajta</th>
-            {/* Zvala se „Snimak" do F6. Iza tog dugmeta sad stoji i cela analiza
-                sa rečenicom za poruku — ime kolone je govorilo da tamo nema šta
-                da se traži. */}
-            <th className="py-2 font-medium">Analiza</th>
-            <th className="py-2 font-medium">Grad</th>
-            <th className="py-2 font-medium">Telefon</th>
-            <th className="py-2 pr-3 text-right font-medium">Kontakt</th>
-          </tr>
-        </thead>
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[52rem] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-border bg-surface/70 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+              <th className="py-2.5 pl-4 font-medium">Prospekt</th>
+              <th className="py-2.5 font-medium">Status sajta</th>
+              {/* Zvala se „Snimak" do F6. Iza tog dugmeta sad stoji i cela analiza
+                  sa rečenicom za poruku — ime kolone je govorilo da tamo nema šta
+                  da se traži. */}
+              <th className="py-2.5 font-medium">Analiza</th>
+              <th className="py-2.5 font-medium">Grad</th>
+              <th className="py-2.5 font-medium">Telefon</th>
+              <th className="py-2.5 pr-4 text-right font-medium">Kontakt</th>
+            </tr>
+          </thead>
 
-        <tbody>
-          {leads.map((lead) => (
-            <tr
-              key={lead.placeId}
-              className="group border-b border-neutral-100 last:border-0 hover:bg-neutral-50 dark:border-neutral-900 dark:hover:bg-neutral-900/60"
-            >
-              <td className="py-2.5 pl-3">
-                <div className="flex items-start gap-2.5">
-                  <span className={`mt-1 h-8 w-[3px] shrink-0 rounded-full ${railColor(lead)}`} />
+          <tbody>
+            {leads.map((lead) => (
+              <tr
+                key={lead.placeId}
+                className="group border-b border-border/70 transition-colors last:border-0 hover:bg-surface/60"
+              >
+                <td className="relative py-3 pl-4">
+                  {/* Šipka nosi kvalitet leada i vidi se pre nego što se pročita
+                      ijedno slovo. */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute left-0 top-1/2 h-9 w-[3px] -translate-y-1/2 rounded-r-full",
+                      railColor(lead),
+                    )}
+                  />
                   <div className="min-w-0">
                     <div className="truncate font-medium">{lead.name}</div>
-                    <div className="truncate text-xs text-neutral-500">
-                      {lead.address ?? "—"}
+                    <div className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                      <span className="truncate">{lead.address ?? "—"}</span>
                       {lead.rating !== null && (
-                        <span className="tabular-nums"> · {lead.rating.toFixed(1)} ★</span>
+                        <span className="flex shrink-0 items-center gap-0.5 tabular-nums">
+                          <Star className="h-3 w-3 fill-warning text-warning" />
+                          {lead.rating.toFixed(1)}
+                        </span>
                       )}
                     </div>
                   </div>
-                </div>
-              </td>
+                </td>
 
-              <td className="py-2.5 align-middle">
-                <StatusBedz lead={lead} />
-              </td>
+                <td className="py-3 align-middle">
+                  <StatusBedz lead={lead} />
+                </td>
 
-              <td className="py-2.5 align-middle">
-                {lead.isUnlocked ? (
-                  <SnimakDugme lead={lead} />
-                ) : (
-                  // Zaključan lead ne dobija ni umanjeni prikaz. Snimak je deo
-                  // onoga što se plaća kreditom, a CSS blur nije bezbednost.
-                  <span className="text-xs text-neutral-400">—</span>
-                )}
-              </td>
+                <td className="py-3 align-middle">
+                  {lead.isUnlocked ? (
+                    <SnimakDugme lead={lead} />
+                  ) : (
+                    // Zaključan lead ne dobija ni umanjeni prikaz. Snimak je deo
+                    // onoga što se plaća kreditom, a CSS blur nije bezbednost.
+                    <span className="text-xs text-muted-foreground/60">—</span>
+                  )}
+                </td>
 
-              <td className="py-2.5 align-middle text-neutral-600 dark:text-neutral-400">
-                {cityLabels[lead.citySlug] ?? lead.citySlug}
-              </td>
+                <td className="py-3 align-middle text-muted-foreground">
+                  {cityLabels[lead.citySlug] ?? lead.citySlug}
+                </td>
 
-              <td className="py-2.5 align-middle text-neutral-600 dark:text-neutral-400">
-                {lead.isUnlocked ? (
-                  <TelefonLink phone={lead.phone} tip={lead.phoneType} />
-                ) : (
-                  // Tip telefona je javan, sam broj nije — to je mamac za otključavanje.
-                  (lead.phoneType && PHONE_LABEL[lead.phoneType]) || "—"
-                )}
-              </td>
+                <td className="py-3 align-middle text-muted-foreground">
+                  {lead.isUnlocked ? (
+                    <TelefonLink phone={lead.phone} tip={lead.phoneType} />
+                  ) : (
+                    // Tip telefona je javan, sam broj nije — to je mamac za otključavanje.
+                    (lead.phoneType && PHONE_LABEL[lead.phoneType]) || "—"
+                  )}
+                </td>
 
-              <td className="py-2.5 pr-3 text-right align-middle">
-                {lead.isUnlocked ? (
-                  <OtkljucanKontakt lead={lead} />
-                ) : (
-                  <button
-                    type="button"
-                    disabled={disabled || otkljucavam !== null}
-                    onClick={() => onUnlock(lead.placeId)}
-                    className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs font-medium transition-colors hover:border-neutral-900 hover:bg-neutral-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-neutral-300 disabled:hover:bg-transparent disabled:hover:text-inherit dark:border-neutral-700 dark:hover:border-white dark:hover:bg-white dark:hover:text-neutral-900"
-                  >
-                    {otkljucavam === lead.placeId ? "Otključavam…" : "Otključaj · 1 kredit"}
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <td className="py-3 pr-4 text-right align-middle">
+                  {lead.isUnlocked ? (
+                    <OtkljucanKontakt lead={lead} />
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={disabled || otkljucavam !== null}
+                      onClick={() => onUnlock(lead.placeId)}
+                      className="hover:border-primary hover:bg-primary hover:text-primary-foreground hover:shadow-glow"
+                    >
+                      <Lock className="h-3 w-3" />
+                      {otkljucavam === lead.placeId ? "Otključavam…" : "Otključaj · 1 kredit"}
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
 /** Mobilni → Viber, fiksni → poziv (F4 §3). */
 export function TelefonLink({ phone, tip }: { phone: string | null; tip: string | null }) {
-  if (!phone) return <span className="text-neutral-400">—</span>;
+  if (!phone) return <span className="text-muted-foreground/60">—</span>;
 
   return (
     <a
       href={telefonHref(phone, tip)}
-      className="tabular-nums underline decoration-dotted underline-offset-4 hover:decoration-solid"
+      className="font-medium tabular-nums text-foreground underline decoration-dotted decoration-muted-foreground underline-offset-4 transition-colors hover:text-primary hover:decoration-primary"
       title={tip === "mobilni" ? "Otvori Viber" : "Pozovi"}
     >
       {phone}
@@ -128,33 +146,34 @@ export function TelefonLink({ phone, tip }: { phone: string | null; tip: string 
 
 function OtkljucanKontakt({ lead: l }: { lead: Extract<PublicLead, { isUnlocked: true }> }) {
   return (
-    <div className="flex flex-col items-end gap-0.5 text-xs">
+    <div className="flex flex-col items-end gap-1 text-xs">
       {l.email ? (
         <a
           href={`mailto:${l.email}`}
-          className="max-w-[14rem] truncate underline decoration-dotted underline-offset-4 hover:decoration-solid"
+          className="max-w-[14rem] truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-primary"
         >
           {l.email}
         </a>
       ) : (
-        <span className="text-neutral-400">bez mejla</span>
+        <span className="text-muted-foreground/60">bez mejla</span>
       )}
 
-      <span className="flex items-center gap-2 text-neutral-500">
+      <span className="flex items-center gap-2 text-muted-foreground">
         {l.websiteUrl && (
           <a
             href={l.websiteUrl}
             target="_blank"
             rel="noreferrer noopener nofollow"
-            className="max-w-[10rem] truncate underline decoration-dotted underline-offset-4"
+            className="flex max-w-[10rem] items-center gap-1 truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-primary"
           >
-            {l.websiteUrl.replace(/^https?:\/\/(www\.)?/, "")}
+            <ExternalLink className="h-3 w-3 shrink-0" />
+            <span className="truncate">{l.websiteUrl.replace(/^https?:\/\/(www\.)?/, "")}</span>
           </a>
         )}
         {l.uglyScore !== null && (
-          <span className="tabular-nums" title="Ugly Score">
+          <Badge variant="neutral" size="md" className="tabular-nums" title="Ugly Score">
             {l.uglyScore}
-          </span>
+          </Badge>
         )}
       </span>
     </div>
@@ -164,11 +183,11 @@ function OtkljucanKontakt({ lead: l }: { lead: Extract<PublicLead, { isUnlocked:
 function railColor(lead: PublicLead): string {
   switch (lead.siteStatus) {
     case "nema_sajt":
-      return "bg-emerald-500";
+      return "bg-success";
     case "mrtav":
-      return "bg-amber-500";
+      return "bg-warning";
     case "samo_drustvene":
-      return "bg-sky-400";
+      return "bg-info";
     default:
       return "bg-transparent";
   }
@@ -176,30 +195,32 @@ function railColor(lead: PublicLead): string {
 
 function StatusBedz({ lead }: { lead: PublicLead }) {
   if (!lead.siteStatus) {
-    return <span className="text-xs text-neutral-400">nije analiziran</span>;
+    return <span className="text-xs text-muted-foreground/60">nije analiziran</span>;
   }
 
   if (lead.siteStatus === "ok") {
     return (
       <span className="inline-flex items-center gap-2">
-        <span className="rounded border border-neutral-200 px-1.5 py-0.5 text-[11px] text-neutral-500 dark:border-neutral-800">
+        <Badge variant="outline">
           {lead.uglyBand ? BAND_LABEL[lead.uglyBand] : "Ima sajt"}
-        </span>
-        {lead.platform && <span className="text-xs text-neutral-400">{lead.platform}</span>}
+        </Badge>
+        {lead.platform && (
+          <span className="text-xs text-muted-foreground/70">{lead.platform}</span>
+        )}
       </span>
     );
   }
 
   const jak =
     lead.siteStatus === "nema_sajt"
-      ? "bg-emerald-500 text-emerald-950"
+      ? "jak-success"
       : lead.siteStatus === "mrtav"
-        ? "bg-amber-500 text-amber-950"
-        : "bg-sky-400 text-sky-950";
+        ? "jak-warning"
+        : "jak-info";
 
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold tracking-wide ${jak}`}>
+    <Badge variant={jak} size="sm" className="font-semibold">
       {STATUS_LABEL[lead.siteStatus]}
-    </span>
+    </Badge>
   );
 }

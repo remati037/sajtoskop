@@ -15,7 +15,7 @@
 //   - `consume()` se zove NEPOSREDNO PRE HTTP zahteva, nikad posle
 //   - pada zatvoreno: ako baza nije dostupna, poziv se ne dogodi
 
-import { AI_DAILY_CAP, PSI_DAILY_CAP } from "@sajtoskop/shared";
+import { AI_DAILY_CAP, AI_OUTREACH_DAILY_CAP, PSI_DAILY_CAP } from "@sajtoskop/shared";
 import { hoursUntilReset } from "./api-budget";
 import { supabaseAdmin } from "./supabase";
 
@@ -28,6 +28,8 @@ import { supabaseAdmin } from "./supabase";
 export const SIDE_KIND = {
   psi: "psi:mobile",
   ai: "ai:audit",
+  /** F7 §2: „Napiši drugačije". Svoj cap — v. `AI_OUTREACH_DAILY_CAP`. */
+  aiOutreach: "ai:outreach",
 } as const;
 
 export type SideKind = (typeof SIDE_KIND)[keyof typeof SIDE_KIND];
@@ -40,9 +42,11 @@ function num(raw: string | undefined, fallback: number): number {
 
 /** Dnevni cap po ključu. Env je izlaz u nuždi, ne podrazumevana konfiguracija. */
 export function dailyCapFor(kind: SideKind): number {
-  return kind === SIDE_KIND.ai
-    ? num(process.env.AI_DAILY_LIMIT, AI_DAILY_CAP)
-    : num(process.env.PSI_DAILY_LIMIT, PSI_DAILY_CAP);
+  if (kind === SIDE_KIND.ai) return num(process.env.AI_DAILY_LIMIT, AI_DAILY_CAP);
+  if (kind === SIDE_KIND.aiOutreach) {
+    return num(process.env.AI_OUTREACH_DAILY_LIMIT, AI_OUTREACH_DAILY_CAP);
+  }
+  return num(process.env.PSI_DAILY_LIMIT, PSI_DAILY_CAP);
 }
 
 type SideRow = {

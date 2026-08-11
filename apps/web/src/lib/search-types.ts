@@ -17,6 +17,8 @@ export type LeadBase = {
   placeId: string;
   name: string;
   citySlug: string;
+  /** Niša iz koje je lead došao. Hrani generator poruka (F7) i filtere kanbana. */
+  nicheSlug: string | null;
   address: string | null;
   /** Namerno `boolean`, a ne URL — „ima sajt" je javno, adresa sajta nije. */
   hasWebsite: boolean;
@@ -61,6 +63,12 @@ export type UnlockedLead = LeadBase & {
   aiIssues: AiIssue[] | null;
   /** Jedna rečenica bez žargona, spremna za kopiranje u poruku vlasniku. */
   aiVerdict: string | null;
+  /**
+   * Model je sajt proglasio urednim (F6, migracija 0006). `null` ≠ `false`:
+   * `null` znači da AI nije ni pozvan. Generator poruka na `true` odbija da
+   * piše — poruka bi morala da izmisli problem.
+   */
+  aiSolidan: boolean | null;
   /**
    * Potpisani URL-ovi, rok 15 minuta. `null` kad snimka nema — sajt bez sajta,
    * mrtav domen, ili lead otključan pre F5 kome `enrich_full` još nije stigao.
