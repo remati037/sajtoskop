@@ -424,29 +424,6 @@
   display: none;
 }
 
-/* ── „Secured by Clerk" ─────────────────────────────────────
-   Bedž OSTAJE. Clerk-ovi uslovi korišćenja ga traže na besplatnom planu, a
-   uklanja se prekidačem u Dashboard → Customization → Branding, koji je vezan
-   za plaćeni plan. Kad se pređe na Pro, ovaj blok se briše — ne dopunjuje.
-
-   Dotle se samo prigušuje: sitniji je i bledi, da ne konkuriše dugmetu za
-   prijavu. Ovo uslovi dozvoljavaju, jer bedž ostaje vidljiv i čitljiv.
-   `opacity` ne ide ispod 0.55 — ispod toga tekst pada na kontrastu i prestaje
-   da bude čitljiv, što je i kršenje uslova i loš pristupačan interfejs.
-
-   Podnožje kartice posle pravila iznad sadrži samo taj bedž, pa je meta ceo
-   `.cl-footer`. Isti tretman ide i na meni naloga u aplikaciji. */
-:is(.cl-footer, .cl-userButtonPopoverFooter) {
-  opacity: 0.55;
-  transform: scale(0.9);
-  transform-origin: center;
-  transition: opacity 0.16s ease;
-}
-
-:is(.cl-footer, .cl-userButtonPopoverFooter):hover {
-  opacity: 1;
-}
-
 @keyframes uklizi {
   from {
     opacity: 0;
