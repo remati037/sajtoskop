@@ -1,120 +1,226 @@
 // apps/web/src/app/api/search/route.ts
-// Jedini ulaz u pretragu.
+// Jedini ulaz u pretragu — i jedino mesto na kome se odlučuje da li ona košta.
 //
-// F2: čita iz keša. F3: promašaj keša više ne završava tu nego upisuje `scan`
-// posao i vraća `{ status: "queued", job }`. Sam Places poziv i dalje radi
-// isključivo worker — ova funkcija ne sme da dodirne Google (pravilo 7).
+// F2: čita iz keša. F3: promašaj keša upisuje `scan` posao. F9: taj posao se
+// plaća 1 kreditom, a keš mlađi od 30 dana je besplatan svima. Sam Places poziv
+// i dalje radi isključivo worker — ova funkcija ne sme da dodirne Google (pravilo 7).
+//
+// ── redosled na plaćenom putu, i zašto baš taj ─────────────
+// Svaka provera koja može da odbije zahtev stoji PRE naplate, i nijedna posle:
+//
+//   1. `requireUserId()`         — bez sesije nema ničega (pravilo 8)
+//   2. registar keša             — možda je besplatno, pa nema šta da se naplati
+//   3. `pay !== true`            — cena se vraća klijentu, kredit se ne dira
+//   4. pre-flight budžet         — da se ne plati posao koji čeka Googleovu kvotu
+//   5. `claim_cache_miss`        — dnevni limit od 10 (F9 zadržava i njega)
+//   6. `spend_credit_and_scan`   — kredit i posao, u jednoj transakciji
 //
 // Zaštita NIJE u middleware-u (Clerk je deprecirao `createRouteMatcher`), nego
-// prva linija handlera: `requireUserId()`. Bez sesije nema odgovora, i to pre
-// nego što se telo uopšte pogleda.
+// prva linija handlera: `requireUserId()`.
 
 import { NextResponse } from "next/server";
-import { DEFAULT_PLAN } from "@sajtoskop/shared";
+import { DEFAULT_PLAN, SCAN_CREDIT_COST } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
-import { claimCacheMiss, enqueueRefresh, enqueueScan, releaseCacheMiss } from "@/lib/jobs";
+import { budzetZaScan } from "@/lib/budzet";
+import { claimCacheMiss, releaseCacheMiss, spendCreditAndScan, zivPlacenPosao } from "@/lib/jobs";
 import { getOwnProfile } from "@/lib/profile";
 import { searchCachedLeads } from "@/lib/search";
+import { COUNTRY, stanjeKesa } from "@/lib/search-cache";
 import { searchBodySchema } from "@/lib/search-schema";
-import type { SearchResponse } from "@/lib/search-types";
+import { PAGE_SIZE, type SearchResponse } from "@/lib/search-types";
 import { formatDatum } from "@/lib/ui-tekst";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const COUNTRY = "RS";
+/** Rezultat zavisi od toga ko pita (šta je otključano) — nikad u deljeni keš. */
+const HEADERS = { "Cache-Control": "private, no-store" };
+
+const PRAZAN_SUMAR = { noSite: 0, social: 0, dead: 0, ugly: 0, ok: 0 };
+
+function greska(poruka: string, status: number, detalji?: string[]): Response {
+  return NextResponse.json(
+    detalji ? { greska: poruka, detalji } : { greska: poruka },
+    { status, headers: HEADERS },
+  );
+}
 
 export async function POST(req: Request): Promise<Response> {
   let userId: string;
   try {
     userId = await requireUserId();
   } catch {
-    return NextResponse.json({ greska: "Nisi prijavljen." }, { status: 401 });
+    return greska("Nisi prijavljen.", 401);
   }
 
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return NextResponse.json({ greska: "Telo zahteva nije ispravan JSON." }, { status: 400 });
+    return greska("Telo zahteva nije ispravan JSON.", 400);
   }
 
   const parsed = searchBodySchema.safeParse(raw);
   if (!parsed.success) {
-    return NextResponse.json(
-      {
-        greska: "Neispravni parametri pretrage.",
-        detalji: parsed.error.issues.map((i) => `${i.path.join(".") || "telo"}: ${i.message}`),
-      },
-      { status: 400 },
+    return greska(
+      "Neispravni parametri pretrage.",
+      400,
+      parsed.error.issues.map((i) => `${i.path.join(".") || "telo"}: ${i.message}`),
     );
   }
 
-  const { city, niche, filters, page } = parsed.data;
-
-  // Rezultat zavisi od toga ko pita (šta je otključano) — nikad u deljeni keš.
-  const headers = { "Cache-Control": "private, no-store" };
+  const { city, niche, filters, page, pay, force } = parsed.data;
 
   try {
-    const result = await searchCachedLeads({ userId, city, niche, filters, page });
+    const stanje = await stanjeKesa(city, niche);
 
-    if (result.status === "cache") {
-      // Zastarelo se prikazuje ODMAH, osvežavanje ide u pozadini i ne troši
-      // korisnikov dnevni limit — nije on tražio nov scan (PRD §5).
-      if (result.freshness?.stale) {
-        await enqueueRefresh({ countryCode: COUNTRY, city, niche });
-      }
-      return NextResponse.json(result, { headers });
+    // ── besplatan put ───────────────────────────────────────
+    // Dva slučaja, oba bez naplate: keš je svež, ili je scan u toku i ovaj
+    // korisnik ga je već platio. Drugi je bitan koliko i prvi — bez njega bi
+    // korisnik koji gleda kako mu se lista puni na svakom osvežavanju nailazio
+    // na traženje kredita za posao koji je maločas platio.
+    if (stanje.fresh && !(pay && force)) {
+      const result = await searchCachedLeads({
+        userId, city, niche, filters, page,
+        scannedAt: stanje.scannedAt,
+      });
+
+      // `emptyScan` je „skenirano, Google nema nijednu firmu", a `total === 0`
+      // ume da bude i „filteri su preuski". UI na to dvoje odgovara različito,
+      // pa razliku mora da napravi server — on jedini zna šta piše u registru.
+      const body: SearchResponse = { ...result, emptyScan: stanje.total === 0 };
+      return NextResponse.json(body, { headers: HEADERS });
     }
 
-    // ── promašaj keša: skeniranje uživo ────────────────────
+    const uToku = await zivPlacenPosao({ userId, countryCode: COUNTRY, city, niche });
+
+    if (uToku !== null) {
+      const result = await searchCachedLeads({
+        userId, city, niche, filters, page,
+        scannedAt: stanje.scannedAt,
+      });
+
+      const body: SearchResponse = {
+        ...result,
+        status: "queued",
+        job: { id: uToku, joined: false },
+      };
+
+      return NextResponse.json(body, { headers: HEADERS });
+    }
+
+    // ── nije besplatno: koliko košta ────────────────────────
     const profile = await getOwnProfile();
+    const creditsLeft = profile?.credits_balance ?? 0;
+    const kind = stanje.scannedAt ? ("osvezavanje" as const) : ("prvo" as const);
+
+    if (!pay) {
+      // Nijedan lead ne izlazi uz `needs_scan` — ni ime, ni grad (pravilo 1 i 9).
+      const body: SearchResponse = {
+        status: "needs_scan",
+        freshness: null,
+        total: 0,
+        page,
+        pageSize: PAGE_SIZE,
+        results: [],
+        summary: PRAZAN_SUMAR,
+        scan: {
+          cost: SCAN_CREDIT_COST,
+          kind,
+          lastScannedAt: stanje.scannedAt,
+          creditsLeft,
+        },
+      };
+
+      return NextResponse.json(body, { headers: HEADERS });
+    }
+
+    // ── plaćeni put ─────────────────────────────────────────
+    const budzet = await budzetZaScan();
+    if (!budzet.dostupno) {
+      return greska(
+        "Dnevna kvota za skeniranje je potrošena. Kredit nije skinut — probaj sutra, " +
+          "keširane pretrage rade i dalje.",
+        503,
+      );
+    }
+
     const claim = await claimCacheMiss(userId, profile?.plan ?? DEFAULT_PLAN);
 
     if (!claim.ok) {
       if (claim.reason === "no_user") {
-        return NextResponse.json(
-          { greska: "Tvoj nalog još nije podešen. Osveži stranicu za koji trenutak." },
-          { status: 409, headers },
-        );
+        return greska("Tvoj nalog još nije podešen. Osveži stranicu za koji trenutak.", 409);
       }
 
-      return NextResponse.json(
-        {
-          greska:
-            `Dostigao si dnevni limit od ${claim.used} ${claim.used === 1 ? "pretrage" : "pretraga"} ` +
-            `koje nisu u kešu. Limit se resetuje ${formatDatum(claim.resetAt)} u 9 ujutru. ` +
-            `Pretrage iz keša su i dalje neograničene i besplatne.`,
-        },
-        { status: 429, headers },
+      return greska(
+        `Dostigao si dnevni limit od ${claim.used} skeniranja. ` +
+          `Limit se resetuje ${formatDatum(claim.resetAt)} u 9 ujutru. ` +
+          `Pretrage iz keša su i dalje neograničene i besplatne.`,
+        429,
       );
     }
 
+    let charge: Awaited<ReturnType<typeof spendCreditAndScan>>;
     try {
-      const job = await enqueueScan({ userId, countryCode: COUNTRY, city, niche });
-
-      // `enqueueScan` vraća `{ jobId, joined }`, a ugovor prema UI-ju je
-      // `{ id, joined }` — preslikavanje mora ovde. Telo je eksplicitno tipizovano
-      // kao `SearchResponse` da tsc uhvati svako sledeće razilaženje: bez toga je
-      // `NextResponse.json` progutao `jobId`, klijent je pollovao `/api/job/undefined`
-      // i loader je visio do isteka strpljenja.
-      const body: SearchResponse = {
-        ...result,
-        status: "queued",
-        job: { id: job.jobId, joined: job.joined },
-      };
-
-      return NextResponse.json(body, { headers });
+      charge = await spendCreditAndScan({ userId, countryCode: COUNTRY, city, niche });
     } catch (err) {
-      // Rezervacija je potrošena, a posao nije upisan — vrati je korisniku.
+      // Rezervacija je potrošena, a naplata nije prošla — vrati je korisniku.
       await releaseCacheMiss(userId);
       throw err;
     }
+
+    if (!charge.ok) {
+      // Dnevna rezervacija se vraća u SVAKOM neuspehu naplate. Bez ovoga korisnik
+      // bez kredita gubi i dnevni pokušaj, iako ništa nije skenirano.
+      await releaseCacheMiss(userId);
+
+      if (charge.reason === "no_user") {
+        return greska("Tvoj nalog još nije podešen. Osveži stranicu za koji trenutak.", 409);
+      }
+
+      // 402 Payment Required — isti status kao kod otključavanja, pa klijent zna
+      // da ponudi „vidi kredite" umesto „pokušaj ponovo".
+      return greska(
+        `Nemaš dovoljno kredita za skeniranje. Beta plan dobija 30 kredita prvog u mesecu, ` +
+          `a pretrage iz keša su besplatne i ne troše ništa.`,
+        402,
+      );
+    }
+
+    // Dupli klik: posao je isti i već plaćen, pa ni dnevna rezervacija ne sme da
+    // se potroši drugi put.
+    if (!charge.charged) await releaseCacheMiss(userId);
+
+    // Zastareo keš se NE prikazuje dok novi scan ne završi (F9, odluka 3 §0).
+    // Sveži keš se prikazuje i tokom ručnog osvežavanja — nema razloga da ekran
+    // ostane prazan dok se osvežava nešto što je i dalje ispravno.
+    const result = stanje.fresh
+      ? await searchCachedLeads({
+          userId, city, niche, filters, page,
+          scannedAt: stanje.scannedAt,
+          source: "api",
+        })
+      : {
+          status: "cache" as const,
+          freshness: null,
+          total: 0,
+          page,
+          pageSize: PAGE_SIZE,
+          results: [],
+          summary: PRAZAN_SUMAR,
+        };
+
+    const body: SearchResponse = {
+      ...result,
+      status: "queued",
+      job: { id: charge.jobId ?? 0, joined: charge.joined },
+      charged: charge.charged,
+      creditsLeft: charge.creditsLeft,
+    };
+
+    return NextResponse.json(body, { headers: HEADERS });
   } catch (err) {
     console.error("[api/search]", err);
-    return NextResponse.json(
-      { greska: "Pretraga trenutno ne radi. Pokušaj ponovo za koji minut." },
-      { status: 500, headers },
-    );
+    return greska("Pretraga trenutno ne radi. Pokušaj ponovo za koji minut.", 500);
   }
 }

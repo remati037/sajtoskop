@@ -99,6 +99,8 @@ export {
   getBusinessSite,
   markSiteDead,
   placeIdsNeedingAudit,
+  recordScan,
+  refundScan,
   saveScreenshots,
   upsertAudit,
   upsertBusinesses,

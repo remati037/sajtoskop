@@ -1,15 +1,19 @@
 // apps/web/src/lib/search.ts
-// Pretraga isključivo nad kešom. U F2 nema nijednog Google poziva — promašaj
-// keša vraća `not_scanned`, a job u red ulazi tek u F3.
+// Pretraga isključivo nad kešom. Nijedan Google poziv ne kreće odavde — posao u
+// red upisuje ruta, i to tek pošto naplati (F9).
+//
+// Ova funkcija se poziva SAMO kad je pretraga besplatna: keš svež, ili posao
+// koji je taj korisnik već platio u toku. Odluka o tome je u ruti, ne ovde —
+// odluka o naplati i čitanje podataka namerno nisu u istom fajlu.
 //
 // Čitanje ide kroz `adminSupabase()` jer `businesses` i `website_audits` imaju
 // `using (false)` (pravilo 10). To je dozvoljeno samo zato što svaki red pre
 // izlaska prolazi kroz `toPublicLead()`, a `userId` dolazi iz Clerk sesije.
 
 import "server-only";
-import { GOOGLE_TTL_DAYS } from "@sajtoskop/shared";
 import type { SiteStatus } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
+import { istekKesa } from "./search-cache";
 import {
   LEAD_AUDIT_COLUMNS,
   LEAD_BUSINESS_COLUMNS,
@@ -47,6 +51,14 @@ export type SearchInput = {
   filters: SearchFilters;
   page: number;
   countryCode?: string;
+  /**
+   * Kad je kombinacija poslednji put skenirana, iz registra keša (F9). Ne računa
+   * se ovde iz `google_refreshed_at`: isti `place_id` ume da dođe iz dve niše,
+   * pa bi tuđ scan tiho produžio besplatan rok ovoj kombinaciji.
+   */
+  scannedAt?: string | null;
+  /** Šta se upisuje u `searches.source`. Plaćeni put je `api`. */
+  source?: "cache" | "api";
 };
 
 // Redosled po kvalitetu leada, ne po abecedi (PRD §4).
@@ -64,6 +76,10 @@ const EMPTY_SUMMARY: SearchSummary = { noSite: 0, social: 0, dead: 0, ugly: 0, o
 
 export async function searchCachedLeads(input: SearchInput): Promise<SearchResponse> {
   const countryCode = input.countryCode ?? "RS";
+  const source = input.source ?? "cache";
+  const freshness = input.scannedAt
+    ? { scannedAt: input.scannedAt, expiresAt: istekKesa(input.scannedAt) }
+    : null;
   const db = adminSupabase();
 
   const { data: businesses, error: bErr } = await db
@@ -88,10 +104,21 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
   }
 
   if (rows.length === 0) {
-    await logSearch({ userId: input.userId, countryCode, city: input.city, niche: input.niche, count: 0 });
+    // Prazno više ne znači „nije skenirano" (to je od F9 odluka rute, iz
+    // registra keša). Ovde znači tačno ono što piše: keš za ovu kombinaciju
+    // trenutno nema nijedan red — ili je scan u toku, ili Google nema ništa.
+    await logSearch({
+      userId: input.userId,
+      countryCode,
+      city: input.city,
+      niche: input.niche,
+      count: 0,
+      source,
+    });
+
     return {
-      status: "not_scanned",
-      freshness: null,
+      status: "cache",
+      freshness,
       total: 0,
       page: input.page,
       pageSize: PAGE_SIZE,
@@ -109,12 +136,6 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
   if (aErr) throw new Error(`Čitanje audita nije uspelo: ${aErr.message}`);
 
   const auditByPlace = new Map<string, LeadAudit>((audits ?? []).map((a) => [a.place_id, a]));
-
-  // Svežina se računa nad celim ključem, pre filtera — filter ne menja starost podataka.
-  const newest = rows.reduce(
-    (max, r) => (r.google_refreshed_at > max ? r.google_refreshed_at : max),
-    rows[0]!.google_refreshed_at,
-  );
 
   const paired = rows.map((b) => ({ b, a: auditByPlace.get(b.place_id) ?? null }));
   const filtered = paired.filter(({ a }) => matchesFilters(a, input.filters));
@@ -140,11 +161,12 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
     city: input.city,
     niche: input.niche,
     count: filtered.length,
+    source,
   });
 
   return {
     status: "cache",
-    freshness: { refreshedAt: newest, stale: isStale(newest) },
+    freshness,
     total: filtered.length,
     page: input.page,
     pageSize: PAGE_SIZE,
@@ -222,12 +244,6 @@ function summarize(rows: { a: LeadAudit | null }[]): SearchSummary {
   return s;
 }
 
-// ── svežina ────────────────────────────────────────────────
-function isStale(iso: string): boolean {
-  const ageMs = Date.now() - new Date(iso).getTime();
-  return ageMs > GOOGLE_TTL_DAYS * 24 * 60 * 60 * 1000;
-}
-
 // ── otključavanja ──────────────────────────────────────────
 /**
  * Namerno kroz `userSupabase()`: RLS politika „own unlocks" je drugi sloj koji
@@ -266,7 +282,12 @@ async function getUnlockedPlaceIds(placeIds: string[]): Promise<Set<string>> {
 /**
  * `searches` ima samo `select` politiku, pa upis ide kroz admin klijent —
  * `user_id` je iz verifikovane sesije, nikad iz tela zahteva (pravilo 8).
- * U F2 je uvek `source: 'cache'` i `api_calls: 0`; u F3 se dodaje `'api'`.
+ *
+ * `source` je `'api'` na plaćenom putu, `'cache'` inače. `api_calls` ostaje 0 i
+ * na plaćenom putu: pozive broji worker kroz `api_budget`, ovde bi bili nagađanje.
+ *
+ * Od F9 ova tabela nosi i drugi posao: iz nje se računa `mine` u listi
+ * besplatnih pretraga, dakle „ovo si već tražio".
  *
  * Neuspeh upisa ne ruši pretragu: istorija je korisna, ali nije razlog da
  * korisnik ostane bez rezultata.
@@ -277,13 +298,14 @@ async function logSearch(args: {
   city: string;
   niche: string;
   count: number;
+  source: "cache" | "api";
 }): Promise<void> {
   const { error } = await adminSupabase().from("searches").insert({
     user_id: args.userId,
     country_code: args.countryCode,
     city_slug: args.city,
     niche_slug: args.niche,
-    source: "cache",
+    source: args.source,
     results_count: args.count,
     api_calls: 0,
   });

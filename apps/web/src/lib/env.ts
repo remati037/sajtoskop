@@ -19,6 +19,14 @@ const webhookSchema = z.object({
   CLERK_WEBHOOK_SIGNING_SECRET: z.string().min(1),
 });
 
+/** F10: mejl sa utiskom. Odvojeno iz istog razloga kao webhook tajna. */
+const feedbackMailSchema = z.object({
+  RESEND_API_KEY: z.string().min(1),
+  FEEDBACK_EMAIL_TO: z.email({ message: "mora biti mejl adresa" }),
+  // 'Sajtoskop <feedback@sajtoskop.com>' — dakle ne gola adresa.
+  FEEDBACK_EMAIL_FROM: z.string().min(3),
+});
+
 export type ServerEnv = z.infer<typeof serverSchema>;
 
 let cached: ServerEnv | null = null;
@@ -44,4 +52,31 @@ export function webhookSecret(): string {
   const parsed = webhookSchema.safeParse(process.env);
   if (!parsed.success) fail(parsed.error);
   return parsed.data.CLERK_WEBHOOK_SIGNING_SECRET;
+}
+
+export type FeedbackMailEnv = z.infer<typeof feedbackMailSchema>;
+
+/**
+ * Podešavanje za mejl sa utiskom (F10 §3).
+ *
+ * Ne baca, za razliku od `webhookSecret()`: nedostatak ključa ovde nije kvar
+ * nego lokalni razvoj bez Resend naloga. Upis u `feedback` mora da prođe, mejl
+ * se preskače, a razlog završi u `feedback.email_error`.
+ *
+ * Zato `razlog` nosi IMENA promenljivih, nikad njihove vrednosti — taj tekst ide
+ * u bazu, a `RESEND_API_KEY` ne izlazi iz procesa (F10 §5).
+ */
+export type FeedbackMailConfig =
+  | { ok: true; env: FeedbackMailEnv }
+  | { ok: false; razlog: string };
+
+export function feedbackMailEnv(): FeedbackMailConfig {
+  const parsed = feedbackMailSchema.safeParse(process.env);
+  if (parsed.success) return { ok: true, env: parsed.data };
+
+  const imena = [...new Set(parsed.error.issues.map((i) => String(i.path[0] ?? "env")))];
+  return {
+    ok: false,
+    razlog: `${imena.join(", ")} ${imena.length === 1 ? "nije podešen" : "nisu podešeni"}`,
+  };
 }

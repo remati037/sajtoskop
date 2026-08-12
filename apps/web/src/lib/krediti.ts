@@ -6,6 +6,7 @@
 // ovde ikad razilazi sa balansom u headeru, greška je u bazi, ne u ovom fajlu.
 
 import "server-only";
+import { CITIES, NICHES } from "@sajtoskop/shared";
 import type { CreditLedgerRow } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
 
@@ -16,9 +17,21 @@ export type StavkaKnjige = {
   delta: number;
   reason: CreditLedgerRow["reason"];
   createdAt: string;
-  /** Naziv prospekta za `unlock` stavke; `null` za dodele. */
+  /**
+   * Na šta se stavka odnosi: naziv prospekta za `unlock`, „Grad · niša" za
+   * `scan` i za povraćaj skeniranja, `null` za dodele.
+   */
   lead: string | null;
 };
+
+const GRAD_LABEL = new Map(CITIES.map((c) => [c.slug, c.label]));
+const NISA_LABEL = new Map(NICHES.map((n) => [n.slug, n.label]));
+
+/** `scan:123` → 123. Sve ostalo je `null`. */
+function jobIdIz(refId: string | null): number | null {
+  const m = /^scan:(\d+)$/.exec(refId ?? "");
+  return m ? Number(m[1]) : null;
+}
 
 /**
  * Poslednjih 200 stavki, najnovija prva.
@@ -61,11 +74,47 @@ export async function getIstorijaKredita(): Promise<StavkaKnjige[]> {
     else for (const f of firme ?? []) nazivi.set(f.place_id, f.name);
   }
 
-  return stavke.map((s) => ({
-    id: s.id,
-    delta: s.delta,
-    reason: s.reason,
-    createdAt: s.created_at,
-    lead: s.reason === "unlock" && s.ref_id ? (nazivi.get(s.ref_id) ?? "obrisan prospekt") : null,
-  }));
+  // `scan` i njegov povraćaj nose `ref_id = 'scan:<job_id>'` (F9 §2), pa se
+  // „Beograd · PVC stolarija" čita iz payload-a posla. Sam `ref_id` korisniku ne
+  // znači ništa, a ovo je jedini ekran koji odgovara na „gde mi je otišao kredit".
+  const jobIds = [
+    ...new Set(stavke.map((s) => jobIdIz(s.ref_id)).filter((id): id is number => id !== null)),
+  ];
+
+  const kombinacije = new Map<number, string>();
+
+  if (jobIds.length > 0) {
+    const { data: poslovi, error: jErr } = await adminSupabase()
+      .from("job_queue")
+      .select("id, payload")
+      .in("id", jobIds)
+      .returns<{ id: number; payload: Record<string, unknown> }[]>();
+
+    if (jErr) console.error(`[krediti] kombinacije skeniranja: ${jErr.message}`);
+    else {
+      for (const p of poslovi ?? []) {
+        const grad = typeof p.payload.citySlug === "string" ? p.payload.citySlug : null;
+        const nisa = typeof p.payload.nicheSlug === "string" ? p.payload.nicheSlug : null;
+        if (!grad || !nisa) continue;
+        kombinacije.set(p.id, `${GRAD_LABEL.get(grad) ?? grad} · ${NISA_LABEL.get(nisa) ?? nisa}`);
+      }
+    }
+  }
+
+  return stavke.map((s) => {
+    const jobId = jobIdIz(s.ref_id);
+
+    return {
+      id: s.id,
+      delta: s.delta,
+      reason: s.reason,
+      createdAt: s.created_at,
+      lead:
+        s.reason === "unlock" && s.ref_id
+          ? (nazivi.get(s.ref_id) ?? "obrisan prospekt")
+          : jobId !== null
+            ? (kombinacije.get(jobId) ?? "skeniranje")
+            : null,
+    };
+  });
 }

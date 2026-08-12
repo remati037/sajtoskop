@@ -99,15 +99,37 @@ export type SearchSummary = {
 };
 
 /**
- * `queued` postoji od F3: kombinacija koje nema u kešu više ne završava sa
- * „nije skenirano" nego pokreće posao. `not_scanned` ostaje samo za slučaj kad
- * je posao odbijen — tada uz njega stoji i `greska` iz `ApiError`.
+ * `queued` postoji od F3: kombinacija koje nema u kešu pokreće posao.
+ *
+ * `needs_scan` je od F9 i zamenjuje raniji `not_scanned`: kombinacija nije u
+ * kešu (ili je starija od 30 dana), skeniranje košta kredit i korisnik ga još
+ * nije potvrdio. Uz taj status NE IZLAZI nijedan lead — ni ime, ni grad.
  */
-export type SearchStatus = "cache" | "not_scanned" | "queued";
+export type SearchStatus = "cache" | "needs_scan" | "queued";
+
+/** Prvo skeniranje kombinacije ili osvežavanje one kojoj je istekao TTL. */
+export type ScanKind = "prvo" | "osvezavanje";
+
+/**
+ * Cena koju server nudi klijentu uz `needs_scan`. Klijent ne računa ništa sam —
+ * ni cenu, ni preostali balans, ni to da li je u pitanju prvo skeniranje.
+ */
+export type ScanCost = {
+  cost: number;
+  kind: ScanKind;
+  /** Kad je kombinacija poslednji put skenirana. `null` = nikad. */
+  lastScannedAt: string | null;
+  creditsLeft: number;
+};
 
 export type SearchResponse = {
   status: SearchStatus;
-  freshness: { refreshedAt: string; stale: boolean } | null;
+  /**
+   * `expiresAt` je trenutak kad keš prestaje da bude besplatan (skeniranje + 30
+   * dana). Raniji `stale` je otpao: od F9 zastareo keš uopšte ne stiže do
+   * klijenta, pa bi polje uvek bilo `false`.
+   */
+  freshness: { scannedAt: string; expiresAt: string } | null;
   total: number;
   page: number;
   pageSize: number;
@@ -115,6 +137,41 @@ export type SearchResponse = {
   summary: SearchSummary;
   /** Samo uz `status: "queued"`. `joined` znači da posao već radi za nekog drugog. */
   job?: { id: number; joined: boolean };
+  /** Samo uz `status: "needs_scan"`. */
+  scan?: ScanCost;
+  /**
+   * Kombinacija JESTE skenirana i sveža, ali Google za nju nema nijednu firmu.
+   * Razlikuje se od „filteri su preuski" — zato zaseban podatak, ne `total === 0`.
+   */
+  emptyScan?: boolean;
+  /** `true` kad je ovaj zahtev skinuo kredit. Klijent po tome javlja poruku. */
+  charged?: boolean;
+  /** Balans posle ovog zahteva. Popunjen samo kad je bilo naplate. */
+  creditsLeft?: number;
+};
+
+/**
+ * Jedan red u listi besplatnih pretraga (F9 §3). Ovo NIJE lead — nema nijednog
+ * podatka o firmi, samo koliko ih ima. Zato sme da se čita bez ijedne provere
+ * otključavanja.
+ */
+export type KesStavka = {
+  city: string;
+  niche: string;
+  total: number;
+  noSite: number;
+  scannedAt: string;
+  expiresAt: string;
+  /**
+   * Mlađe od 30 dana, dakle stvarno besplatno. Istekli redovi se šalju klijentu
+   * ali se u listi ne prikazuju — služe traci cene, da ume da kaže „starije od
+   * 30 dana" umesto „nije u kešu".
+   */
+  fresh: boolean;
+  /** Korisnik je ovu kombinaciju već tražio — ide u blok „Tvoje pretrage". */
+  mine: boolean;
+  /** Skenirano, ali Google nema nijednu firmu. Ostaje u listi, sivo. */
+  empty: boolean;
 };
 
 /** Ono što vraća `GET /api/job/:id`. Klijent po ovome crta stanje pretrage. */

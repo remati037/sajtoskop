@@ -15,10 +15,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { UserButton } from "@clerk/nextjs";
-import { Coins, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Menu, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { NAVIGACIJA, naslovZaPutanju, type NavStavka } from "@/lib/navigacija";
 import { PrekidacTeme, PrekidacTemeDugme } from "./prekidac-teme";
+import { UtisakDugme } from "./utisak-dugme";
 import { Znak, ZnakSaImenom } from "./znak";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
@@ -28,10 +29,27 @@ type Props = {
   /** `null` znači da profil nije pročitan — v. `veza-greska.tsx`. */
   krediti: number | null;
   mesecniKrediti: number;
+  /**
+   * Tehnička poruka o kvaru veze sa bazom, ako ga ima. Prikazuje se kao traka
+   * iznad sadržaja na SVAKOJ strani — kvar koji obara čitanje profila obara i
+   * sve ostalo, pa je poruka na jednom mestu tačnija nego pet puta po stranama.
+   */
+  greska?: string | null;
+  /**
+   * Korisniku treba pokazati podsetnik za utisak (F10 §4.4). Računa se serverski,
+   * iz profila koji `(app)/layout.tsx` ionako čita — bez ijednog dodatnog upita.
+   */
+  traziUtisak?: boolean;
   children: React.ReactNode;
 };
 
-export function OkvirAplikacije({ krediti, mesecniKrediti, children }: Props) {
+export function OkvirAplikacije({
+  krediti,
+  mesecniKrediti,
+  greska,
+  traziUtisak = false,
+  children,
+}: Props) {
   const putanja = usePathname();
   const [skupljen, setSkupljen] = useState(false);
   const [mobilni, setMobilni] = useState(false);
@@ -77,8 +95,25 @@ export function OkvirAplikacije({ krediti, mesecniKrediti, children }: Props) {
           putanja={putanja}
           krediti={krediti}
           mesecniKrediti={mesecniKrediti}
-          prebaci={prebaci}
         />
+
+        {/* Dugme za skupljanje stoji na ivici trake, u visini zaglavlja, i tu
+            ostaje u OBA stanja. Ranije je u skupljenom stanju padalo na dno,
+            ispod kartice kredita — pa se traka skupljala jednim dugmetom, a
+            širila drugim, 500 piksela niže. */}
+        <button
+          type="button"
+          onClick={prebaci}
+          aria-label={skupljen ? "Raširi bočnu traku" : "Skupi bočnu traku"}
+          title={skupljen ? "Raširi bočnu traku" : "Skupi bočnu traku"}
+          className="absolute -right-3 top-5 inline-flex h-6 w-6 items-center justify-center rounded-full border border-border-strong bg-bg-elev text-fg-muted shadow-sm transition-colors hover:border-fg-muted hover:text-fg"
+        >
+          {skupljen ? (
+            <ChevronRight className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronLeft className="h-3.5 w-3.5" />
+          )}
+        </button>
       </aside>
 
       {/* ── bočna traka, telefon: fioka ──────────────────────── */}
@@ -146,8 +181,15 @@ export function OkvirAplikacije({ krediti, mesecniKrediti, children }: Props) {
           </div>
         </header>
 
-        <main className="flex-1">{children}</main>
+        {greska && <TrakaKvara poruka={greska} />}
+
+        {/* Donji razmak postoji zbog plutajućeg dugmeta: bez njega ono stoji
+            preko poslednjeg reda tabele na kratkim ekranima. */}
+        <main className="flex-1 pb-20">{children}</main>
       </div>
+
+      {/* Dugme „Utisak" — na svakom ekranu unutar okvira, nikad na prijavi. */}
+      <UtisakDugme traziUtisak={traziUtisak} />
     </TooltipProvider>
   );
 }
@@ -159,37 +201,25 @@ function SadrzajTrake({
   putanja,
   krediti,
   mesecniKrediti,
-  prebaci,
 }: {
   skupljen: boolean;
   putanja: string;
   krediti: number | null;
   mesecniKrediti: number;
-  /** Postoji samo na desktopu — u fioci nema šta da se skuplja. */
-  prebaci?: () => void;
 }) {
   return (
     <>
+      {/* Desno je 0.75rem praznine i kad je traka raširena — tu stoji dugme sa
+          ivice, pa logo ne sme da ide do kraja. */}
       <div
         className={cn(
-          "flex h-16 shrink-0 items-center border-b border-border px-4",
-          skupljen ? "justify-center px-0" : "justify-between",
+          "flex h-16 shrink-0 items-center border-b border-border",
+          skupljen ? "justify-center px-0" : "px-4 pr-6",
         )}
       >
         <Link href="/pretraga" className="flex min-w-0 items-center rounded-lg">
           {skupljen ? <Znak /> : <ZnakSaImenom />}
         </Link>
-
-        {prebaci && !skupljen && (
-          <button
-            type="button"
-            onClick={prebaci}
-            aria-label="Skupi bočnu traku"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
-        )}
       </div>
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
@@ -215,24 +245,52 @@ function SadrzajTrake({
         <KarticaKredita krediti={krediti} mesecni={mesecniKrediti} skupljen={skupljen} />
 
         {skupljen ? (
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex justify-center">
             <PrekidacTemeDugme />
-            {prebaci && (
-              <button
-                type="button"
-                onClick={prebaci}
-                aria-label="Raširi bočnu traku"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
-              >
-                <PanelLeftOpen className="h-4 w-4" />
-              </button>
-            )}
           </div>
         ) : (
           <PrekidacTeme />
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Kvar veze sa bazom, ispisan a ne prećutan.
+ *
+ * Do sada je ovakav kvar rušio ceo `AppLayout` i korisnik je dobijao Next-ov
+ * crveni ekran greške — dakle ni aplikaciju, ni objašnjenje. Sada aplikacija
+ * radi koliko može, a poruka stoji ovde: doslovna tehnička rečenica iz baze,
+ * plus prevod na jezik radnje koju treba preduzeti.
+ *
+ * Tekst greške se namerno prikazuje neizmenjen. Ovo je alat koji koristi njegov
+ * autor — „nešto je pošlo naopako" bi ovde bilo gubljenje vremena.
+ */
+function TrakaKvara({ poruka }: { poruka: string }) {
+  // Baš ova greška ima jedan konkretan uzrok i jedno konkretno rešenje, pa se
+  // prepoznaje i imenuje. Sve ostalo ide kao golo `poruka`.
+  const jeVeza = /suitable key|wrong key type|JWSError|JWT/i.test(poruka);
+
+  return (
+    <div className="border-b border-danger/30 bg-danger-wash px-4 py-3 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-6xl items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
+        <div className="min-w-0 text-xs leading-relaxed">
+          <p className="font-medium text-danger">Baza trenutno ne prepoznaje tvoj nalog.</p>
+          <p className="mt-1 break-words text-fg-muted">
+            <code className="num">{poruka}</code>
+          </p>
+          {jeVeza && (
+            <p className="mt-1.5 text-fg-muted">
+              Clerk nije registrovan kao Third-Party Auth provajder u Supabase-u (ili je
+              registrovan sa drugim domenom). Krediti i otključani prospekti su netaknuti — samo
+              se trenutno ne mogu pročitati.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -357,7 +415,7 @@ function KarticaKredita({
       </div>
 
       <p className="mt-2 text-[11px] leading-tight text-fg-muted">
-        Obnavlja se prvog u mesecu. Pretraga iz keša je besplatna.
+        Obnavlja se prvog u mesecu. Keš je besplatan, novo skeniranje 1 kredit.
       </p>
     </Link>
   );

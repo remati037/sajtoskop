@@ -53,8 +53,10 @@ const TAMNA = {
 };
 
 export function ClerkOkvir({ children }: { children: React.ReactNode }) {
-  const { stvarna } = useTema();
-  const boje = stvarna === "tamna" ? TAMNA : SVETLA;
+  // Otkad tema više nema stanje „sistem", izbor JESTE tema — nema šta da se
+  // razrešava, pa je i `stvarna` iz konteksta otpala.
+  const { tema } = useTema();
+  const boje = tema === "tamna" ? TAMNA : SVETLA;
 
   return (
     <ClerkProvider

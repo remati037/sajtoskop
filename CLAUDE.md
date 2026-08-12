@@ -37,9 +37,10 @@ Red poslova: **Postgres tabela `job_queue`** sa `FOR UPDATE SKIP LOCKED`. Ne Red
 
 1. **Google polja imaju TTL 30 dana.** Nikad ne serviraj Google podatak stariji od 30 dana — proveri `google_refreshed_at`, pa zakaži refresh. `place_id` se čuva neograničeno.
 2. **Svaki Places poziv ima eksplicitan `X-Goog-FieldMask`.** Nikad `*`. Field mask određuje SKU i time ceo troškovni model.
-3. **Krediti se menjaju samo kroz `spend_credit_and_unlock` ili `grant_credits`.** Nikad direktan `UPDATE profiles.credits_balance`.
+3. **Krediti se menjaju samo kroz `spend_credit_and_unlock`, `spend_credit_and_scan` ili `grant_credits`.** Nikad direktan `UPDATE profiles.credits_balance`. (`grant_monthly_credits` i `refund_scan` su izuzeci objašnjeni u migracijama 0004 i 0009.)
 4. **`unlocks` je PK `(user_id, place_id)`.** Korisnik nikad ne plaća isti lead dvaput.
 5. **Skupi enrichment ide isključivo lazy, na unlock.** Screenshot, PageSpeed i Claude poziv nikad u bulk scanu.
+5a. **Nijedan Places poziv iz weba nema besplatan put.** `scan` posao ulazi u red isključivo kroz `spend_credit_and_scan` (F9). Keš mlađi od 30 dana je besplatan; sve ostalo košta 1 kredit.
 6. **Ugly Score živi samo u `packages/shared/src/ugly-score.ts`.** Jedan izvor istine za web, worker i CLI. Ne duplirati logiku, ne „prilagoditi" kopiju.
 7. **Playwright i lančani HTTP fetch nikad u Vercel funkciji.** Samo worker.
 8. **`user_id` isključivo iz verifikovane Clerk sesije na serveru.** Nikad iz request body-ja, query parametra ni headera.
@@ -85,6 +86,7 @@ Ako predlažeš kod koji povećava broj Places poziva, reci mi to eksplicitno pr
 |---|---|
 | lead / business | prospekt |
 | unlock | otključaj |
+| scan (plaćen Places poziv) | skeniranje — nikad „pretraga", pretraga po kešu je besplatna |
 | ugly score | Ugly Score (ne prevodi) |
 | band | Solidan / Osrednji / Ružan / Katastrofa |
 | kanban kolone | Nekontaktiran / Kontaktiran / Odgovorio / Potpisan / Nezainteresovan |
@@ -119,6 +121,7 @@ radijusi, senke i komponente su fiksni. Ne izmišljaj nove tokene ni nove nijans
 | Dokument | Kod | Zašto |
 |---|---|---|
 | `data-theme="dark"` + ključ `sajtoskop-theme` (§7.9) | `.dark` klasa + ključ `sajtoskop-tema` | Mehanički ekvivalentno. Obrazloženje iz dokumenta (deljen izbor sa landing sajtom) ne stoji — `localStorage` je po origin-u, pa `app.` i goli domen ionako ne dele ključ. |
+| Tri stanja teme: svetla / sistem / tamna (§7.9) | Dva: **tamna (podrazumevana)** i svetla | Proizvod ima jedan izgled po kome se pamti. „Sistem" je značio da isti korisnik na dva računara vidi dve aplikacije i da pola snimaka ekrana ispadne u svetloj temi bez ijedne odluke. Svetla tema ostaje i dalje se testira. Stara vrednost `sistem` u `localStorage`-u pada na tamnu, bez migracije. |
 | `--shadow-*` kao imena sirovih promenljivih | `--elev-*`, pa `@theme inline` mapira na `--shadow-*` | `--shadow-*` je Tailwind-ov prostor imena; direktno bi bila kružna referenca. Vrednosti iste. |
 
 ### Tokeni dopisani mimo dokumenta

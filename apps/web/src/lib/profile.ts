@@ -13,15 +13,38 @@ import { adminSupabase, userSupabase } from "./supabase";
  * integracija nije ispravno podešena, ovo vrati `null` i to se odmah vidi.
  * Sa admin klijentom bi radilo i kad je integracija u kvaru — a onda bi se RLS
  * kao zaštitni sloj tiho izgubio i to bi izašlo na videlo tek u produkciji.
+ *
+ * [PROMENA] Do sada je greška iz baze ovde bacana. Posledica je bila da jedan
+ * pokvaren token obori `AppLayout`, dakle SVE strane, i to Next-ovim crvenim
+ * ekranom umesto ijednom rečenicom na srpskom. A ceo ostatak koda je već pisan
+ * za `null`: svaka strana ima granu koja tada prikazuje `VezaGreska`.
+ *
+ * Zato greška više ne izlazi kao izuzetak nego kao `null` + poruka, a pozivalac
+ * bira šta sa njom. `getOwnProfile()` zadržava stari, kratak oblik.
  */
-export async function getOwnProfile(): Promise<ProfileRow | null> {
+export type ProfilIshod = {
+  profile: ProfileRow | null;
+  /** Tehnička poruka iz baze. `null` kad greške nije bilo. */
+  greska: string | null;
+};
+
+export async function citajProfil(): Promise<ProfilIshod> {
   const { data, error } = await userSupabase()
     .from("profiles")
     .select("*")
     .maybeSingle<ProfileRow>();
 
-  if (error) throw new Error(`Čitanje profila nije uspelo: ${error.message}`);
-  return data;
+  if (error) {
+    // Ovo se ne guta: u logu servera stoji ceo objekat, u UI-ju rečenica.
+    console.error("[profile] čitanje profila nije uspelo:", error);
+    return { profile: null, greska: error.message };
+  }
+
+  return { profile: data, greska: null };
+}
+
+export async function getOwnProfile(): Promise<ProfileRow | null> {
+  return (await citajProfil()).profile;
 }
 
 /**

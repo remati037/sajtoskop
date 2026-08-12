@@ -1,18 +1,36 @@
 "use client";
 
-// Glavni ekran F2/F3: dva combobox-a, filteri kao toggle dugmad, sumarna traka,
-// tabela. Sve ide kroz `POST /api/search` — nema direktnog Supabase upita iz
-// pregledača (pravilo 10: `businesses` i `website_audits` su `using (false)`).
+// Glavni ekran F2/F3/F9: dva combobox-a, filteri kao toggle dugmad, sumarna
+// traka, tabela — i, od F9, cena. Sve ide kroz `POST /api/search` — nema
+// direktnog Supabase upita iz pregledača (pravilo 10).
 //
 // F3 dodaje čekanje na worker: promašaj keša vraća `status: "queued"` i ID posla,
-// pa se ovde polluje `GET /api/job/:id` na 3 sekunde, najviše 3 minuta. Lista se
-// osvežava u hodu, kako `enrich_basic` poslovi završavaju jedan po jedan.
+// pa se ovde polluje `GET /api/job/:id` na 3 sekunde, najviše 3 minuta.
+//
+// F9 dodaje jedno pravilo koje drži ceo ekran: **nijedan zahtev bez `pay: true`
+// ne može da skine kredit.** Sve pollovanje, svako listanje strana i svaka
+// promena filtera idu bez `pay`, pa su po konstrukciji besplatni. Kredit se
+// skida isključivo iz `potvrdiSkeniranje`, posle modala.
+//
+// Da li nešto košta zna se pre klika, iz registra keša (`kes`): red koji postoji
+// i `fresh` je — besplatno; red koji postoji a nije svež — osvežavanje; reda
+// nema — prvo skeniranje. Server tu odluku ponovo proverava i on je poslednja
+// reč; ovo je samo da korisnik unapred vidi cenu.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Clock, Search, SlidersHorizontal } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Combobox, type ComboGroup } from "./combobox";
+import { KesLista } from "./kes-lista";
 import { LeadTabela } from "./lead-tabela";
+import { SkeniranjeModal, type SkeniranjePredlog } from "./skeniranje-modal";
 import { cn } from "@/lib/cn";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
@@ -22,16 +40,22 @@ import {
   MAX_PAGE,
   type ApiError,
   type JobStatusResponse,
+  type KesStavka,
   type SearchFilters,
   type SearchResponse,
   type UnlockResponse,
 } from "@/lib/search-types";
-import { formatDatum, plural, summaryLine } from "@/lib/ui-tekst";
+import { daniDo, formatDatum, formatDatumKratko, plural, summaryLine } from "@/lib/ui-tekst";
 
 type Props = {
   cities: ComboGroup[];
   niches: ComboGroup[];
   cityLabels: Record<string, string>;
+  nicheLabels: Record<string, string>;
+  /** Registar keša sa servera — i sveže i istekle kombinacije (F9 §3). */
+  pocetniKes: KesStavka[];
+  /** Balans u trenutku renderovanja strane. Modal ga prikazuje pre naplate. */
+  pocetniKrediti: number;
 };
 
 const PRAZNI_FILTERI: SearchFilters = { onlyNoSite: false, onlySocial: false, onlyDead: false };
@@ -55,7 +79,32 @@ const MIRNIH_KRUGOVA_DO_KRAJA = 15;
 
 const pauza = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function PretragaEkran({ cities, niches, cityLabels }: Props) {
+/** Šta jedan klik na „Pretraži" traži od servera. */
+type Zahtev = {
+  city: string;
+  niche: string;
+  f: SearchFilters;
+  page: number;
+  /** Bez ovoga se kredit ne može skinuti, ni greškom. */
+  pay?: boolean;
+  /** Ponovo skeniraj i kad je keš svež (dugme „Osveži za 1 kredit"). */
+  force?: boolean;
+};
+
+/** Cena kombinacije, izračunata iz registra keša pre ijednog zahteva. */
+type Cena =
+  | { vrsta: "besplatno"; scannedAt: string; expiresAt: string; prazno: boolean }
+  | { vrsta: "prvo" }
+  | { vrsta: "isteklo"; scannedAt: string };
+
+export function PretragaEkran({
+  cities,
+  niches,
+  cityLabels,
+  nicheLabels,
+  pocetniKes,
+  pocetniKrediti,
+}: Props) {
   const router = useRouter();
   const [city, setCity] = useState<string | null>(null);
   const [niche, setNiche] = useState<string | null>(null);
@@ -64,9 +113,26 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
   const [greska, setGreska] = useState<string | null>(null);
   const [ucitava, setUcitava] = useState(false);
 
+  // Registar keša i balans stižu sa servera i osvežavaju se posle svakog posla.
+  const [kes, setKes] = useState<KesStavka[]>(pocetniKes);
+  const [krediti, setKrediti] = useState(pocetniKrediti);
+
+  useEffect(() => setKes(pocetniKes), [pocetniKes]);
+  useEffect(() => setKrediti(pocetniKrediti), [pocetniKrediti]);
+
+  // Poslednji zahtev, da listanje strana i promena filtera ne moraju da ga
+  // sastavljaju iz stanja koje se u međuvremenu promenilo.
+  const [poslednji, setPoslednji] = useState<Zahtev | null>(null);
+
   // Stanje čekanja na worker.
   const [posao, setPosao] = useState<JobStatusResponse | null>(null);
   const [predugo, setPredugo] = useState(false);
+
+  // Potvrda naplate. `predlog` je ono što modal prikazuje, `naplata` je zahtev
+  // koji se šalje kad korisnik potvrdi.
+  const [predlog, setPredlog] = useState<SkeniranjePredlog | null>(null);
+  const naplata = useRef<Zahtev | null>(null);
+  const [obavestenje, setObavestenje] = useState<string | null>(null);
 
   // Otključavanje: `place_id` reda u toku, i poruka posle uspeha.
   const [otkljucavam, setOtkljucavam] = useState<string | null>(null);
@@ -77,26 +143,59 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
   const pollToken = useRef(0);
   useEffect(() => () => void (pollToken.current += 1), []);
 
+  const kesMapa = useMemo(
+    () => new Map(kes.map((s) => [`${s.city}:${s.niche}`, s])),
+    [kes],
+  );
+
+  /** Cena za par (grad, niša) — ono što piše u traci ispod forme. */
+  const cenaZa = useCallback(
+    (c: string, n: string): Cena => {
+      const stavka = kesMapa.get(`${c}:${n}`);
+      if (!stavka) return { vrsta: "prvo" };
+      if (!stavka.fresh) return { vrsta: "isteklo", scannedAt: stavka.scannedAt };
+      return {
+        vrsta: "besplatno",
+        scannedAt: stavka.scannedAt,
+        expiresAt: stavka.expiresAt,
+        prazno: stavka.empty,
+      };
+    },
+    [kesMapa],
+  );
+
+  const cena = city && niche ? cenaZa(city, niche) : null;
+
+  /** Registar se menja tek kad posao završi, pa se dovlači samo tada. */
+  async function osveziKes() {
+    try {
+      const res = await fetch("/api/search/kes", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = (await res.json()) as { stavke: KesStavka[] };
+      setKes(json.stavke);
+    } catch {
+      // Lista je pomoćna. Ako ne stigne, sledeći `router.refresh()` je donese.
+    }
+  }
+
   /**
    * Jedan poziv pretrage. Vraća odgovor da bi pozivalac mogao da nastavi.
    *
    * `token` se proverava i posle `await`-a: bez toga zakasnela runda pollovanja
    * stare pretrage prepiše tabelu koju je nova već popunila.
    */
-  async function trazi(
-    f: SearchFilters,
-    page: number,
-    token: number,
-  ): Promise<SearchResponse | null> {
-    if (!city || !niche) {
-      setGreska("Izaberi i grad i nišu.");
-      return null;
-    }
-
+  async function trazi(z: Zahtev, token: number): Promise<SearchResponse | null> {
     const res = await fetch("/api/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ city, niche, filters: f, page }),
+      body: JSON.stringify({
+        city: z.city,
+        niche: z.niche,
+        filters: z.f,
+        page: z.page,
+        pay: z.pay === true,
+        force: z.force === true,
+      }),
     });
 
     const json: SearchResponse | ApiError = await res.json();
@@ -110,30 +209,67 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
     }
 
     const odgovor = json as SearchResponse;
+
+    // Naplata je jedini put kojim se balans menja mimo otključavanja.
+    if (typeof odgovor.creditsLeft === "number") setKrediti(odgovor.creditsLeft);
+    if (odgovor.scan) setKrediti(odgovor.scan.creditsLeft);
+
+    // `needs_scan` nije rezultat nego račun — tabela ostaje prazna dok se ne plati.
     setData(odgovor);
     return odgovor;
   }
 
-  async function pretrazi(f: SearchFilters, page: number) {
+  /**
+   * Klik korisnika. `interaktivno` znači „ovo je tražio čovek", pa sme da otvori
+   * modal; pollovanje i osvežavanja liste to ne smeju.
+   */
+  async function pretrazi(z: Zahtev, interaktivno = true) {
     const token = ++pollToken.current;
 
     setUcitava(true);
     setGreska(null);
     setPosao(null);
     setPredugo(false);
+    setPoslednji(z);
 
     try {
-      const odgovor = await trazi(f, page, token);
+      const odgovor = await trazi(z, token);
       if (!odgovor || token !== pollToken.current) return;
+
+      if (odgovor.status === "needs_scan" && odgovor.scan) {
+        // Server kaže da ovo košta, a klijent je mislio da je besplatno (npr.
+        // keš je istekao u međuvremenu). Modal ide iz odgovora, ne iz procene.
+        if (interaktivno) {
+          naplata.current = { ...z, pay: true };
+          setPredlog({
+            razlog: odgovor.scan.kind === "osvezavanje" ? "isteklo" : "prvo",
+            cost: odgovor.scan.cost,
+            lastScannedAt: odgovor.scan.lastScannedAt,
+            creditsLeft: odgovor.scan.creditsLeft,
+            cityLabel: cityLabels[z.city] ?? z.city,
+            nicheLabel: nicheLabels[z.niche] ?? z.niche,
+          });
+        }
+        return;
+      }
+
+      if (odgovor.charged) {
+        setObavestenje(
+          `Skinut je 1 kredit za skeniranje. Ostalo ti je ${odgovor.creditsLeft} ` +
+            `${plural(odgovor.creditsLeft ?? 0, "kredit", "kredita", "kredita")}.`,
+        );
+        // Balans u bočnoj traci crta serverski layout.
+        router.refresh();
+      }
 
       // Bez ispravnog ID-ja nema šta da se prati. Traka se tada NE prikazuje —
       // bolje odmah pokazati listu kakva jeste nego vrteti spinner nad poslom o
       // kome ne možemo ništa da saznamo.
       const jobId = odgovor.status === "queued" ? odgovor.job?.id : undefined;
 
-      if (typeof jobId === "number" && Number.isInteger(jobId)) {
+      if (typeof jobId === "number" && Number.isInteger(jobId) && jobId > 0) {
         setPosao({ id: jobId, status: "pending", progress: null, greska: null });
-        void pratiPosao(jobId, token, f, page);
+        void pratiPosao(jobId, token, z);
       }
     } catch {
       setGreska("Nema veze sa serverom. Proveri internet pa pokušaj ponovo.");
@@ -147,30 +283,27 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
    * Prati posao dok ne završi ili dok ne istekne strpljenje.
    *
    * Lista se osvežava svaki put kad se broj analiziranih promeni — korisnik vidi
-   * kako se popunjava, umesto da gleda spinner pa dobije sve odjednom.
+   * kako se popunjava, umesto da gleda spinner pa dobije sve odjednom. Sva ta
+   * osvežavanja idu bez `pay`, pa ne mogu da skinu kredit ni u jednom ishodu;
+   * server ih prepoznaje kao „posao koji je ovaj korisnik već platio" i servira
+   * keš besplatno dok scan traje.
    *
    * Pravilo bez izuzetka: svaki izlaz iz ove funkcije skida traku (`setPosao(null)`)
-   * ili je zamenjuje porukom. Ranija verzija je na `return` ostavljala `posao`
-   * postavljen, pa je `ceka` zauvek bilo `true` — ekran je zaglavljivao na
-   * „Prva pretraga traje do dva minuta" iako je posao odavno završio.
+   * ili je zamenjuje porukom.
    */
-  async function pratiPosao(jobId: number, token: number, f: SearchFilters, page: number) {
+  async function pratiPosao(jobId: number, token: number, z: Zahtev) {
     const kraj = Date.now() + MAX_CEKANJE_MS;
     let poslednjeAnalizirano = -1;
     let mirnihKrugova = 0;
 
-    /**
-     * Poslednje osvežavanje liste pa skidanje trake.
-     *
-     * BUDŽET: `osveziPrvo` sme `true` samo kad u bazi već postoje redovi za ovu
-     * kombinaciju. Nad praznim kešom `/api/search` nije čitanje nego nov
-     * cache-miss — skine korisniku dnevnu rezervaciju i upiše nov `scan`
-     * (prethodni je `done`, pa ga dedup ključ više ne pokriva), dakle do 3 nova
-     * Places poziva za lice koje samo gleda spinner.
-     */
+    /** Poslednje osvežavanje liste, pa skidanje trake i osvežavanje registra. */
     async function zavrsi(osveziPrvo: boolean) {
-      if (osveziPrvo) await trazi(f, page, token);
+      if (osveziPrvo) await trazi({ ...z, pay: false, force: false }, token);
       if (token === pollToken.current) setPosao(null);
+      // Kombinacija je od sada u kešu i besplatna — registar i balans (moguć
+      // povraćaj) se osvežavaju tek ovde, kad ima šta da se promeni.
+      await osveziKes();
+      router.refresh();
     }
 
     while (token === pollToken.current && Date.now() < kraj) {
@@ -195,8 +328,9 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
       setPosao(stanje);
 
       if (stanje.greska) {
-        setGreska(stanje.greska);
+        setGreska(`${stanje.greska} Kredit za ovo skeniranje ti je vraćen.`);
         setPosao(null);
+        router.refresh();
         return;
       }
 
@@ -207,14 +341,16 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
       if (pomak) {
         poslednjeAnalizirano = analizirano;
         mirnihKrugova = 0;
-        await trazi(f, page, token);
+        await trazi({ ...z, pay: false, force: false }, token);
         if (token !== pollToken.current) return;
       } else {
         mirnihKrugova += 1;
       }
 
       if (stanje.status === "failed") {
+        setGreska("Skeniranje nije uspelo. Kredit za njega ti je vraćen.");
         setPosao(null);
+        router.refresh();
         return;
       }
 
@@ -226,7 +362,7 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
           nadjeno === 0 || analizirano >= nadjeno || mirnihKrugova >= MIRNIH_KRUGOVA_DO_KRAJA;
 
         if (gotovo) {
-          await zavrsi(!pomak && nadjeno > 0);
+          await zavrsi(true);
           return;
         }
       }
@@ -238,13 +374,72 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
     }
   }
 
+  // ── ulazne tačke iz UI-ja ────────────────────────────────
+
+  /** Klik na „Pretraži". Besplatno ide odmah, plaćeno kroz modal. */
+  function posalji(f: SearchFilters, page: number) {
+    if (!city || !niche) {
+      setGreska("Izaberi i grad i nišu.");
+      return;
+    }
+
+    setObavestenje(null);
+    const c = cenaZa(city, niche);
+
+    if (c.vrsta === "besplatno") {
+      void pretrazi({ city, niche, f, page });
+      return;
+    }
+
+    naplata.current = { city, niche, f, page, pay: true };
+    setPredlog({
+      razlog: c.vrsta === "isteklo" ? "isteklo" : "prvo",
+      cost: 1,
+      lastScannedAt: c.vrsta === "isteklo" ? c.scannedAt : null,
+      creditsLeft: krediti,
+      cityLabel: cityLabels[city] ?? city,
+      nicheLabel: nicheLabels[niche] ?? niche,
+    });
+  }
+
+  /** Dugme „Osveži za 1 kredit" nad kombinacijom koja je i dalje sveža. */
+  function ponoviSkeniranje() {
+    if (!city || !niche) return;
+    const c = cenaZa(city, niche);
+
+    setObavestenje(null);
+    naplata.current = { city, niche, f: filters, page: 1, pay: true, force: true };
+    setPredlog({
+      razlog: "rucno",
+      cost: 1,
+      lastScannedAt: c.vrsta === "besplatno" ? c.scannedAt : null,
+      creditsLeft: krediti,
+      cityLabel: cityLabels[city] ?? city,
+      nicheLabel: nicheLabels[niche] ?? niche,
+    });
+  }
+
+  function potvrdiSkeniranje() {
+    const z = naplata.current;
+    if (!z) return;
+    naplata.current = null;
+    setPredlog(null);
+    void pretrazi(z);
+  }
+
+  /** Klik na red u listi besplatnih pretraga. */
+  function izKesa(c: string, n: string) {
+    setCity(c);
+    setNiche(n);
+    setObavestenje(null);
+    void pretrazi({ city: c, niche: n, f: filters, page: 1 });
+  }
+
   /**
    * Otključavanje jednog prospekta.
    *
    * Lista se NE traži ponovo posle uspeha: `/api/unlock` vraća pun otključan
-   * lead, pa se menja samo taj jedan red. Ponovna pretraga bi nad praznim kešom
-   * bila nov cache-miss, dakle nova dnevna rezervacija i do 3 Places poziva za
-   * klik koji sa pretragom nema veze.
+   * lead, pa se menja samo taj jedan red.
    *
    * Zato je i „jedan po jedan": `otkljucavam !== null` gasi ostala dugmad dok
    * traje zahtev. Dupli klik na dva reda sa poslednjim kreditom bi inače dao
@@ -282,6 +477,7 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
           : prev,
       );
 
+      setKrediti(odgovor.creditsLeft);
       setOtkljucano(
         odgovor.alreadyUnlocked
           ? `${odgovor.lead.name} je već bio otključan — kredit nije skinut.`
@@ -297,16 +493,21 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
     }
   }
 
-  // Promena filtera ili strane ne traži novi klik na „Pretraži" — ali ni ne puca
-  // pre prve pretrage, jer tada još ne znamo šta korisnik traži.
+  // Promena filtera ili strane ne traži novi klik na „Pretraži", i ne može da
+  // košta: `poslednji` se ponavlja bez `pay`.
   function primeniFiltere(sledeci: SearchFilters) {
     setFilters(sledeci);
-    if (data) void pretrazi(sledeci, 1);
+    if (poslednji) void pretrazi({ ...poslednji, f: sledeci, page: 1, pay: false, force: false });
+  }
+
+  function naStranu(page: number) {
+    if (poslednji) void pretrazi({ ...poslednji, page, pay: false, force: false });
   }
 
   const strana = data?.page ?? 1;
   const strana_ukupno = data ? Math.min(Math.ceil(data.total / data.pageSize) || 1, MAX_PAGE) : 1;
   const ceka = posao !== null && !predugo;
+  const imaRezultat = data !== null && data.status !== "needs_scan";
 
   return (
     <div className="space-y-6">
@@ -314,7 +515,7 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void pretrazi(filters, 1);
+            posalji(filters, 1);
           }}
           className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
         >
@@ -332,14 +533,29 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
             value={niche}
             onChange={setNiche}
           />
-          <Button type="submit" variant="primary" size="lg" disabled={ucitava || ceka}>
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            disabled={ucitava || ceka || (cena !== null && cena.vrsta !== "besplatno" && krediti < 1)}
+          >
             <Search className="h-4 w-4" />
-            {ucitava ? "Tražim…" : "Pretraži"}
+            {ucitava
+              ? "Tražim…"
+              : cena === null || cena.vrsta === "besplatno"
+                ? "Pretraži"
+                : cena.vrsta === "isteklo"
+                  ? "Osveži za 1 kredit"
+                  : "Skeniraj za 1 kredit"}
           </Button>
         </form>
+
+        <TrakaCene cena={cena} krediti={krediti} />
       </Card>
 
       {greska && <Alert variant="danger">{greska}</Alert>}
+
+      {obavestenje && <Alert variant="success">{obavestenje}</Alert>}
 
       {otkljucano && (
         <Alert variant="success">
@@ -353,16 +569,28 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
         <Alert variant="warning">
           <p className="font-medium">Traje duže nego obično.</p>
           <p className="mt-0.5 opacity-90">
-            Skeniranje se nastavlja u pozadini. Rezultat će biti ovde kad se vratiš — ova
-            pretraga tada ide iz keša, besplatno i bez čekanja.
+            Skeniranje se nastavlja u pozadini i kredit je već plaćen. Rezultat će biti ovde kad
+            se vratiš — ta pretraga tada ide iz keša, besplatno i bez čekanja.
           </p>
         </Alert>
       )}
 
-      {data && (
+      {/* Lista keša stoji ODMAH ispod forme dok rezultata nema — tada je ona
+          glavna stvar na ekranu i nosi uvodni tekst. Čim rezultati stignu,
+          sklapa se u jedan red (v. `sazeto`) i propušta tabelu napred. */}
+      {!imaRezultat && (
+        <KesLista
+          stavke={kes}
+          cityLabels={cityLabels}
+          nicheLabels={nicheLabels}
+          onIzaberi={izKesa}
+          disabled={ucitava || ceka}
+        />
+      )}
+
+      {imaRezultat && data && (
         <section className="space-y-4">
-          {/* Dok scan traje a lista je još prazna, filter bi otišao u nov cache-miss
-              (nova dnevna rezervacija, nov `scan`). Zato je zaključan tek dotle. */}
+          {/* Dok scan traje a lista je još prazna, filter nema nad čim da radi. */}
           <FilterTraka
             filters={filters}
             onChange={primeniFiltere}
@@ -373,30 +601,38 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
             <PraznoStanje
               ikona={<Search />}
               naslov={
-                data.status === "cache"
-                  ? "Nijedan prospekt ne odgovara filterima."
-                  : "Ova kombinacija još nije skenirana."
+                data.emptyScan
+                  ? "Google nema nijednu firmu za ovu kombinaciju."
+                  : "Nijedan prospekt ne odgovara filterima."
               }
               opis={
-                data.status === "cache"
-                  ? "Baza za ovaj grad i nišu nije prazna — filteri su preuski. Isključi neki toggle iznad."
-                  : "Skeniranje je pokrenuto. Ako se ništa ne pojavi, Google za ovu kombinaciju nema nijednu firmu."
+                data.emptyScan
+                  ? "Skeniranje je obavljeno i ništa nije nađeno — ako si ga platio, kredit ti je vraćen. Probaj drugu nišu ili susedni grad."
+                  : "Baza za ovaj grad i nišu nije prazna — filteri su preuski. Isključi neki toggle iznad."
               }
             />
           ) : data.total === 0 ? null : (
             <>
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <p className="text-sm num">{summaryLine(data.total, data.summary)}</p>
+
                 {data.freshness && (
-                  <p
-                    className={cn(
-                      "text-xs",
-                      data.freshness.stale ? "text-warn-text" : "text-fg-muted",
-                    )}
-                  >
-                    {data.freshness.stale
-                      ? `Podaci stariji od 30 dana (${formatDatum(data.freshness.refreshedAt)}) — osvežavanje je pokrenuto u pozadini.`
-                      : `Osveženo ${formatDatum(data.freshness.refreshedAt)}.`}
+                  <p className="flex items-center gap-2 text-xs text-fg-muted">
+                    <span className="num">
+                      Osveženo {formatDatum(data.freshness.scannedAt)} · besplatno do{" "}
+                      {formatDatumKratko(data.freshness.expiresAt)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      disabled={ucitava || ceka || krediti < 1}
+                      onClick={ponoviSkeniranje}
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      Osveži za 1 kredit
+                    </Button>
                   </p>
                 )}
               </div>
@@ -419,7 +655,7 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
                       variant="outline"
                       size="sm"
                       disabled={strana <= 1 || ucitava}
-                      onClick={() => void pretrazi(filters, strana - 1)}
+                      onClick={() => naStranu(strana - 1)}
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                       Prethodna
@@ -429,7 +665,7 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
                       variant="outline"
                       size="sm"
                       disabled={strana >= strana_ukupno || ucitava}
-                      onClick={() => void pretrazi(filters, strana + 1)}
+                      onClick={() => naStranu(strana + 1)}
                     >
                       Sledeća
                       <ChevronRight className="h-3.5 w-3.5" />
@@ -442,14 +678,95 @@ export function PretragaEkran({ cities, niches, cityLabels }: Props) {
         </section>
       )}
 
-      {!data && !greska && !ceka && (
-        <PraznoStanje
-          ikona={<Search />}
-          naslov="Izaberi grad i nišu."
-          opis="Pretraga iz keša je besplatna, neograničena i ne troši kredite. Kredit se skida tek kad otključaš prospekt."
+      {/* Prazna kombinacija koja JESTE skenirana: izlaz je platiti novo skeniranje. */}
+      {imaRezultat && data?.emptyScan && !ceka && (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={ucitava || krediti < 1}
+            onClick={ponoviSkeniranje}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Skeniraj ipak ponovo za 1 kredit
+          </Button>
+        </div>
+      )}
+
+      {imaRezultat && (
+        <KesLista
+          stavke={kes}
+          cityLabels={cityLabels}
+          nicheLabels={nicheLabels}
+          onIzaberi={izKesa}
+          sazeto
+          disabled={ucitava || ceka}
         />
       )}
+
+      <SkeniranjeModal
+        predlog={predlog}
+        ceka={ucitava}
+        onPotvrdi={potvrdiSkeniranje}
+        onOdustani={() => {
+          naplata.current = null;
+          setPredlog(null);
+        }}
+      />
     </div>
+  );
+}
+
+/**
+ * Jedna rečenica ispod forme: da li ovo košta, koliko i zašto (F9 §4.1).
+ *
+ * Stoji i pre prve pretrage — cena mora da se vidi PRE klika, ne posle njega.
+ */
+function TrakaCene({ cena, krediti }: { cena: Cena | null; krediti: number }) {
+  if (!cena) return null;
+
+  if (cena.vrsta === "besplatno") {
+    const dana = daniDo(cena.expiresAt);
+
+    return (
+      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-3 text-xs">
+        <span className="font-medium text-accent-text">U kešu — besplatno</span>
+        <span className="text-fg-muted num">
+          {cena.prazno
+            ? `Skenirano ${formatDatum(cena.scannedAt)} — Google nema nijednu firmu.`
+            : dana <= 0
+              ? `Osveženo ${formatDatum(cena.scannedAt)}. Rok ističe danas — sutra skeniranje košta 1 kredit.`
+              : `Osveženo ${formatDatum(cena.scannedAt)}, besplatno još ${dana} ${plural(dana, "dan", "dana", "dana")}.`}
+        </span>
+      </p>
+    );
+  }
+
+  const nemaKredita = krediti < 1;
+
+  return (
+    <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-3 text-xs">
+      <span className={cn("font-medium", nemaKredita ? "text-danger" : "text-warn-text")}>
+        {cena.vrsta === "isteklo"
+          ? "Podaci su stariji od 30 dana — osvežavanje košta 1 kredit"
+          : "Nije u kešu — skeniranje košta 1 kredit"}
+      </span>
+      <span className="text-fg-muted num">
+        {nemaKredita ? (
+          <>
+            Nemaš kredita. Pretrage iz keša su i dalje besplatne.{" "}
+            <a href="/krediti" className="text-accent-text underline-offset-4 hover:underline">
+              Vidi kredite
+            </a>
+          </>
+        ) : cena.vrsta === "isteklo" ? (
+          `Poslednje skeniranje: ${formatDatum(cena.scannedAt)}. Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`
+        ) : (
+          `Posle skeniranja je besplatna svima 30 dana. Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`
+        )}
+      </span>
+    </p>
   );
 }
 
@@ -494,7 +811,8 @@ function TrakaPosla({ posao }: { posao: JobStatusResponse | null }) {
       </div>
 
       <p className="text-xs text-fg-muted">
-        Prva pretraga ove kombinacije traje do dva minuta. Sledeći put ide iz keša — instant.
+        Skeniranje traje do dva minuta. Posle toga je ova kombinacija u kešu — tebi i svima
+        ostalima besplatna narednih 30 dana.
       </p>
     </Card>
   );

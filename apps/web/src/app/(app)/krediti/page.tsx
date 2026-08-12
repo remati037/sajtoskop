@@ -22,8 +22,11 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Krediti" };
 
+// „Skeniranje", ne „Pretraga" (F9, odluka 8): plaća se poziv Google-u, a ne čin
+// pretraživanja — pretraga po kešu je i dalje besplatna i ne pojavljuje se ovde.
 const RAZLOG: Record<StavkaKnjige["reason"], string> = {
   unlock: "Otključavanje",
+  scan: "Skeniranje",
   monthly_grant: "Mesečna dodela",
   admin: "Ručna izmena",
   refund: "Povraćaj",
@@ -32,7 +35,15 @@ const RAZLOG: Record<StavkaKnjige["reason"], string> = {
 export default async function Page() {
   await requireSession();
 
-  const [profile, istorija] = await Promise.all([getOwnProfile(), getIstorijaKredita()]);
+  // Kvar veze daje `profile === null`, a odmah ispod stoji `VezaGreska` — pa
+  // prazna knjiga u tom slučaju nikad ne stigne do ekrana kao „nemaš stavki".
+  const [profile, istorija] = await Promise.all([
+    getOwnProfile(),
+    getIstorijaKredita().catch((err: unknown) => {
+      console.error("[krediti] čitanje knjige:", err);
+      return [];
+    }),
+  ]);
   const plan = planFor(profile?.plan);
 
   // Prazna knjiga i pokvarena veza izgledaju isto kroz RLS — v. `veza-greska.tsx`.
@@ -51,7 +62,7 @@ export default async function Page() {
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
         naslov="Krediti"
-        opis="Kredit se troši samo na otključavanje prospekta. Pretraga iz keša je besplatna i neograničena."
+        opis="Kredit se troši na otključavanje prospekta i na skeniranje kombinacije koje nema u kešu. Pretraga po kešu je besplatna i neograničena."
       />
 
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -107,7 +118,7 @@ export default async function Page() {
                   <tr className="border-b border-border bg-bg-subtle/70 text-left text-[11px] uppercase tracking-wider text-fg-muted">
                     <th className="py-2.5 pl-4 font-medium">Datum</th>
                     <th className="py-2.5 font-medium">Razlog</th>
-                    <th className="py-2.5 font-medium">Prospekt</th>
+                    <th className="py-2.5 font-medium">Na šta</th>
                     <th className="py-2.5 pr-4 text-right font-medium">Promena</th>
                   </tr>
                 </thead>

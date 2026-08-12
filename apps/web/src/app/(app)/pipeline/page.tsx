@@ -27,7 +27,15 @@ export default async function Page() {
   // Prva linija svake zaštićene stranice — ni middleware ni layout ovo ne rade.
   await requireSession();
 
-  const [kartice, profile] = await Promise.all([getPipeline(), getOwnProfile()]);
+  // Isto kao na „Mojoj listi": kvar veze daje `profile === null` i poruku, pa
+  // prazan niz ovde nikad ne izgleda kao „nemaš nijedan prospekt".
+  const [kartice, profile] = await Promise.all([
+    getPipeline().catch((err: unknown) => {
+      console.error("[pipeline] čitanje kartica:", err);
+      return [];
+    }),
+    getOwnProfile(),
+  ]);
 
   const cityLabels = Object.fromEntries(CITIES.map((c) => [c.slug, c.label]));
   const nicheLabels = Object.fromEntries(NICHES.map((n) => [n.slug, n.label]));

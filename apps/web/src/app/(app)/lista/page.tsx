@@ -22,7 +22,16 @@ export default async function Page() {
   // Prva linija svake zaštićene stranice — ni middleware ni layout ovo ne rade.
   await requireSession();
 
-  const [leads, profile] = await Promise.all([getMojaLista(), getOwnProfile()]);
+  // Pokvarena veza sa bazom ne sme da obori stranu — `profile` je tada `null`,
+  // pa se ionako prikazuje `VezaGreska`, a ne prazna tabela. Zato prazan niz
+  // ovde nije laž: do njega se stiže samo kad se poruka o kvaru već prikazuje.
+  const [leads, profile] = await Promise.all([
+    getMojaLista().catch((err: unknown) => {
+      console.error("[lista] čitanje otključanih prospekata:", err);
+      return [];
+    }),
+    getOwnProfile(),
+  ]);
   const plan = planFor(profile?.plan);
   const cityLabels = Object.fromEntries(CITIES.map((c) => [c.slug, c.label]));
 

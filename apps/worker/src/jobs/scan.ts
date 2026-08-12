@@ -20,7 +20,7 @@ import {
   resolveNiche,
 } from "@sajtoskop/shared";
 import { BudgetError } from "../lib/api-budget";
-import { placeIdsNeedingAudit, upsertBusinesses } from "../lib/db-writes";
+import { placeIdsNeedingAudit, recordScan, refundScan, upsertBusinesses } from "../lib/db-writes";
 import { searchText } from "../lib/places";
 import { enqueueMany } from "../lib/queue";
 import type { JobContext, JobResult } from "./types";
@@ -136,9 +136,27 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     ctx,
   );
 
+  // Registar keša se upisuje pre svakog izlaza iz ove funkcije, i za prazan
+  // rezultat (F9 §1). Prazno koje se ne zapamti naplaćuje se svakom sledećem
+  // radoznalom korisniku redom, a svaki taj pokušaj su nova 3 Places poziva.
+  await recordScan({
+    countryCode: payload.countryCode,
+    citySlug: city.slug,
+    nicheSlug: niche.slug,
+    count: inCity.length,
+    jobId: ctx.job.id,
+  });
+
   if (inCity.length === 0) {
+    // Platio je skeniranje, dobio prazan ekran — kredit se vraća (F9, odluka 5).
+    // Parcijalan scan sa nula rezultata ide istim putem: budžet je pukao pre
+    // nego što je išta stiglo, dakle korisnik nema ništa za svoj kredit.
+    const vraceno = await refundScan(ctx.job.id);
+
     return {
-      note: `${city.label} · ${niche.label}: nijedan rezultat (${apiCalls} API poziva)`,
+      note:
+        `${city.label} · ${niche.label}: nijedan rezultat (${apiCalls} API poziva` +
+        `${vraceno > 0 ? `, vraćeno ${vraceno} kredita` : ""})`,
       ...(partial && { partial }),
     };
   }

@@ -1,45 +1,35 @@
 "use client";
 
-// Kontekst teme. Drži izbor („sistem" / „svetla" / „tamna"), razrešava ga u
-// stvarnu temu i održava klasu `.dark` na <html>.
+// Kontekst teme. Drži izbor („tamna" / „svetla") i održava klasu `.dark` na <html>.
 //
 // Prvo stanje se čita iz DOM-a, ne iz `localStorage`-a: skripta iz <head>-a je
 // klasu već postavila, pa čitanje iz DOM-a garantuje da se server i klijent
 // slažu i da nema ni bleska ni skoka.
+//
+// Otkad je „sistem" izbačen (v. `lib/tema.ts`), ovde nema više ni `matchMedia`
+// osluškivača ni razrešavanja — izbor JESTE tema.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { jeTema, TEMA_KLJUC, type StvarnaTema, type Tema } from "@/lib/tema";
+import { jeTema, PODRAZUMEVANA_TEMA, TEMA_KLJUC, type Tema } from "@/lib/tema";
 
 type Kontekst = {
   tema: Tema;
-  stvarna: StvarnaTema;
   postaviTemu: (t: Tema) => void;
 };
 
 const TemaKontekst = createContext<Kontekst | null>(null);
 
-function primeni(stvarna: StvarnaTema) {
+function primeni(tema: Tema) {
   const koren = document.documentElement;
-  koren.classList.toggle("dark", stvarna === "tamna");
-  koren.style.colorScheme = stvarna === "tamna" ? "dark" : "light";
+  koren.classList.toggle("dark", tema === "tamna");
+  koren.style.colorScheme = tema === "tamna" ? "dark" : "light";
 }
 
 export function TemaProvider({ children }: { children: React.ReactNode }) {
-  const [tema, setTema] = useState<Tema>("sistem");
-  const [stvarna, setStvarna] = useState<StvarnaTema>("svetla");
+  // Server sme da pretpostavi samo podrazumevanu vrednost; stvarnu čita efekat
+  // ispod, iz klase koju je skripta iz <head>-a već postavila.
+  const [tema, setTema] = useState<Tema>(PODRAZUMEVANA_TEMA);
 
-  /**
-   * Da li je sačuvan izbor pročitan.
-   *
-   * Bez ove zastavice postoji trka koja se vidi golim okom: prvi render ima
-   * `tema === "sistem"` (jedina vrednost koju server sme da pretpostavi), pa
-   * efekat ispod odmah nametne sistemsku temu i pregazi ono što je skripta iz
-   * <head>-a već ispravno postavila. Korisnik sa sistemom u tamnom i izborom
-   * „svetla" bi posle svakog osvežavanja dobio tamnu temu.
-   */
-  const [ucitano, setUcitano] = useState(false);
-
-  // Sinhronizacija sa onim što je skripta iz <head>-a već uradila.
   useEffect(() => {
     const sacuvana = (() => {
       try {
@@ -49,26 +39,10 @@ export function TemaProvider({ children }: { children: React.ReactNode }) {
       }
     })();
 
-    setTema(jeTema(sacuvana) ? sacuvana : "sistem");
-    setStvarna(document.documentElement.classList.contains("dark") ? "tamna" : "svetla");
-    setUcitano(true);
+    // Stara vrednost „sistem" ne prolazi kroz `jeTema` i pada na tamnu — isto
+    // što radi i skripta iz <head>-a, pa se prikaz i stanje ne razilaze.
+    setTema(jeTema(sacuvana) ? sacuvana : PODRAZUMEVANA_TEMA);
   }, []);
-
-  // Promena sistemske teme mora da se vidi odmah — ali samo dok je izbor „sistem".
-  useEffect(() => {
-    if (!ucitano || tema !== "sistem") return;
-
-    const upit = window.matchMedia("(prefers-color-scheme: dark)");
-    const naPromenu = () => {
-      const sledeca: StvarnaTema = upit.matches ? "tamna" : "svetla";
-      setStvarna(sledeca);
-      primeni(sledeca);
-    };
-
-    naPromenu();
-    upit.addEventListener("change", naPromenu);
-    return () => upit.removeEventListener("change", naPromenu);
-  }, [ucitano, tema]);
 
   const postaviTemu = useCallback((sledeca: Tema) => {
     setTema(sledeca);
@@ -79,21 +53,10 @@ export function TemaProvider({ children }: { children: React.ReactNode }) {
       // Privatni režim. Tema radi do osvežavanja stranice — to je prihvatljivo.
     }
 
-    const razresena: StvarnaTema =
-      sledeca === "sistem"
-        ? window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "tamna"
-          : "svetla"
-        : sledeca;
-
-    setStvarna(razresena);
-    primeni(razresena);
+    primeni(sledeca);
   }, []);
 
-  const vrednost = useMemo(
-    () => ({ tema, stvarna, postaviTemu }),
-    [tema, stvarna, postaviTemu],
-  );
+  const vrednost = useMemo(() => ({ tema, postaviTemu }), [tema, postaviTemu]);
 
   return <TemaKontekst.Provider value={vrednost}>{children}</TemaKontekst.Provider>;
 }

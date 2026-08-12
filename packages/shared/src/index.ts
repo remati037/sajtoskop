@@ -28,6 +28,10 @@ export type {
   CreditReason,
   ExportClaimReason,
   ExportClaimResult,
+  FeedbackCtx,
+  FeedbackKind,
+  FeedbackRow,
+  FeedbackSource,
   GrantReason,
   MonthlyGrantReason,
   MonthlyGrantResult,
@@ -42,6 +46,9 @@ export type {
   ProfileRow,
   SignedEventRow,
   RpcResult,
+  ScanSpendReason,
+  ScanSpendResult,
+  SearchCacheRow,
   SearchRow,
   SpendReason,
   UnlockRow,
@@ -90,6 +97,7 @@ export {
   PLANS,
   planFor,
   PSI_DAILY_CAP,
+  SCAN_CREDIT_COST,
 } from "./plans";
 
 // ── naplata: interfejs bez implementacije (F4 §6) ──────────

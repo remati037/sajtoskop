@@ -9,8 +9,8 @@
 // njoj ne zna ništa — on izvršava ono što u redu zatekne.
 
 import "server-only";
-import { GOOGLE_TTL_DAYS, planFor } from "@sajtoskop/shared";
-import type { JobStatus, JobType } from "@sajtoskop/shared";
+import { planFor } from "@sajtoskop/shared";
+import type { JobStatus, JobType, ScanSpendReason, ScanSpendResult } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
 
 // ── dnevni cache-miss limit ────────────────────────────────
@@ -93,23 +93,99 @@ function scanKey(countryCode: string, city: string, niche: string): string {
   return `${countryCode}:${city}:${niche}`;
 }
 
-export async function enqueueScan(args: {
+/**
+ * Skini kredit i upiši `scan` posao — atomično, u jednoj SQL transakciji (F9 §2).
+ *
+ * Ovo je JEDINI put kojim `scan` posao ulazi u red iz weba. Nekadašnja
+ * `enqueueScan` je obrisana namerno: dok je postojala, postojao je i besplatan
+ * ulaz u Places kvotu koji se lako pozove „samo za ovaj slučaj".
+ *
+ * `charged: false` uz `ok: true` znači dupli klik — posao je isti i već plaćen.
+ */
+export type ScanCharge = {
+  ok: boolean;
+  reason: ScanSpendReason;
+  jobId: number | null;
+  joined: boolean;
+  charged: boolean;
+  creditsLeft: number;
+};
+
+export async function spendCreditAndScan(args: {
   userId: string;
   countryCode: string;
   city: string;
   niche: string;
-}): Promise<EnqueuedJob> {
-  return enqueue({
-    type: "scan",
-    payload: {
-      citySlug: args.city,
-      nicheSlug: args.niche,
-      userId: args.userId,
-      countryCode: args.countryCode,
-    },
-    dedupeKey: scanKey(args.countryCode, args.city, args.niche),
-    userId: args.userId,
+}): Promise<ScanCharge> {
+  const { data, error } = await adminSupabase().rpc("spend_credit_and_scan", {
+    p_user: args.userId,
+    p_country: args.countryCode,
+    p_city: args.city,
+    p_niche: args.niche,
   });
+
+  if (error) throw new Error(`Naplata skeniranja nije uspela: ${error.message}`);
+
+  const row = ((data ?? []) as ScanSpendResult[])[0];
+  if (!row) throw new Error("spend_credit_and_scan nije vratio rezultat.");
+
+  return {
+    ok: row.ok,
+    reason: row.reason,
+    jobId: row.job_id,
+    joined: row.joined,
+    charged: row.charged,
+    creditsLeft: row.credits_left,
+  };
+}
+
+/**
+ * ID živog `scan` posla za ovu kombinaciju koji je OVAJ korisnik već platio.
+ *
+ * Postoji zbog jedne konkretne rupe: dok scan traje, kombinacija još nije u
+ * registru keša, pa bi svako osvežavanje liste u toku čekanja opet naletelo na
+ * naplatu — čoveku koji je maločas platio. Sa ovim, on gleda kako mu se lista
+ * puni, besplatno, jer je posao njegov.
+ *
+ * Provera je „platio", ne „pretplaćen": pretplata se dobija i bez naplate
+ * (`already_paid` grana), a plaćanje ostavlja trag u knjizi i to je trag koji
+ * ne laže.
+ */
+export async function zivPlacenPosao(args: {
+  userId: string;
+  countryCode: string;
+  city: string;
+  niche: string;
+}): Promise<number | null> {
+  const db = adminSupabase();
+
+  const { data: jobs, error: jErr } = await db
+    .from("job_queue")
+    .select("id")
+    .eq("type", "scan")
+    .eq("dedupe_key", scanKey(args.countryCode, args.city, args.niche))
+    .in("status", ["pending", "running"])
+    .order("id", { ascending: true })
+    .limit(1)
+    .returns<{ id: number }[]>();
+
+  if (jErr) throw new Error(`Provera živog posla nije uspela: ${jErr.message}`);
+
+  const jobId = (jobs ?? [])[0]?.id;
+  if (jobId === undefined) return null;
+
+  const { data: paid, error: pErr } = await db
+    .from("credit_ledger")
+    .select("id")
+    .eq("user_id", args.userId)
+    .eq("reason", "scan")
+    .eq("ref_id", `scan:${jobId}`)
+    .limit(1)
+    .returns<{ id: number }[]>();
+
+  if (pErr) throw new Error(`Provera plaćenog posla nije uspela: ${pErr.message}`);
+
+  return (paid ?? []).length > 0 ? jobId : null;
 }
 
 /**
@@ -165,67 +241,18 @@ export async function enqueueRewrite(args: {
   });
 }
 
-/** Koliko dugo posle osvežavanja se isto ne pokušava ponovo. */
-const REFRESH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Da li je isti refresh već pokušan skoro.
- *
- * Bez ovoga postoji tih curak budžeta: kombinacija koju Places više ne vraća
- * ostaje zauvek zastarela, pa bi SVAKA pretraga te liste upisivala nov refresh
- * od 3 API poziva. Dedup ključ tu ne pomaže jer prethodni posao je već završio.
- */
-async function refreshedRecently(dedupeKey: string): Promise<boolean> {
-  const since = new Date(Date.now() - REFRESH_COOLDOWN_MS).toISOString();
-
-  const { data, error } = await adminSupabase()
-    .from("job_queue")
-    .select("id")
-    .eq("type", "refresh_google")
-    .eq("dedupe_key", dedupeKey)
-    .gte("created_at", since)
-    .limit(1)
-    .returns<{ id: number }[]>();
-
-  if (error) {
-    // Ne znamo → ne trošimo. Propušten refresh je jeftiniji od nekontrolisanog.
-    console.error(`[jobs] provera refresh cooldown-a: ${error.message}`);
-    return true;
-  }
-
-  return (data ?? []).length > 0;
-}
-
-/**
- * Osvežavanje Google podataka starijih od 30 dana (pravilo 1).
- *
- * Bez pretplatnika: korisnik ovo ne čeka — zastareli rezultati mu se prikazuju
- * odmah, a osveženje stigne do sledeće pretrage (PRD §5). Zato i ne troši
- * njegov dnevni cache-miss limit; on nije tražio nov scan.
- */
-export async function enqueueRefresh(args: {
-  countryCode: string;
-  city: string;
-  niche: string;
-}): Promise<void> {
-  try {
-    if (await refreshedRecently(scanKey(args.countryCode, args.city, args.niche))) return;
-
-    await enqueue({
-      type: "refresh_google",
-      payload: {
-        citySlug: args.city,
-        nicheSlug: args.niche,
-        countryCode: args.countryCode,
-      },
-      dedupeKey: scanKey(args.countryCode, args.city, args.niche),
-      userId: null,
-    });
-  } catch (err) {
-    // Pretraga ne sme da padne zato što osvežavanje u pozadini nije upisano.
-    console.error(`[jobs] refresh_google nije upisan: ${err instanceof Error ? err.message : err}`);
-  }
-}
+// ── [OBRISANO U F9] besplatno osvežavanje u pozadini ───────
+//
+// Ovde je do F9 stajao `enqueueRefresh`: svaka pretraga nad kešom starijim od 30
+// dana upisivala je `refresh_google` posao o mom trošku, bez ijednog platioca.
+//
+// Od F9 zastareo keš se ne servira, a osvežavanje je ono što korisnik plati 1
+// kreditom kroz `spendCreditAndScan`. Dve logike se ne mogu držati istovremeno:
+// dok je automatsko osvežavanje živo, ono popravi keš pre nego što iko plati, pa
+// naplata za „starije od 30 dana" nikad ne bi ni proradila.
+//
+// Tip posla `refresh_google` i njegov handler u workeru ostaju — koriste se za
+// ručno pokretanje iz CLI-a. Web ih više ne upisuje.
 
 // ── čitanje statusa ────────────────────────────────────────
 
@@ -342,6 +369,3 @@ export async function getJobForUser(jobId: number): Promise<JobView | null> {
     progress,
   };
 }
-
-/** Prag posle kog se Google podatak smatra zastarelim. Isti kao u `search.ts`. */
-export const STALE_AFTER_MS = GOOGLE_TTL_DAYS * 24 * 60 * 60 * 1000;

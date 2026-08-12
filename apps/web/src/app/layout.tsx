@@ -35,9 +35,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // `lang="sr-Latn-RS"`: ceo UI je srpski, latinica, sa dijakritikom (CLAUDE.md).
     // `suppressHydrationWarning`: skripta ispod menja `class` i `style` na <html>
     // pre hidratacije, pa se server i klijent po definiciji razlikuju baš tu.
+    // `class="dark"` stoji već u serverskom HTML-u: tamna je podrazumevana tema
+    // (v. `lib/tema.ts`), pa prvi bajt koji stigne u pregledač mora da bude
+    // taman. Skripta iz <head>-a je onda skida samo onome ko je izabrao svetlu —
+    // umesto obrnuto, gde svako zakašnjenje skripte znači beo blesak.
     <html
       lang="sr-Latn-RS"
-      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      className={`dark ${GeistSans.variable} ${GeistMono.variable}`}
       suppressHydrationWarning
     >
       <head>

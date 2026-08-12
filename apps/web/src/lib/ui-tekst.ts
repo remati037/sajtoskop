@@ -117,3 +117,25 @@ export function formatDatum(iso: string): string {
     year: "numeric",
   });
 }
+
+/**
+ * „11.09." — za listu besplatnih pretraga, gde datum stoji u svakom redu i pun
+ * oblik bi ga razvukao preko pola širine (F9 §4.3).
+ */
+export function formatDatumKratko(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`;
+}
+
+/**
+ * Koliko celih dana ostaje do `iso`. Negativno znači da je rok prošao.
+ *
+ * Računa se po kalendarskim danima, ne po 24h razmacima: korisniku „ističe za 2
+ * dana" znači prekosutra, bez obzira na to koliko je sati sada.
+ */
+export function daniDo(iso: string): number {
+  const dan = 86_400_000;
+  const kraj = new Date(iso).setHours(0, 0, 0, 0);
+  const danas = new Date().setHours(0, 0, 0, 0);
+  return Math.round((kraj - danas) / dan);
+}

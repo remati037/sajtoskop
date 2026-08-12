@@ -23,6 +23,12 @@ export type ProfileRow = {
   /** Dnevni cap na CSV export (F4 §5). Isti LA dan kao `cache_miss_day`. */
   export_day: string | null;
   export_count: number;
+  /**
+   * Kad je korisniku prikazan podsetnik za utisak (F10, migracija 0010).
+   * `null` znači „još nije viđen". Stoji u bazi, a ne u `localStorage`-u, da
+   * isti čovek na drugom računaru ne bi dobio isti prozor iznova.
+   */
+  feedback_prompted_at: string | null;
   created_at: string;
 };
 
@@ -76,7 +82,8 @@ export type UnlockRow = {
   created_at: string;
 };
 
-export type CreditReason = "unlock" | "monthly_grant" | "admin" | "refund";
+/** `scan` je od F9: plaćeno skeniranje kombinacije koje nema u kešu (0009). */
+export type CreditReason = "unlock" | "scan" | "monthly_grant" | "admin" | "refund";
 
 export type CreditLedgerRow = {
   id: number;
@@ -97,6 +104,22 @@ export type SearchRow = {
   source: "cache" | "api";
   results_count: number | null;
   api_calls: number;
+  created_at: string;
+};
+
+/**
+ * Registar keširanih kombinacija (F9, migracija 0009). Jedini izvor istine o
+ * tome da li pretraga košta: `last_scanned_at` mlađi od `GOOGLE_TTL_DAYS` znači
+ * besplatno, sve ostalo znači 1 kredit.
+ */
+export type SearchCacheRow = {
+  country_code: string;
+  city_slug: string;
+  niche_slug: string;
+  last_scanned_at: string;
+  last_results_count: number;
+  scan_count: number;
+  last_job_id: number | null;
   created_at: string;
 };
 
@@ -177,6 +200,49 @@ export type SignedEventRow = {
   created_at: string;
 };
 
+// ── F10: utisci (0010) ─────────────────────────────────────
+
+export type FeedbackKind = "bug" | "ideja" | "pohvala" | "drugo";
+
+/** Odakle je utisak došao: plutajuće dugme ili automatski podsetnik. */
+export type FeedbackSource = "dugme" | "podsetnik";
+
+/**
+ * Dijagnostika uz utisak. Namerno `jsonb`, a ne kolone: čita se očima u mejlu, a
+ * sadržaj se u beti menja brže od šeme (F10 §1).
+ *
+ * Sve osim `viewport` skuplja server. Telo zahteva koje tvrdi `plan: "pro"` se
+ * ignoriše (pravilo 8).
+ */
+export type FeedbackCtx = {
+  plan: string;
+  credits: number;
+  unlocks: number;
+  /** User-Agent, iz headera — nikad iz tela. */
+  ua: string;
+  /** `'1440×900'`. Jedino što server ne zna, pa stiže sa klijenta. */
+  viewport: string;
+};
+
+export type FeedbackRow = {
+  id: number;
+  user_id: string;
+  country_code: string;
+  /** 1 loše · 2 ok · 3 odlično. `not null` — klik na ocenu je jedini obavezan korak. */
+  rating: 1 | 2 | 3;
+  kind: FeedbackKind | null;
+  message: string | null;
+  source: FeedbackSource;
+  route: string | null;
+  route_label: string | null;
+  /** Ruta je jedini pisac ovog polja i uvek upisuje pun objekat. */
+  ctx: FeedbackCtx;
+  emailed_at: string | null;
+  email_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ApiBudgetRow = {
   day: string;   // LA dan, YYYY-MM-DD
   month: string; // LA mesec, YYYY-MM
@@ -213,6 +279,9 @@ export type MonthlyGrantReason =
 
 export type ExportClaimReason = "claimed" | "limit_reached" | "nothing_to_export" | "no_user";
 
+/** `spend_credit_and_scan` iz 0009 (F9). */
+export type ScanSpendReason = "charged" | "already_paid" | "insufficient_credits" | "no_user";
+
 /** `set_lead_status` / `mark_contacted` / `set_lead_note` iz 0007. */
 export type LeadStatusRpcReason =
   | "updated"
@@ -226,6 +295,20 @@ export type RpcResult<R extends string> = { ok: boolean; reason: R };
 
 /** `grant_monthly_credits` uz `ok`/`reason` vraća i upisanu razliku. */
 export type MonthlyGrantResult = RpcResult<MonthlyGrantReason> & { delta: number };
+
+/**
+ * `spend_credit_and_scan` vraća i posao i stanje novčanika — ruta iz jednog
+ * poziva zna šta da javi korisniku, bez naknadnog čitanja profila.
+ *
+ * `charged: false` uz `ok: true` je dupli klik: posao postoji i plaćen je, samo
+ * ne sada. Klijent tada ne sme da javi „skinut je kredit".
+ */
+export type ScanSpendResult = RpcResult<ScanSpendReason> & {
+  job_id: number | null;
+  joined: boolean;
+  charged: boolean;
+  credits_left: number;
+};
 
 /** `claim_export` vraća KOLIKO redova je odobreno, ne samo da li sme. */
 export type ExportClaimResult = RpcResult<ExportClaimReason> & {

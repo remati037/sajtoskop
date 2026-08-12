@@ -18,19 +18,35 @@
 import { planFor } from "@sajtoskop/shared";
 import { currentUser } from "@clerk/nextjs/server";
 import { requireSession } from "@/lib/auth";
-import { ensureProfile, getOwnProfile } from "@/lib/profile";
+import { trebaPodsetnik } from "@/lib/feedback";
+import { citajProfil, ensureProfile } from "@/lib/profile";
 import { OkvirAplikacije } from "@/components/okvir-aplikacije";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const userId = await requireSession();
 
-  let profile = await getOwnProfile();
+  /**
+   * Ovaj layout ne sme da padne ni na jednoj grešci.
+   *
+   * Stoji iznad svake strane u `(app)`, pa jedan izuzetak ovde znači da korisnik
+   * ne vidi ni navigaciju, ni temu, ni objašnjenje — samo Next-ov crveni ekran.
+   * A kvar koji ga izaziva (pokvarena Clerk↔Supabase veza) ima jasno ime i jasno
+   * rešenje, pa je jedino ispravno da aplikacija ostane na nogama i da ga ispiše.
+   */
+  let { profile, greska } = await citajProfil();
 
   // Webhook ne stiže do localhost-a bez tunela; RPC je idempotentan.
+  // Ide kroz admin klijent, dakle radi i kad je korisnikov token pokvaren —
+  // zato se pokušava i posle greške u čitanju.
   if (!profile) {
-    const user = await currentUser();
-    await ensureProfile(userId, user?.primaryEmailAddress?.emailAddress ?? null);
-    profile = await getOwnProfile();
+    try {
+      const user = await currentUser();
+      await ensureProfile(userId, user?.primaryEmailAddress?.emailAddress ?? null);
+      ({ profile, greska } = await citajProfil());
+    } catch (err) {
+      console.error("[layout] kreiranje profila nije uspelo:", err);
+      greska ??= err instanceof Error ? err.message : String(err);
+    }
   }
 
   const plan = planFor(profile?.plan);
@@ -42,6 +58,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <OkvirAplikacije
       krediti={profile ? profile.credits_balance : null}
       mesecniKrediti={plan.monthlyCredits}
+      greska={greska}
+      // F10 §4.4: podsetnik posle tri dana. Izvedeno iz profila koji je već
+      // pročitan — nijedan dodatan upit po učitavanju strane.
+      traziUtisak={trebaPodsetnik(profile, plan.monthlyCredits)}
     >
       {children}
     </OkvirAplikacije>

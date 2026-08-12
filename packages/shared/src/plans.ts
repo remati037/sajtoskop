@@ -110,3 +110,16 @@ export function creditMonth(now: Date = new Date()): string {
 
 /** Pravilo 1 iz CLAUDE.md: Google podatak stariji od ovoga se ne servira. */
 export const GOOGLE_TTL_DAYS = 30;
+
+/**
+ * Cena jednog skeniranja u kreditima (F9).
+ *
+ * Isti novčanik kao otključavanje — 1 kredit je 1 skeniranje ILI 1 prospekt.
+ * Konstanta, a ne broj u kodu, jer ista cifra stoji na četiri mesta: u modalu
+ * potvrde, u traci ispod forme, u poruci o nedostatku kredita i u proveri
+ * balansa pre poziva. Da se raziđu, korisnik bi platio jedno a video drugo.
+ *
+ * Cena je ista za Beograd i za Šabac, iako Beograd troši više Places poziva
+ * (F9 §8) — cena po veličini grada je posao za fazu u kojoj postoji naplata.
+ */
+export const SCAN_CREDIT_COST = 1;

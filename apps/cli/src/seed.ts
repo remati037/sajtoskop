@@ -180,6 +180,77 @@ async function write(db: SupabaseClient, records: SeedRecord[]): Promise<void> {
     if (error) throw new Error(`Upis website_audits nije uspeo: ${error.message}`);
   }
   console.log(`  website_audits: ${audits.length} upisano`);
+
+  await recordSeededScans(db, records);
+}
+
+/**
+ * Upiši seedovane kombinacije u registar keša (F9, migracija 0009).
+ *
+ * Bez ovoga bi svaka lokalno seedovana kombinacija u aplikaciji izgledala kao
+ * „nikad skenirana" i tražila kredit — u razvoju, nad podacima koji su tu.
+ *
+ * `last_scanned_at` je datum scana iz arhive, ne `now()`: seedovana kombinacija
+ * stara tri meseca mora i u registru da bude stara tri meseca. Registar koji
+ * laže o svežini je gore od registra koga nema.
+ */
+async function recordSeededScans(db: SupabaseClient, records: SeedRecord[]): Promise<void> {
+  const najnoviji = new Map<string, { city: string; niche: string; stamp: string; count: number }>();
+
+  for (const r of records) {
+    const niche = r.business.niche_slug;
+    if (!niche) continue;
+
+    const key = `${r.business.city_slug}:${niche}`;
+    const prev = najnoviji.get(key);
+    const stamp = r.business.google_refreshed_at;
+
+    if (!prev) najnoviji.set(key, { city: r.business.city_slug, niche, stamp, count: 1 });
+    else najnoviji.set(key, { ...prev, stamp: stamp > prev.stamp ? stamp : prev.stamp, count: prev.count + 1 });
+  }
+
+  if (najnoviji.size === 0) return;
+
+  // Ista zaštita kao za `businesses` iznad: ako je worker u međuvremenu stvarno
+  // skenirao tu kombinaciju, seed iz arhive ne sme da vrati datum unazad i
+  // pretvori besplatnu pretragu u naplativu.
+  const { data: postojeci, error: cErr } = await db
+    .from("search_cache")
+    .select("city_slug, niche_slug, last_scanned_at")
+    .eq("country_code", "RS");
+
+  if (cErr) throw new Error(`Čitanje search_cache nije uspelo: ${cErr.message}`);
+
+  const vecUpisano = new Map(
+    ((postojeci ?? []) as { city_slug: string; niche_slug: string; last_scanned_at: string }[]).map(
+      (r) => [`${r.city_slug}:${r.niche_slug}`, r.last_scanned_at],
+    ),
+  );
+
+  const redovi = [...najnoviji.values()]
+    .filter((v) => {
+      const trenutni = vecUpisano.get(`${v.city}:${v.niche}`);
+      return !trenutni || trenutni <= v.stamp;
+    })
+    .map((v) => ({
+      country_code: "RS",
+      city_slug: v.city,
+      niche_slug: v.niche,
+      last_scanned_at: v.stamp,
+      last_results_count: v.count,
+    }));
+
+  if (redovi.length === 0) {
+    console.log(`  search_cache: ništa novo — u bazi su svežiji zapisi`);
+    return;
+  }
+
+  const { error } = await db
+    .from("search_cache")
+    .upsert(redovi, { onConflict: "country_code,city_slug,niche_slug" });
+
+  if (error) throw new Error(`Upis search_cache nije uspeo: ${error.message}`);
+  console.log(`  search_cache: ${redovi.length} kombinacija`);
 }
 
 // ── main ───────────────────────────────────────────────────

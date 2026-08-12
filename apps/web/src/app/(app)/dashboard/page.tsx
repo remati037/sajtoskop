@@ -23,7 +23,7 @@ const PRECICE = [
   {
     href: "/pretraga",
     naslov: "Pretraga prospekata",
-    opis: "Grad i niša — pretraga iz keša je besplatna i neograničena.",
+    opis: "Grad i niša — sve što je u kešu je besplatno, novo skeniranje 1 kredit.",
     Ikona: Search,
   },
   {

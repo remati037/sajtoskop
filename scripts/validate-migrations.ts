@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   console.log("\nRLS");
   for (const t of ["profiles", "businesses", "website_audits", "unlocks",
                    "credit_ledger", "searches", "job_queue", "api_budget",
-                   "job_subscribers"]) {
+                   "job_subscribers", "search_cache", "feedback"]) {
     const r = await one<{ relrowsecurity: boolean }>(
       `select relrowsecurity from pg_class where relname = $1`, [t]);
     check(r?.relrowsecurity === true, `uključen na ${t}`);
@@ -399,12 +399,136 @@ async function main(): Promise<void> {
   await db.exec(`update profiles set export_day = budget_day() - 1 where id = 'u1'`);
   check((await exp("u1", 100, 10))?.allowed === 10, "nov LA dan resetuje brojač izvoza");
 
+  // ── F9: naplata skeniranja i registar keša ───────────────
+  // Ovde su sve četiri odluke o naplati iz F9 §0 napisane kao provere. Ako se
+  // ijedna ikad promeni „usput", ovo pada pre nego što neko izgubi kredit.
+  console.log("\nspend_credit_and_scan");
+  type Scan = { ok: boolean; reason: string; job_id: number; joined: boolean;
+                charged: boolean; credits_left: number };
+  const scan = (u: string, c: string, n: string) =>
+    one<Scan>(`select * from spend_credit_and_scan($1,'RS',$2,$3)`, [u, c, n]);
+
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('s1','s1@x.rs',3), ('s2','s2@x.rs',1)`);
+
+  const prvi = await scan("s1", "beograd", "pvc-stolarija");
+  check(prvi?.reason === "charged" && prvi.charged === true, "prvo skeniranje → charged");
+  check(prvi?.credits_left === 2, "kredit skinut tačno jednom");
+
+  const dupli = await scan("s1", "beograd", "pvc-stolarija");
+  check(dupli?.reason === "already_paid" && dupli.charged === false, "dupli klik → bez druge naplate");
+  check(dupli?.job_id === prvi?.job_id, "dupli klik se kači na isti posao");
+
+  const drugi = await scan("s2", "beograd", "pvc-stolarija");
+  check(drugi?.charged === true && drugi.joined === true,
+    "drugi korisnik na istom poslu ipak plaća (F9 odluka 3)");
+
+  check((await scan("s2", "nis", "stomatolog"))?.reason === "insufficient_credits",
+    "bez kredita → insufficient_credits");
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from job_queue where type='scan' and payload->>'citySlug'='nis'`))?.n === 0,
+    "odbijena naplata NE upisuje posao");
+  check((await scan("nema_ga", "nis", "stomatolog"))?.reason === "no_user", "nepoznat profil → no_user");
+
+  console.log("\nrefund_scan");
+  check((await one<{ refunded: number }>(
+    `select * from refund_scan($1)`, [prvi?.job_id]))?.refunded === 2, "vraćeno obojici platilaca");
+  check((await one<{ refunded: number }>(
+    `select * from refund_scan($1)`, [prvi?.job_id]))?.refunded === 0, "drugi poziv ne vraća ponovo");
+  check((await one<{ b: number }>(
+    `select credits_balance as b from profiles where id='s1'`))?.b === 3, "balans s1 vraćen na 3");
+
+  console.log("\nregistar keša");
+  const stanje = (c: string, n: string) =>
+    one<{ scanned_at: string | null; fresh: boolean; total: number; no_site: number }>(
+      `select * from search_cache_state('RS',$1,$2)`, [c, n]);
+
+  check((await stanje("kraljevo", "frizer"))?.scanned_at === null, "neskenirana kombinacija → bez datuma");
+
+  await db.exec(`select record_scan('RS','beograd','pvc-stolarija',0,null)`);
+  const prazna = await stanje("beograd", "pvc-stolarija");
+  check(prazna?.fresh === true && prazna.total === 0,
+    "prazan rezultat se pamti kao svež (F9 odluka 6)");
+
+  await db.exec(`
+    insert into businesses (place_id, city_slug, niche_slug, name) values
+      ('f1','nis','stomatolog','Zubar A'), ('f2','nis','stomatolog','Zubar B');
+    insert into website_audits (place_id, site_status) values ('f1','nema_sajt');
+    select record_scan('RS','nis','stomatolog',2,null);
+  `);
+  const puna = await stanje("nis", "stomatolog");
+  check(puna?.fresh === true && puna.total === 2 && puna.no_site === 1,
+    "brojači za listu se čitaju iz stvarnog stanja baze");
+
+  // Rupa u pravilu 1: Google vrati nulu za kombinaciju koja u bazi ima stare
+  // redove. Ništa nije osveženo, pa se rok NE sme pomerati — inače bi zastareli
+  // podaci bili proglašeni svežim na 30 dana.
+  await db.exec(`
+    update businesses set google_refreshed_at = now() - interval '90 days' where city_slug='nis';
+    update search_cache set last_scanned_at = now() - interval '90 days' where city_slug='nis';
+    select record_scan('RS','nis','stomatolog',0,null);
+  `);
+  check((await stanje("nis", "stomatolog"))?.fresh === false,
+    "prazan odgovor nad starim redovima NE produžava rok (pravilo 1)");
+
+  await db.exec(`insert into searches (user_id, country_code, city_slug, niche_slug, source)
+                 values ('s1','RS','beograd','pvc-stolarija','api')`);
+  const lista = await db.query<{ city_slug: string; fresh: boolean; mine: boolean }>(
+    `select * from search_cache_overview('s1')`);
+  check(lista.rows.length === 2, "pregled vraća i sveže i istekle kombinacije");
+  check(lista.rows.find((r) => r.city_slug === "beograd")?.mine === true,
+    "kombinacija iz istorije korisnika je označena kao njegova");
+  check(lista.rows.find((r) => r.city_slug === "nis")?.mine === false, "tuđa kombinacija nije `mine`");
+
+  // ── F10: utisci ──────────────────────────────────────────
+  // Ograničenja tabele su druga brana ispod Zod šeme. Klijent koji zaobiđe formu
+  // mora da udari u bazu, a ne da upiše `rating = 7` i tip „šta god".
+  console.log("\nfeedback");
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('fb1','fb@x.rs',30)`);
+
+  await mustFail(`insert into feedback (user_id, rating) values ('fb1', 0)`, "ocena 0 odbijena");
+  await mustFail(`insert into feedback (user_id, rating) values ('fb1', 4)`, "ocena 4 odbijena");
+  await mustFail(`insert into feedback (user_id, rating, kind) values ('fb1', 2, 'zalba')`, "nepoznat tip odbijen");
+  await mustFail(`insert into feedback (user_id, rating, source) values ('fb1', 2, 'sms')`, "nepoznat izvor odbijen");
+  await mustFail(
+    `insert into feedback (user_id, rating, message) values ('fb1', 2, repeat('a', 2001))`,
+    "poruka preko 2000 karaktera odbijena",
+  );
+  await mustFail(`insert into feedback (user_id, rating) values ('nema_ga', 2)`, "utisak bez profila odbijen");
+
+  await db.exec(`
+    insert into feedback (user_id, rating, kind, message, source, route, route_label)
+    values ('fb1', 1, 'bug', 'Kredit je skinut, a nista se nije desilo.', 'dugme', '/pretraga', 'Pretraga')
+  `);
+  const utisak = await one<{ n: number; prazan: number }>(
+    `select count(*)::int as n,
+            count(*) filter (where ctx = '{}'::jsonb)::int as prazan
+     from feedback where user_id = 'fb1'`);
+  check(utisak?.n === 1, "ispravan utisak upisan");
+  check(utisak?.prazan === 1, "ctx podrazumevano prazan objekat, ne null");
+
+  // Nalog obrisan → utisci idu s njim. Mejlovi koji su već stigli ostaju kod
+  // mene, ali to je pošta, ne baza (F10 §6).
+  await db.exec(`delete from profiles where id = 'fb1'`);
+  check(
+    (await one<{ n: number }>(`select count(*)::int as n from feedback where user_id = 'fb1'`))?.n === 0,
+    "brisanje naloga briše i utiske (on delete cascade)",
+  );
+
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from information_schema.columns
+       where table_name = 'profiles' and column_name = 'feedback_prompted_at'`))?.n === 1,
+    "profiles.feedback_prompted_at postoji",
+  );
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
                     "set_api_day_calls", "enqueue_job", "claim_job", "complete_job",
                     "fail_job", "defer_job", "reap_stuck_jobs", "claim_cache_miss",
-                    "release_cache_miss", "grant_monthly_credits", "claim_export"]) {
+                    "release_cache_miss", "grant_monthly_credits", "claim_export",
+                    "spend_credit_and_scan", "refund_scan", "record_scan",
+                    "search_cache_state", "search_cache_overview"]) {
     const r = await one<{ anon: boolean; svc: boolean }>(
       `select has_function_privilege('anon', p.oid, 'execute') as anon,
               has_function_privilege('service_role', p.oid, 'execute') as svc

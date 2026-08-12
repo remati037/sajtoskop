@@ -27,6 +27,20 @@ export const searchBodySchema = z.strictObject({
     // ugnežđene `.default(false)` da odrade svoje. PRD-ov snippet se ne kompajlira.
     .prefault({}),
   page: z.number().int().min(1).max(MAX_PAGE).default(1),
+
+  /**
+   * Korisnik je u modalu potvrdio trošak (F9 §3). Bez ovoga se kredit NIKAD ne
+   * skida — pretraga bez `pay` je uvek ili besplatna, ili vrati `needs_scan` sa
+   * cenom. Podrazumevana vrednost je zato `false`, a ne izostavljeno polje:
+   * zaboravljena provera u ruti tada ne naplaćuje, nego odbija.
+   */
+  pay: z.boolean().default(false),
+
+  /**
+   * Ponovo skeniraj i kad je keš svež (F9, odluka 7 — dugme „Osveži za 1 kredit"
+   * i „Skeniraj ipak ponovo" nad praznom kombinacijom). Bez `pay` nema dejstva.
+   */
+  force: z.boolean().default(false),
 });
 
 export type SearchBody = z.infer<typeof searchBodySchema>;

@@ -77,6 +77,60 @@ export async function upsertBusinesses(input: UpsertBusinessesInput): Promise<nu
   return rows.length;
 }
 
+// ── registar keša (F9) ─────────────────────────────────────
+
+/**
+ * „Ova kombinacija je upravo skenirana i evo koliko je vratila."
+ *
+ * Poziva se OBAVEZNO i kad je rezultat prazan — to je cela poenta: prazan
+ * odgovor se pamti 30 dana, pa sledeći korisnik ne plati isto nulto skeniranje.
+ * Bez ovog upisa kombinacija ostaje „nikad skenirana" i naplaćuje se u nedogled.
+ *
+ * Neuspeh upisa NE ruši posao: podaci su već u `businesses`, a jedina šteta je
+ * da će neko platiti skeniranje koje nije moralo. Rušenje posla bi značilo
+ * ponovni pokušaj, dakle nove Places pozive — skuplja greška od one koju leči.
+ */
+export async function recordScan(args: {
+  countryCode: string;
+  citySlug: string;
+  nicheSlug: string;
+  count: number;
+  jobId: number | null;
+}): Promise<void> {
+  const { error } = await supabaseAdmin().rpc("record_scan", {
+    p_country: args.countryCode,
+    p_city: args.citySlug,
+    p_niche: args.nicheSlug,
+    p_count: args.count,
+    p_job_id: args.jobId,
+  });
+
+  if (error) console.error(`[db] record_scan nije uspeo: ${error.message}`);
+}
+
+/**
+ * Vrati kredit svima koji su platili ovaj scan (F9 §2).
+ *
+ * Dva pozivaoca: `runScan` kad Google ne vrati nijednu firmu, i petlja workera
+ * kad posao konačno padne. Idempotentno je u bazi, pa dvostruki poziv ne dodaje
+ * kredit dvaput.
+ *
+ * Vraća koliko je povraćaja upisano — nula je uobičajena (posao pokrenut iz
+ * CLI-a nema platioca).
+ */
+export async function refundScan(jobId: number): Promise<number> {
+  const { data, error } = await supabaseAdmin().rpc("refund_scan", { p_job_id: jobId });
+
+  if (error) {
+    // Ovo je jedina greška u ovom fajlu koja košta korisnika stvaran kredit, pa
+    // se ne guta u tišini — ali ni ne ruši posao koji je ionako već propao.
+    console.error(`[db] refund_scan(${jobId}) nije uspeo: ${error.message}`);
+    return 0;
+  }
+
+  return ((data ?? []) as { refunded: number }[])[0]?.refunded ?? 0;
+}
+
 // ── website_audits ─────────────────────────────────────────
 
 /**

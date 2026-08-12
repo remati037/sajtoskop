@@ -13,6 +13,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { creditMonth } from "@sajtoskop/shared";
 import { BudgetError } from "./lib/api-budget";
+import { refundScan } from "./lib/db-writes";
 import { loadRootEnv } from "./lib/env";
 import { claimJob, completeJob, deferJob, enqueueJob, failJob, reapStuckJobs } from "./lib/queue";
 import { closeBrowser } from "./lib/screenshot";
@@ -93,6 +94,14 @@ async function runOne(slot: number): Promise<boolean> {
     const { final, nextRun } = await failJob(job.id, message);
 
     if (final) {
+      // Konačan pad plaćenog skeniranja znači da je korisnik dao kredit ni za
+      // šta (F9 §2). Odloženi posao (`defer_job` iznad) nije pad i ne vraća se —
+      // on će se izvršiti čim Googleova kvota stigne.
+      if (job.type === "scan") {
+        const vraceno = await refundScan(job.id);
+        if (vraceno > 0) log(`[${slot}] ${label} vraćeno ${vraceno} kredita`);
+      }
+
       log(`[${slot}] ${label} PAO konačno — ${message}`);
     } else {
       log(`[${slot}] ${label} pao, sledeći pokušaj ${nextRun?.toISOString()} — ${message}`);
@@ -123,6 +132,34 @@ async function workerLoop(slot: number): Promise<void> {
 
 // ── žetva zaglavljenih ─────────────────────────────────────
 
+/**
+ * Povraćaj za pala skeniranja koja nisu prošla kroz `runOne`.
+ *
+ * `reap_stuck_jobs` ume da posao proglasi palim bez ijednog radnika (proces
+ * ubijen usred scana, iscrpljeni pokušaji nad zaglavljenim poslom). Tada nema ko
+ * da pozove `refundScan`, pa bi kredit ostao potrošen na posao koji niko nikad
+ * nije video. Zato ova metla ide kroz sve `scan` poslove koji su pali u
+ * poslednja 24 sata; `refund_scan` je idempotentan, pa je ponovni prolaz jeftin.
+ */
+async function refundFailedScans(): Promise<void> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabaseAdmin()
+    .from("job_queue")
+    .select("id")
+    .eq("type", "scan")
+    .eq("status", "failed")
+    .gte("created_at", since)
+    .returns<{ id: number }[]>();
+
+  if (error) throw new Error(`Čitanje palih scanova nije uspelo: ${error.message}`);
+
+  for (const job of data ?? []) {
+    const vraceno = await refundScan(job.id);
+    if (vraceno > 0) log(`povraćaj za pao scan #${job.id}: ${vraceno} kredita`);
+  }
+}
+
 async function reaperLoop(): Promise<void> {
   while (running) {
     try {
@@ -130,6 +167,8 @@ async function reaperLoop(): Promise<void> {
       if (requeued > 0 || failed > 0) {
         log(`žetva: ${requeued} vraćeno u red, ${failed} odustalo`);
       }
+
+      await refundFailedScans();
     } catch (err) {
       log(`žetva nije uspela: ${err instanceof Error ? err.message : String(err)}`);
     }
