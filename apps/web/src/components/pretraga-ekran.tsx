@@ -31,6 +31,9 @@ import { Combobox, type ComboGroup } from "./combobox";
 import { KesLista } from "./kes-lista";
 import { LeadTabela } from "./lead-tabela";
 import { SkeniranjeModal, type SkeniranjePredlog } from "./skeniranje-modal";
+import { UtisakKartica } from "./utisak-kartica";
+import { UtisakMikro } from "./utisak-mikro";
+import { useUtisci } from "./utisci-provider";
 import { cn } from "@/lib/cn";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
@@ -62,6 +65,27 @@ const PRAZNI_FILTERI: SearchFilters = { onlyNoSite: false, onlySocial: false, on
 
 /** Na koliko se pita za status posla. */
 const POLL_MS = 3000;
+
+/**
+ * Koliko se čeka pošto tabela sedne pre nego što se javi motoru pitanja.
+ *
+ * F11 §2.1: pitanje o listi ima smisla tek kad je korisnik listu VIDEO. Tri
+ * sekunde su dovoljne da pročita prva dva reda, a prekratke da ode sa ekrana.
+ */
+const PITANJE_O_LISTI_MS = 3000;
+
+/**
+ * Kad se javlja kampanjsko pitanje (cena, „nisi bio 10 dana").
+ *
+ * Motor ionako ćuti prvih 60 s od učitavanja (`MOTOR.NAJRANIJE_MS`) — pitanje na
+ * prvom ekranu je pitanje pre iskustva. Ovaj tajmer postoji da bi se posle tog
+ * praga uopšte javio DOGAĐAJ: kampanjsko pitanje nema okidač u radu korisnika,
+ * pa bez njega ne bi imalo ko da pokuca na motor.
+ */
+const KAMPANJA_MS = 62_000;
+
+/** Treće otključavanje pita da li podaci drže vodu (F11 §2.1). */
+const OTKLJUCANIH_ZA_PITANJE = 3;
 
 /** Posle ovoga se odustaje od čekanja — posao se svejedno završi u pozadini. */
 const MAX_CEKANJE_MS = 3 * 60 * 1000;
@@ -106,6 +130,9 @@ export function PretragaEkran({
   pocetniKrediti,
 }: Props) {
   const router = useRouter();
+  // Motor pitanja (F11). Ekran mu javlja SAMO da je okidač pukao — hoće li se
+  // pitanje pojaviti odlučuje motor, i najčešći ishod je da neće.
+  const utisci = useUtisci();
   const [city, setCity] = useState<string | null>(null);
   const [niche, setNiche] = useState<string | null>(null);
   const [filters, setFilters] = useState<SearchFilters>(PRAZNI_FILTERI);
@@ -128,6 +155,16 @@ export function PretragaEkran({
   const [posao, setPosao] = useState<JobStatusResponse | null>(null);
   const [predugo, setPredugo] = useState(false);
 
+  /**
+   * ID posla koji nije prošao — okidač za `posao-pao` (F11 §2.2).
+   *
+   * Zašto stanje, a ne poziv motoru odmah na mestu pada: `setPosao(null)` još
+   * nije stigao do ekrana u trenutku kad pad postane poznat, pa bi motor video
+   * posao u toku i pitanje bi tiho otpalo. Ovako se javlja iz efekta, kad je
+   * ekran stvarno miran.
+   */
+  const [paoPosao, setPaoPosao] = useState<number | null>(null);
+
   // Potvrda naplate. `predlog` je ono što modal prikazuje, `naplata` je zahtev
   // koji se šalje kad korisnik potvrdi.
   const [predlog, setPredlog] = useState<SkeniranjePredlog | null>(null);
@@ -137,6 +174,15 @@ export function PretragaEkran({
   // Otključavanje: `place_id` reda u toku, i poruka posle uspeha.
   const [otkljucavam, setOtkljucavam] = useState<string | null>(null);
   const [otkljucano, setOtkljucano] = useState<string | null>(null);
+
+  /**
+   * Koliko je prospekata otključano OTKAD je strana učitana.
+   *
+   * Ukupan broj stiže sa servera (`utisci.uslovi.otkljucano`) i menja se samo na
+   * punom učitavanju, pa bi sam po sebi promašio baš treće otključavanje — ono
+   * koje se upravo desilo.
+   */
+  const [otkljucanoSad, setOtkljucanoSad] = useState(0);
 
   // Svako novo pretraživanje poništava prethodno pollovanje. Bez ovoga bi dve
   // pretrage u nizu naizmenično prepisivale istu tabelu.
@@ -230,6 +276,7 @@ export function PretragaEkran({
     setGreska(null);
     setPosao(null);
     setPredugo(false);
+    setPaoPosao(null);
     setPoslednji(z);
 
     try {
@@ -330,6 +377,7 @@ export function PretragaEkran({
       if (stanje.greska) {
         setGreska(`${stanje.greska} Kredit za ovo skeniranje ti je vraćen.`);
         setPosao(null);
+        setPaoPosao(jobId);
         router.refresh();
         return;
       }
@@ -350,6 +398,7 @@ export function PretragaEkran({
       if (stanje.status === "failed") {
         setGreska("Skeniranje nije uspelo. Kredit za njega ti je vraćen.");
         setPosao(null);
+        setPaoPosao(jobId);
         router.refresh();
         return;
       }
@@ -371,6 +420,9 @@ export function PretragaEkran({
     if (token === pollToken.current) {
       setPosao(null);
       setPredugo(true);
+      // „Polling istekao" je za F11 isto što i pad: korisnik je ostao bez
+      // rezultata koji je tražio (§2.2). Posao se u pozadini možda i završi.
+      setPaoPosao(jobId);
     }
   }
 
@@ -477,6 +529,10 @@ export function PretragaEkran({
           : prev,
       );
 
+      // Ponovljeno otključavanje nije novo otključavanje — kredit se ne skida i
+      // brojač se ne pomera.
+      if (!odgovor.alreadyUnlocked) setOtkljucanoSad((n) => n + 1);
+
       setKrediti(odgovor.creditsLeft);
       setOtkljucano(
         odgovor.alreadyUnlocked
@@ -509,8 +565,74 @@ export function PretragaEkran({
   const ceka = posao !== null && !predugo;
   const imaRezultat = data !== null && data.status !== "needs_scan";
 
+  // ── motor pitanja: šta je ovaj ekran dužan da javi ────────
+  // Tri pitanja iz F11.1 žive ovde, jer su sva tri o istoj stvari: da li je ono
+  // što je korisnik upravo dobio upotrebljivo.
+
+  /** Dok posao radi ili je modal otvoren — nikad (F11 §3.1). */
+  useEffect(() => {
+    utisci?.postaviMir("pretraga", !ceka && !ucitava && predlog === null);
+  }, [utisci, ceka, ucitava, predlog]);
+
+  /** Prva pretraga koja vrati bar jedan prospekt, 3 s pošto tabela sedne. */
+  useEffect(() => {
+    if (!utisci || !imaRezultat || ceka || !data || data.total === 0) return;
+
+    const t = setTimeout(() => utisci.prijaviDogadjaj("prva-lista"), PITANJE_O_LISTI_MS);
+    return () => clearTimeout(t);
+  }, [utisci, imaRezultat, ceka, data]);
+
+  /** Skeniranje je obavljeno i Google nije vratio nijednu firmu. */
+  useEffect(() => {
+    if (!utisci || ceka || predugo) return;
+    if (!data?.emptyScan || data.total > 0) return;
+
+    utisci.prijaviDogadjaj("prazan-rezultat");
+  }, [utisci, ceka, predugo, data]);
+
+  /** Posao je pao ili je čekanje isteklo. Jedino pitanje koje seče cooldown. */
+  useEffect(() => {
+    if (!utisci || paoPosao === null || ceka || ucitava || predlog !== null) return;
+
+    utisci.prijaviDogadjaj("posao-pao", { jobId: paoPosao });
+  }, [utisci, paoPosao, ceka, ucitava, predlog]);
+
+  /**
+   * Treće otključavanje (F11 §2.1). Traka staje uz potvrdu o otključavanju — tu
+   * su i podaci o kojima pita, red koji je upravo dobio telefon i mejl.
+   */
+  useEffect(() => {
+    if (!utisci || otkljucanoSad === 0 || otkljucavam !== null) return;
+    if (utisci.uslovi.otkljucano + otkljucanoSad < OTKLJUCANIH_ZA_PITANJE) return;
+
+    utisci.prijaviDogadjaj("tacnost-podataka");
+  }, [utisci, otkljucanoSad, otkljucavam]);
+
+  /**
+   * Kampanjska pitanja (F11 §2.3). Uslov — sedam dana i pet otključanih, odnosno
+   * pauza od deset dana — proverava MOTOR, iz kataloga. Ekran samo javlja da je
+   * prošlo dovoljno vremena od učitavanja da pitanje ne bude pitanje pre
+   * iskustva.
+   */
+  useEffect(() => {
+    if (!utisci) return;
+
+    const t = setTimeout(() => {
+      utisci.prijaviDogadjaj("zasto-ne-vracas");
+      utisci.prijaviDogadjaj("cena");
+    }, KAMPANJA_MS);
+
+    return () => clearTimeout(t);
+  }, [utisci]);
+
   return (
     <div className="space-y-6">
+      {/* Kampanjska kartica ide na vrh ekrana, iznad forme (F11 §2.3): pitanje o
+          ceni se postavlja jednom u životu naloga i ne sme da se traži skrolom.
+          Traka „nisi bio 10 dana" stoji tu iz istog razloga. */}
+      <UtisakKartica kljuc="cena" />
+      <UtisakMikro kljuc="zasto-ne-vracas" />
+
       <Card className="overflow-visible p-5">
         <form
           onSubmit={(e) => {
@@ -553,6 +675,10 @@ export function PretragaEkran({
         <TrakaCene cena={cena} krediti={krediti} />
       </Card>
 
+      {/* Incident stoji uz poruku o padu, ne na dnu ekrana: pitanje je ovde
+          usluga, a ne molba (F11 §2.2). */}
+      <UtisakMikro kljuc="posao-pao" />
+
       {greska && <Alert variant="danger">{greska}</Alert>}
 
       {obavestenje && <Alert variant="success">{obavestenje}</Alert>}
@@ -562,6 +688,10 @@ export function PretragaEkran({
           {otkljucano} <a href="/lista">Moja lista</a>
         </Alert>
       )}
+
+      {/* Pitanje o tačnosti podataka stoji uz potvrdu o otključavanju — tu su i
+          podaci o kojima pita (F11 §2.1). */}
+      <UtisakMikro kljuc="tacnost-podataka" />
 
       {ceka && <TrakaPosla posao={posao} />}
 
@@ -598,19 +728,25 @@ export function PretragaEkran({
           />
 
           {data.total === 0 && !ceka && !predugo ? (
-            <PraznoStanje
-              ikona={<Search />}
-              naslov={
-                data.emptyScan
-                  ? "Google nema nijednu firmu za ovu kombinaciju."
-                  : "Nijedan prospekt ne odgovara filterima."
-              }
-              opis={
-                data.emptyScan
-                  ? "Skeniranje je obavljeno i ništa nije nađeno — ako si ga platio, kredit ti je vraćen. Probaj drugu nišu ili susedni grad."
-                  : "Baza za ovaj grad i nišu nije prazna — filteri su preuski. Isključi neki toggle iznad."
-              }
-            />
+            <div className="space-y-4">
+              <PraznoStanje
+                ikona={<Search />}
+                naslov={
+                  data.emptyScan
+                    ? "Google nema nijednu firmu za ovu kombinaciju."
+                    : "Nijedan prospekt ne odgovara filterima."
+                }
+                opis={
+                  data.emptyScan
+                    ? "Skeniranje je obavljeno i ništa nije nađeno — ako si ga platio, kredit ti je vraćen. Probaj drugu nišu ili susedni grad."
+                    : "Baza za ovaj grad i nišu nije prazna — filteri su preuski. Isključi neki toggle iznad."
+                }
+              />
+
+              {/* Odgovor je spisak niša i gradova koje ljudi traže a ja ih
+                  nemam — direktan ulaz u taksonomiju (F11 §2.1). */}
+              <UtisakMikro kljuc="prazan-rezultat" />
+            </div>
           ) : data.total === 0 ? null : (
             <>
               <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -636,6 +772,10 @@ export function PretragaEkran({
                   </p>
                 )}
               </div>
+
+              {/* Traka iznad tabele (F11 §6.1). Pojavljuje se 3 s pošto tabela
+                  sedne i ne pomera je više nego jednom. */}
+              <UtisakMikro kljuc="prva-lista" />
 
               <LeadTabela
                 leads={data.results}

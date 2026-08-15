@@ -13,6 +13,9 @@ Pre rada na bilo kojoj fazi pročitaj:
 - `docs/F{N}-*.md` — PRD za trenutnu fazu; **radi samo iz jednog PRD-a u jednoj sesiji**
 - `docs/bezbednost.md` — P0 lista, referenciraj kad faza dodiruje kredite, storage ili renderovanje sajtova
 - `docs/DIZAJN-SISTEM.md` — **obavezno pre bilo kakvog UI rada**; v. „Dizajn" niže
+- `docs/SESIJE.md` — redosled preostalih isporuka i gotov prompt za svaku sledeću sesiju.
+  **Posle svake završene isporuke ovaj fajl se ažurira** (štiklirano gotovo, dopisano šta se
+  promenilo u odnosu na PRD).
 
 Ne implementiraj funkcije iz kasnijih faza jer su „usput". Faze su namerno sekvencijalne.
 
@@ -37,7 +40,7 @@ Red poslova: **Postgres tabela `job_queue`** sa `FOR UPDATE SKIP LOCKED`. Ne Red
 
 1. **Google polja imaju TTL 30 dana.** Nikad ne serviraj Google podatak stariji od 30 dana — proveri `google_refreshed_at`, pa zakaži refresh. `place_id` se čuva neograničeno.
 2. **Svaki Places poziv ima eksplicitan `X-Goog-FieldMask`.** Nikad `*`. Field mask određuje SKU i time ceo troškovni model.
-3. **Krediti se menjaju samo kroz `spend_credit_and_unlock`, `spend_credit_and_scan` ili `grant_credits`.** Nikad direktan `UPDATE profiles.credits_balance`. (`grant_monthly_credits` i `refund_scan` su izuzeci objašnjeni u migracijama 0004 i 0009.)
+3. **Krediti se menjaju samo kroz `spend_credit_and_unlock`, `spend_credit_and_scan` ili `grant_credits`.** Nikad direktan `UPDATE profiles.credits_balance`. (`grant_monthly_credits` i `refund_scan` su izuzeci objašnjeni u migracijama 0004 i 0009.) Od F11/F12 postoje još dva omotača, oba `security definer` i oba samo za `service_role`: `grant_feedback_credits` (0011) i `admin_adjust_credits` (0012 — **jedini put za negativan iznos**, jer `grant_credits` po definiciji odbija negativan). `grant_credits` interno validira `reason`; nov razlog znači izmenu i `check` ograničenja i tela funkcije.
 4. **`unlocks` je PK `(user_id, place_id)`.** Korisnik nikad ne plaća isti lead dvaput.
 5. **Skupi enrichment ide isključivo lazy, na unlock.** Screenshot, PageSpeed i Claude poziv nikad u bulk scanu.
 5a. **Nijedan Places poziv iz weba nema besplatan put.** `scan` posao ulazi u red isključivo kroz `spend_credit_and_scan` (F9). Keš mlađi od 30 dana je besplatan; sve ostalo košta 1 kredit.
@@ -48,6 +51,10 @@ Red poslova: **Postgres tabela `job_queue`** sa `FOR UPDATE SKIP LOCKED`. Ne Red
 10. **RLS uključen na svakoj tabeli.** `businesses` i `website_audits` imaju `using (false)` — čitanje ide isključivo kroz API rute.
 11. **`country_code` u svakoj relevantnoj tabeli od prvog dana.** Region dolazi kasnije, migracija ne.
 12. **Crawling:** poštuj `robots.txt`, identifikujući User-Agent, max 1 zahtev/s po domenu.
+13. **Admin se proverava u svakoj ruti i na svakoj strani**, nikad samo u layout-u. Uloga je `profiles.role`, uz `ADMIN_BOOTSTRAP_IDS` kao rezervu iz env-a. Ko nije admin dobija **`404`**, ne `403` — postojanje ekrana se ne otkriva.
+14. **Svaka admin mutacija upisuje red u `admin_audit`**, i na uspeh i na pad. `payload` nikad ne sadrži lozinku, token ni ključ.
+15. **Brisanje naloga ide kroz Clerk, pa kaskada.** `user.deleted` webhook je jedini put do brisanja profila; `businesses` i `website_audits` ostaju jer nisu korisnikovi podaci.
+16. **Pitanje iz kataloga utisaka ne postoji dok nije u `feedback-katalog.ts`.** Ruta odbija nepoznat `prompt_key` sa `400`, a `answers` se validira Zod šemom iz kataloga — nikad generičkim recordom.
 
 ## TypeScript konvencije
 
@@ -91,6 +98,12 @@ Ako predlažeš kod koji povećava broj Places poziva, reci mi to eksplicitno pr
 | band | Solidan / Osrednji / Ružan / Katastrofa |
 | kanban kolone | Nekontaktiran / Kontaktiran / Odgovorio / Potpisan / Nezainteresovan |
 | credits | krediti |
+| feedback | utisak — nikad „feedback" ni „povratna informacija" |
+| feedback sa statusom | prijava (ekran „Moje prijave") |
+| prompt / survey | pitanje; nikad „anketa" |
+| changelog | Beta dnevnik |
+| admin panel | admin konzola |
+| audit log | revizija |
 
 ## Radni stil koji mi odgovara
 

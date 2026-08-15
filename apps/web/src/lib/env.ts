@@ -27,6 +27,32 @@ const feedbackMailSchema = z.object({
   FEEDBACK_EMAIL_FROM: z.string().min(3),
 });
 
+/**
+ * F12: rezervni spisak admina. Odvojeno iz istog razloga kao webhook tajna —
+ * aplikacija mora da se podigne i bez njega.
+ *
+ * Prazna vrednost NIJE greška: tada admini postoje samo u bazi, a ako ih nema
+ * nijednog, `/admin` je `404` za sve (F12 §6). To je uredno stanje, ne kvar.
+ */
+const adminBootstrapSchema = z.object({
+  ADMIN_BOOTSTRAP_IDS: z.string().optional(),
+});
+
+/**
+ * F11.3: tajna kojom se predstavljaju cron rute.
+ *
+ * Odvojeno iz istog razloga kao webhook tajna, ali sa suprotnim ponašanjem na
+ * nedostatak: `webhookSecret()` baca, a ovo vraća `null`. Razlog je što ruta bez
+ * tajne ne sme ni da se izvrši ni da vikne — nepodešen `CRON_SECRET` u razvoju
+ * je uredno stanje, a odgovor je isti kao i za pogrešnu tajnu (v. `lib/cron.ts`).
+ *
+ * Minimum od 16 znakova nije ukras: tajna od četiri slova je tajna koja se
+ * pogodi, a jedina prepreka ispred rute koja šalje mejlove je baš ona.
+ */
+const cronSchema = z.object({
+  CRON_SECRET: z.string().min(16),
+});
+
 export type ServerEnv = z.infer<typeof serverSchema>;
 
 let cached: ServerEnv | null = null;
@@ -52,6 +78,39 @@ export function webhookSecret(): string {
   const parsed = webhookSchema.safeParse(process.env);
   if (!parsed.success) fail(parsed.error);
   return parsed.data.CLERK_WEBHOOK_SIGNING_SECRET;
+}
+
+/**
+ * Clerk ID-jevi koji su admini bez obzira na bazu (F12 odluka 1).
+ *
+ * Rešava dva problema odjednom: prvog admina (nema ga ko postavi) i
+ * zaključavanje (degradirao sam sam sebe u 2 ujutru). Zato se čita iz env-a, a
+ * ne iz baze — spisak koji spasava od pokvarene baze ne sme da živi u njoj.
+ *
+ * Ne baca nikad: neispravan ili prazan env ovde znači prazan spisak, dakle
+ * „admini samo iz baze". Spisak ne izlazi iz procesa i ne prikazuje se u UI-ju
+ * (F12 §1).
+ */
+export function adminBootstrapIds(): string[] {
+  const parsed = adminBootstrapSchema.safeParse(process.env);
+  if (!parsed.success) return [];
+
+  return (parsed.data.ADMIN_BOOTSTRAP_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+}
+
+/**
+ * Tajna za cron rute (F11 §8: „Cron rute odbijaju zahtev bez `CRON_SECRET`").
+ *
+ * `null` znači „nije podešena" — tada nijedan cron ne radi, i to je bolje od
+ * crona koji radi bez ijedne prepreke. Ne baca: podizanje aplikacije ne sme da
+ * zavisi od tajne koja se koristi triput dnevno.
+ */
+export function cronSecret(): string | null {
+  const parsed = cronSchema.safeParse(process.env);
+  return parsed.success ? parsed.data.CRON_SECRET : null;
 }
 
 export type FeedbackMailEnv = z.infer<typeof feedbackMailSchema>;

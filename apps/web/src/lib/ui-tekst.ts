@@ -5,8 +5,28 @@
 // Terminologija je iz tabele u CLAUDE.md: lead → prospekt, unlock → otključaj,
 // band → Solidan / Osrednji / Ružan / Katastrofa, Ugly Score se ne prevodi.
 
-import type { AiSeverity, NicheGroup, SiteStatus, UglyBand } from "@sajtoskop/shared";
+import type { AiSeverity, CreditReason, NicheGroup, SiteStatus, UglyBand } from "@sajtoskop/shared";
 import type { SearchSummary } from "./search-types";
+
+/**
+ * Razlog stavke u knjizi kredita, na srpskom.
+ *
+ * „Skeniranje", ne „Pretraga" (F9, odluka 8): plaća se poziv Google-u, a ne čin
+ * pretraživanja — pretraga po kešu je i dalje besplatna.
+ *
+ * Stoji ovde, a ne uz ekran `/krediti`, jer isti izvod čita i korisnik i admin
+ * (F12 §3.2). Dve kopije istog spiska bi značile da nov razlog u knjizi u jednom
+ * od dva prikaza ostane neprevede.
+ */
+export const RAZLOG_KREDITA: Record<CreditReason, string> = {
+  unlock: "Otključavanje",
+  scan: "Skeniranje",
+  monthly_grant: "Mesečna dodela",
+  admin: "Ručna izmena",
+  refund: "Povraćaj",
+  // F11: nagrada za utisak. Uvek pozitivna i uvek kroz `grant_feedback_credits`.
+  feedback: "Nagrada za utisak",
+};
 
 export const STATUS_LABEL: Record<SiteStatus, string> = {
   nema_sajt: "NEMA SAJT",
@@ -125,6 +145,38 @@ export function formatDatum(iso: string): string {
 export function formatDatumKratko(iso: string): string {
   const d = new Date(iso);
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`;
+}
+
+/**
+ * „pre 2 sata", „juče", „pre 9 dana" — kolona „Poslednji put" u admin konzoli
+ * (F12 §3.1).
+ *
+ * Tačan datum tamo ne pomaže: pitanje koje se postavlja gledajući listu je „ko
+ * se odavno nije javio", a ne „kog je datuma bio". Pun datum stoji u `title`
+ * atributu, za slučaj kad odgovor ipak treba.
+ *
+ * `null` ulaz je „nikad" i to je stvarno stanje: `last_seen_at` je uveden u
+ * migraciji 0012, pa ga korisnik koji od tada nije došao nema.
+ */
+export function vremeUnazad(iso: string | null): string {
+  if (!iso) return "nikad";
+
+  const proslo = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(proslo)) return "nikad";
+
+  const minuta = Math.floor(proslo / 60_000);
+  if (minuta < 1) return "upravo sad";
+  if (minuta < 60) return `pre ${minuta} ${plural(minuta, "minut", "minuta", "minuta")}`;
+
+  const sati = Math.floor(minuta / 60);
+  if (sati < 24) return `pre ${sati} ${plural(sati, "sat", "sata", "sati")}`;
+
+  const dana = Math.floor(sati / 24);
+  if (dana === 1) return "juče";
+  if (dana < 30) return `pre ${dana} ${plural(dana, "dan", "dana", "dana")}`;
+
+  const meseci = Math.floor(dana / 30);
+  return `pre ${meseci} ${plural(meseci, "mesec", "meseca", "meseci")}`;
 }
 
 /**

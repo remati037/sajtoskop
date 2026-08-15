@@ -9,9 +9,9 @@ import Link from "next/link";
 import { Coins, Download, Radar } from "lucide-react";
 import { creditMonth, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
-import { getIstorijaKredita, type StavkaKnjige } from "@/lib/krediti";
+import { getIstorijaKredita } from "@/lib/krediti";
 import { getOwnProfile } from "@/lib/profile";
-import { formatDatum } from "@/lib/ui-tekst";
+import { formatDatum, RAZLOG_KREDITA } from "@/lib/ui-tekst";
 import { cn } from "@/lib/cn";
 import { VezaGreska } from "@/components/veza-greska";
 import { Alert } from "@/components/ui/alert";
@@ -21,16 +21,6 @@ import { NaslovSekcije, ZaglavljeStranice } from "@/components/ui/stranica";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Krediti" };
-
-// „Skeniranje", ne „Pretraga" (F9, odluka 8): plaća se poziv Google-u, a ne čin
-// pretraživanja — pretraga po kešu je i dalje besplatna i ne pojavljuje se ovde.
-const RAZLOG: Record<StavkaKnjige["reason"], string> = {
-  unlock: "Otključavanje",
-  scan: "Skeniranje",
-  monthly_grant: "Mesečna dodela",
-  admin: "Ručna izmena",
-  refund: "Povraćaj",
-};
 
 export default async function Page() {
   await requireSession();
@@ -131,7 +121,7 @@ export default async function Page() {
                       <td className="py-2.5 pl-4 text-fg-muted">
                         {formatDatum(s.createdAt)}
                       </td>
-                      <td className="py-2.5">{RAZLOG[s.reason]}</td>
+                      <td className="py-2.5">{RAZLOG_KREDITA[s.reason]}</td>
                       <td className="py-2.5 text-fg-muted">
                         <span className="block max-w-[18rem] truncate">{s.lead ?? "—"}</span>
                       </td>

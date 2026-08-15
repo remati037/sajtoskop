@@ -15,11 +15,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { UserButton } from "@clerk/nextjs";
-import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Menu, X } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Menu, ShieldCheck, X } from "lucide-react";
+import type { MotorStanje, Uslovi } from "@sajtoskop/shared";
 import { cn } from "@/lib/cn";
 import { NAVIGACIJA, naslovZaPutanju, type NavStavka } from "@/lib/navigacija";
 import { PrekidacTeme, PrekidacTemeDugme } from "./prekidac-teme";
 import { UtisakDugme } from "./utisak-dugme";
+import { UtisciProvider } from "./utisci-provider";
 import { Znak, ZnakSaImenom } from "./znak";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
@@ -40,6 +42,30 @@ type Props = {
    * iz profila koji `(app)/layout.tsx` ionako čita — bez ijednog dodatnog upita.
    */
   traziUtisak?: boolean;
+  /**
+   * Stanje motora pitanja (F11 §3). Dolazi iz istog profila i jednog dodatnog
+   * upita nad `feedback_prompts` — v. `(app)/layout.tsx`.
+   */
+  stanjeUtisaka: MotorStanje;
+  /**
+   * Stanje naloga za kampanjska pitanja (F11 §2.3): dana od registracije,
+   * otključanih, dužina pauze. Iz istog layout-a, dva upita po punom učitavanju.
+   */
+  usloviUtisaka: Uslovi;
+  /**
+   * Prikazati ulaz u admin konzolu (F12). Računa se serverski, iz profila koji
+   * layout ionako čita.
+   *
+   * Nije zaštita nego navigacija: `false` ovde znači samo da linka nema, a
+   * `/admin` svakog neadmina i dalje dočekuje sa `404` iz same strane
+   * (pravilo 13).
+   */
+  admin?: boolean;
+  /**
+   * Rešenih prijava koje korisnik nije pogledao (F11.4 §6.4). Nula = nema
+   * tačke. Iz profila koji layout ionako čita — nijedan dodatan upit.
+   */
+  neprocitano?: number;
   children: React.ReactNode;
 };
 
@@ -48,6 +74,10 @@ export function OkvirAplikacije({
   mesecniKrediti,
   greska,
   traziUtisak = false,
+  stanjeUtisaka,
+  usloviUtisaka,
+  admin = false,
+  neprocitano = 0,
   children,
 }: Props) {
   const putanja = usePathname();
@@ -79,7 +109,8 @@ export function OkvirAplikacije({
   }
 
   return (
-    <TooltipProvider delayDuration={200}>
+    <UtisciProvider stanje={stanjeUtisaka} uslovi={usloviUtisaka}>
+      <TooltipProvider delayDuration={200}>
       {/* Blaga aura iza svega. Prazan ekran bez ovoga izgleda kao prazan list. */}
       <div aria-hidden className="pozadina-aure pointer-events-none fixed inset-0 -z-10 opacity-70" />
 
@@ -95,6 +126,7 @@ export function OkvirAplikacije({
           putanja={putanja}
           krediti={krediti}
           mesecniKrediti={mesecniKrediti}
+          admin={admin}
         />
 
         {/* Dugme za skupljanje stoji na ivici trake, u visini zaglavlja, i tu
@@ -137,6 +169,7 @@ export function OkvirAplikacije({
               putanja={putanja}
               krediti={krediti}
               mesecniKrediti={mesecniKrediti}
+              admin={admin}
             />
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
@@ -188,9 +221,10 @@ export function OkvirAplikacije({
         <main className="flex-1 pb-20">{children}</main>
       </div>
 
-      {/* Dugme „Utisak" — na svakom ekranu unutar okvira, nikad na prijavi. */}
-      <UtisakDugme traziUtisak={traziUtisak} />
-    </TooltipProvider>
+        {/* Dugme „Utisak" — na svakom ekranu unutar okvira, nikad na prijavi. */}
+        <UtisakDugme traziUtisak={traziUtisak} neprocitano={neprocitano} />
+      </TooltipProvider>
+    </UtisciProvider>
   );
 }
 
@@ -201,11 +235,13 @@ function SadrzajTrake({
   putanja,
   krediti,
   mesecniKrediti,
+  admin,
 }: {
   skupljen: boolean;
   putanja: string;
   krediti: number | null;
   mesecniKrediti: number;
+  admin: boolean;
 }) {
   return (
     <>
@@ -242,6 +278,12 @@ function SadrzajTrake({
       </nav>
 
       <div className="shrink-0 space-y-3 border-t border-border p-3">
+        {/* Ulaz u konzolu stoji ispod navigacije, odvojen od nje: to nije jedan
+            od ekrana proizvoda nego izlazak iz njega. Vidi ga samo admin, i to
+            je udobnost — brava je `requireAdminPage()` na svakoj strani
+            konzole. */}
+        {admin && <LinkKonzole skupljen={skupljen} />}
+
         <KarticaKredita krediti={krediti} mesecni={mesecniKrediti} skupljen={skupljen} />
 
         {skupljen ? (
@@ -253,6 +295,45 @@ function SadrzajTrake({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Ulaz u admin konzolu — vidi ga samo admin (F12).
+ *
+ * Do sada se `/admin` otvarao isključivo ručnim kucanjem adrese, što nije bila
+ * zaštita ni od koga: neadmin i sa tačnom adresom dobija `404` iz same strane.
+ * Bilo je samo neudobno meni.
+ *
+ * Nije u `NAVIGACIJA` (`lib/navigacija.ts`) zato što taj spisak opisuje
+ * proizvod, isti za svakog korisnika, a ovo je jedina stavka koja postoji za
+ * jednog čoveka. Stoji uz prekidač teme, ispod grupa, i vizuelno je ghost —
+ * nikad akcenat, da ne bi vuklo oko jače od „Pretrage".
+ */
+function LinkKonzole({ skupljen }: { skupljen: boolean }) {
+  const link = (
+    <Link
+      href="/admin"
+      className={cn(
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg",
+        skupljen && "justify-center px-0",
+      )}
+    >
+      <ShieldCheck className="h-[18px] w-[18px] shrink-0" strokeWidth={2} />
+      <span className={cn("truncate", skupljen && "sr-only")}>Admin konzola</span>
+    </Link>
+  );
+
+  if (!skupljen) return link;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right">
+        <span className="font-semibold">Admin konzola</span>
+        <span className="ml-2 font-normal text-fg-muted">Korisnici, pozivnice, revizija</span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

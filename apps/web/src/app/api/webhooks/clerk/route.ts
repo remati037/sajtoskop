@@ -15,7 +15,8 @@
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import type { WebhookEvent } from "@clerk/nextjs/webhooks";
 import type { NextRequest } from "next/server";
-import { createProfileFromWebhook } from "@/lib/profile";
+import { RADNJE, upisiAudit } from "@/lib/admin";
+import { createProfileFromWebhook, obrisiProfil } from "@/lib/profile";
 import { webhookSecret } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -37,6 +38,50 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (err) {
     console.error("[clerk-webhook] potpis nije prošao:", err);
     return new Response("Neispravan potpis.", { status: 400 });
+  }
+
+  // ── brisanje naloga (F12 §4, pravilo 15) ──────────────────
+  // Do F12 ovog grananja nije bilo, pa je brisanje iz Clerk konzole ostavljalo
+  // profil zauvek. Clerk je izvor istine za identitet; baza ga prati.
+  //
+  // Ovo je JEDINI put do brisanja profila — i onaj iz admin konzole ide ovuda,
+  // preko `users.deleteUser`. Zato ovde nema provere prava: potpis je već
+  // proveren, a Clerk ne šalje `user.deleted` za nalog koji nije obrisan.
+  if (event.type === "user.deleted") {
+    const obrisanId = event.data.id;
+    if (!obrisanId) return new Response("Događaj bez korisničkog ID-ja.", { status: 400 });
+
+    try {
+      const postojao = await obrisiProfil(obrisanId);
+      console.log(`[clerk-webhook] user.deleted ${obrisanId} → ${postojao ? "obrisan" : "nije ga bilo"}`);
+
+      // Trag ostaje i kad brisanje nije krenulo iz konzole — `actor_id` je tada
+      // `null` i u reviziji se čita kao „obrisano izvan konzole". Bez ovog reda
+      // je brisanje iz Clerk konzole jedina izmena nad bazom bez ijednog zapisa.
+      await upisiAudit({
+        actor: null,
+        action: RADNJE.KASKADA,
+        target: obrisanId,
+        payload: { postojao },
+        ok: true,
+      });
+
+      return Response.json({ ok: true, obrisan: postojao });
+    } catch (err) {
+      console.error("[clerk-webhook] kaskada nije uspela:", err);
+
+      await upisiAudit({
+        actor: null,
+        action: RADNJE.KASKADA,
+        target: obrisanId,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+
+      // 500 namerno — Svix pokušava ponovo, a brisanje nepostojećeg reda je
+      // ionako uspeh, pa ponavljanje ne može da napravi štetu.
+      return new Response("Brisanje nije uspelo.", { status: 500 });
+    }
   }
 
   if (event.type !== "user.created" && event.type !== "user.updated") {

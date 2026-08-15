@@ -15,11 +15,14 @@
 // nisu stali bez skupljanja svega na ikonice. Sidebar usput drži i kontekst —
 // uvek se vidi gde si u toku rada, a `pipeline` dobija punu širinu ekrana.
 
+import { after } from "next/server";
 import { planFor } from "@sajtoskop/shared";
 import { currentUser } from "@clerk/nextjs/server";
+import { jeAdminIzProfila } from "@/lib/admin";
 import { requireSession } from "@/lib/auth";
 import { trebaPodsetnik } from "@/lib/feedback";
-import { citajProfil, ensureProfile } from "@/lib/profile";
+import { citajProfil, ensureProfile, zabeleziDolazak } from "@/lib/profile";
+import { citajStanjeMotora, citajUslove } from "@/lib/utisci";
 import { OkvirAplikacije } from "@/components/okvir-aplikacije";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -51,6 +54,29 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const plan = planFor(profile?.plan);
 
+  // F11 §3.3: cooldown, ćutanje i streak dolaze iz profila koji je već pročitan,
+  // a `feedback_prompts` je JEDAN upit po punom učitavanju (≤ 12 redova). Layout
+  // se ne izvršava ponovo pri klijentskoj navigaciji, pa prelazak
+  // `/pretraga → /lista` ne košta ni jedan upit.
+  //
+  // F11.2 dodaje `uslovi` — stanje naloga za kampanjska pitanja (dana od
+  // registracije, otključanih, dužina pauze). Dva upita, oba po punom
+  // učitavanju, nijedan Places poziv.
+  const [stanjeUtisaka, usloviUtisaka] = await Promise.all([
+    citajStanjeMotora(userId, profile),
+    citajUslove(userId, profile),
+  ]);
+
+  // F12 §3.1: „Poslednji put" u admin listi, i dužina pauze za `zasto-ne-vracas`.
+  //
+  // Kroz `after()`, dakle posle odgovora, i najviše jednom na sat — bez toga bi
+  // svako učitavanje strane bilo jedan upis. Redosled je i uslov ispravnosti:
+  // `citajUslove()` iznad čita PRETHODNI dolazak, a ovaj upis postavlja tekući.
+  // Obrnuto bi značilo da je pauza uvek nula i da se to pitanje nikad ne javi.
+  after(async () => {
+    await zabeleziDolazak(userId, profile?.last_seen_at ?? null);
+  });
+
   return (
     // Balans je uvek vidljiv (F4 §4) i vodi na izvod iz knjige. Broj se osvežava
     // kroz `router.refresh()` posle svakog otključavanja — ovaj layout je server
@@ -62,6 +88,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // F10 §4.4: podsetnik posle tri dana. Izvedeno iz profila koji je već
       // pročitan — nijedan dodatan upit po učitavanju strane.
       traziUtisak={trebaPodsetnik(profile, plan.monthlyCredits)}
+      // F11 §3: stanje motora pitanja. Odluku donosi `UtisciProvider` u
+      // pregledaču, po pravilima iz `@sajtoskop/shared/feedback-motor`.
+      stanjeUtisaka={stanjeUtisaka}
+      usloviUtisaka={usloviUtisaka}
+      // F12: ulaz u konzolu iz aplikacije. Bez ovoga se `/admin` otvara samo
+      // ručnim kucanjem adrese — što je bila zaštita ni od koga, jer strana
+      // ionako svakog neadmina dočeka sa `404`.
+      //
+      // Izvedeno iz profila koji je gore već pročitan, pa je cena nula upita.
+      // Ovo NIJE zaštita: link koji se ne prikaže ne štiti ništa. Zaštita je
+      // `requireAdminPage()` na svakoj strani konzole (pravilo 13).
+      admin={jeAdminIzProfila(userId, profile?.role)}
+      // F11.4: tačka na plutajućem dugmetu kad postoji rešena prijava koju
+      // korisnik nije pogledao. Isti profil koji je već pročitan — nijedan
+      // dodatan upit (F11 §3.3).
+      neprocitano={profile?.feedback_unseen_count ?? 0}
     >
       {children}
     </OkvirAplikacije>

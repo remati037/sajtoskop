@@ -22,6 +22,8 @@ import type { ApiError } from "@/lib/search-types";
 import { cn } from "@/lib/cn";
 import { BAND_LABEL, formatDatum, plural, STATUS_LABEL } from "@/lib/ui-tekst";
 import { PorukePanel } from "./poruke-panel";
+import { UtisakKartica } from "./utisak-kartica";
+import { useUtisci } from "./utisci-provider";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Input, Label, Textarea } from "./ui/input";
@@ -58,6 +60,11 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
   const [greska, setGreska] = useState<string | null>(null);
   const [otvoren, setOtvoren] = useState<PipelineKartica | null>(null);
 
+  // Motor pitanja (F11). Panel sa porukama se NAMERNO ne prijavljuje kao nemir,
+  // iako je sloj preko ekrana: on jedini NOSI pitanje (`poruka-kvalitet` stoji
+  // ispod poruke, §2.1). Kad bi ućutkao motor, ućutkao bi i sopstveno pitanje.
+  const utisci = useUtisci();
+
   const gradovi = useMemo(
     () => spisak(redovi.map((r) => r.citySlug), cityLabels),
     [redovi, cityLabels],
@@ -92,6 +99,9 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
     const stari = redovi.find((r) => r.placeId === placeId);
     if (!stari || stari.status === status) return;
 
+    // Snimak PRE premeštanja: posle `izmeni` bi i ova kartica bila „potpisan".
+    const vecImaPotpisan = redovi.some((r) => r.placeId !== placeId && r.status === "potpisan");
+
     setGreska(null);
     // Datum kontakta prati status i lokalno, da kartica ne bi na trenutak
     // stajala u „Kontaktiran" bez ijednog datuma dok server ne odgovori.
@@ -112,6 +122,15 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
         const json = (await res.json()) as ApiError;
         izmeni(placeId, { status: stari.status, contactedAt: stari.contactedAt });
         setGreska(json.greska ?? "Premeštanje nije uspelo.");
+        return;
+      }
+
+      // Prvi potpisan posao (F11 §2.1) — jedini trenutak u životu naloga u kom
+      // se uopšte pita za preporuku. „Prvi" se čita iz table pre premeštanja:
+      // motor bi i sam propustio drugo pitanje, ali kartica koja se pojavi na
+      // petom potpisanom sa naslovom „Prvi potpisan" bila bi laž.
+      if (status === "potpisan" && !vecImaPotpisan) {
+        utisci?.prijaviDogadjaj("prvi-potpisan");
       }
     } catch {
       izmeni(placeId, { status: stari.status, contactedAt: stari.contactedAt });
@@ -184,6 +203,10 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
       </div>
 
       {greska && <Alert variant="danger">{greska}</Alert>}
+
+      {/* Kartica preko kolona (F11 §2.1): prvi potpisan posao je jedini trenutak
+          u kom se uopšte pita za preporuku. */}
+      <UtisakKartica kljuc="prvi-potpisan" />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         {KOLONE.map((k) => {

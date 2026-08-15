@@ -20,6 +20,8 @@ import { cn } from "@/lib/cn";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
+import { UtisakMikro } from "./utisak-mikro";
+import { useUtisci } from "./utisci-provider";
 
 type Odgovor = OutreachResult & { naziv: string };
 
@@ -118,6 +120,10 @@ export function PorukePanel({ placeId, naziv, zatvori, naKontakt }: Props) {
               naKontakt={naKontakt}
             />
           )}
+
+          {/* Pitanje o kvalitetu poruke stoji ISPOD poruke (F11 §2.1) i javlja se
+              tek kad je neka kopirana — pre toga korisnik nema šta da oceni. */}
+          <UtisakMikro kljuc="poruka-kvalitet" className="mt-4" />
         </div>
       </DialogContent>
     </Dialog>
@@ -345,6 +351,7 @@ function PorukaBlok({
   izvor?: "sablon" | "ai";
 }) {
   const [stanje, setStanje] = useState<"mirno" | "radim" | "kopirano" | "greska">("mirno");
+  const utisci = useUtisci();
 
   /**
    * Kopiranje i upis idu redom, ne paralelno: tekst mora da bude u clipboardu
@@ -377,6 +384,17 @@ function PorukaBlok({
     }
 
     setStanje("kopirano");
+
+    // Okidač za `poruka-kvalitet` (F11 §2.1). Motor odlučuje hoće li se pitanje
+    // pojaviti, i „jednom po nalogu" je ono što od ovoga pravi PRVU kopiranu
+    // poruku — ekran to ne mora da broji.
+    //
+    // [ODSTUPANJE od PRD §2.1, svesno] Tamo piše „prva kopirana AI poruka".
+    // „Napiši drugačije" je dugme koje mnogi neće ni kliknuti, pa bi pitanje
+    // stiglo do šačice ljudi. Okidač je zato svaka prva kopirana poruka, a
+    // poreklo (`sablon` ili `ai`) ide u odgovor — brojka po izvoru se i dalje
+    // vidi, samo se sada uopšte skuplja.
+    utisci?.prijaviDogadjaj("poruka-kvalitet", { izvor, kanal });
   }
 
   return (

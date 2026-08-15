@@ -22,22 +22,34 @@ export type {
 
 // ── oblik redova u bazi (snake_case, granica sa Supabase-om) ─
 export type {
+  AdminAdjustResult,
+  AdminAuditRow,
+  AdminOverview,
+  AdminRole,
+  AdminSetRoleResult,
+  AdminUserRow,
   ApiBudgetRow,
   BusinessRow,
+  ChangelogRow,
   CreditLedgerRow,
   CreditReason,
   ExportClaimReason,
   ExportClaimResult,
   FeedbackCtx,
+  FeedbackGrantResult,
   FeedbackKind,
+  FeedbackPromptRow,
+  FeedbackPromptStatus,
   FeedbackRow,
   FeedbackSource,
+  FeedbackStatus,
   GrantReason,
   MonthlyGrantReason,
   MonthlyGrantResult,
   JobQueueRow,
   JobStatus,
   JobType,
+  KlijentskaGreska,
   LeadChannel,
   LeadStatusRow,
   LeadStatusRpcReason,
@@ -54,6 +66,47 @@ export type {
   UnlockRow,
   WebsiteAuditRow,
 } from "./db";
+
+// ── utisci: katalog pitanja i motor pravila (F11) ──────────
+export type {
+  CenaOpseg,
+  Oblik,
+  OdgovorIshod,
+  Opcija,
+  Pitanje,
+  Sloj,
+  Uslovi,
+} from "./feedback-katalog";
+export {
+  CENA_OPSEZI,
+  KATALOG,
+  KRAJ_BETE,
+  medijanaCene,
+  opisOdgovora,
+  PITANJE_KLJUCEVI,
+  pitanjeZaKljuc,
+  PRAG_CENE_RSD,
+  proveriOdgovor,
+  vaziPitanje,
+} from "./feedback-katalog";
+
+export type {
+  MotorStanje,
+  MotorTrenutak,
+  Odluka,
+  Razlog,
+  StanjePitanja,
+  StatusPitanja,
+} from "./feedback-motor";
+export {
+  MOTOR,
+  odluci,
+  posleOdbacivanja,
+  posleOdgovora,
+  poslePrikaza,
+  sledecePitanje,
+  smeDaSePita,
+} from "./feedback-motor";
 
 // ── ugly score ─────────────────────────────────────────────
 export type { ScoreInput, ScoreResult } from "./ugly-score";

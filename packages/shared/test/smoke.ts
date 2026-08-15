@@ -5,16 +5,27 @@
 // translit.ts. Morali su da odu iz src/ jer su uvozili `node:url` — a nijedan fajl
 // u packages/shared/src ne sme da dodirne `node:` (F0, sekcija 5).
 
-import type { OutreachInput, UglyBand } from "../src/index";
+import type { OutreachInput, UglyBand, Uslovi } from "../src/index";
 import {
   bezOblika,
+  CENA_OPSEZI,
   cirToLat,
   CITY_SLUGS,
   foldForSearch,
+  KATALOG,
+  medijanaCene,
+  MOTOR,
   napisiPoruke,
   NICHE_SLUGS,
+  pitanjeZaKljuc,
+  posleOdbacivanja,
+  posleOdgovora,
+  proveriOdgovor,
   proveriPoruku,
   scoreSite,
+  sledecePitanje,
+  smeDaSePita,
+  vaziPitanje,
 } from "../src/index";
 
 let fail = 0;
@@ -252,6 +263,229 @@ const saLinkom = napisiPoruke({
 check(
   saLinkom.ok && !/autodavid\.rs/.test(saLinkom.poruke.viber.body),
   "domen iz AI nalaza ne procuri u Viber poruku",
+);
+
+// ── F11: motor pitanja ─────────────────────────────────────
+// Pravila iz F11 §3.1 su tvrda i lako se „popravi" jedno od njih usput. Ovo su
+// tri koja su u „Gotovo kad" listi napisana kao uslov puštanja faze.
+
+console.log("\nmotor utisaka");
+
+const SADA = Date.parse("2026-08-12T10:00:00Z");
+const mirno = { pitanoUSesiji: false, ekranMiran: true, odUcitavanjaMs: 120_000 };
+const prazno = { cooldownUntil: null, mutedUntil: null, dismissStreak: 0, poPitanju: {} };
+
+const prvaLista = pitanjeZaKljuc("prva-lista");
+const posaoPao = pitanjeZaKljuc("posao-pao");
+
+check(prvaLista !== null && posaoPao !== null, "katalog ima oba pitanja sa /pretrage");
+check(pitanjeZaKljuc("izmisljeno") === null, "ključ van kataloga ne postoji");
+
+if (prvaLista && posaoPao) {
+  check(
+    sledecePitanje(prazno, mirno, [prvaLista], SADA)?.kljuc === "prva-lista",
+    "miran ekran, nema istorije → pitanje prolazi",
+  );
+  check(
+    sledecePitanje(prazno, { ...mirno, odUcitavanjaMs: 5_000 }, [prvaLista], SADA) === null,
+    "pre 60 s od učitavanja → ništa",
+  );
+  check(
+    sledecePitanje(prazno, { ...mirno, pitanoUSesiji: true }, [prvaLista], SADA) === null,
+    "jedno pitanje po sesiji",
+  );
+  check(
+    sledecePitanje(prazno, { ...mirno, ekranMiran: false }, [prvaLista], SADA) === null,
+    "dok posao radi ili je modal otvoren → ništa",
+  );
+
+  // Cooldown zaustavlja molbu, ali ne i incident — i to je jedini izuzetak.
+  const uCooldownu = {
+    ...prazno,
+    cooldownUntil: new Date(SADA + 60 * 60 * 1000).toISOString(),
+  };
+  check(sledecePitanje(uCooldownu, mirno, [prvaLista], SADA) === null, "cooldown ćuti molbu");
+  check(
+    sledecePitanje(uCooldownu, mirno, [posaoPao], SADA)?.kljuc === "posao-pao",
+    "incident seče cooldown",
+  );
+
+  // Ćutanje je jače od incidenta: čovek koji je rekao ne dvaput nije rekao ne
+  // samo molbama.
+  const ucutkan = { ...prazno, mutedUntil: new Date(SADA + 60 * 60 * 1000).toISOString() };
+  check(sledecePitanje(ucutkan, mirno, [posaoPao], SADA) === null, "ćutanje je jače od incidenta");
+
+  // Isto pitanje jednom po nalogu — osim onog sa `ponovi`.
+  const vidjeno = {
+    ...prazno,
+    poPitanju: {
+      "prva-lista": { status: "odbaceno" as const, shownAt: new Date(SADA - 1000).toISOString() },
+      "posao-pao": {
+        status: "odgovoreno" as const,
+        shownAt: new Date(SADA - 25 * 60 * 60 * 1000).toISOString(),
+      },
+    },
+  };
+  check(
+    sledecePitanje(vidjeno, mirno, [prvaLista], SADA) === null,
+    "viđeno pitanje se ne vraća nikad",
+  );
+  check(
+    sledecePitanje(vidjeno, mirno, [posaoPao], SADA)?.kljuc === "posao-pao",
+    "posao-pao sme ponovo posle 24 h",
+  );
+  check(
+    smeDaSePita(
+      posaoPao,
+      {
+        ...prazno,
+        poPitanju: {
+          "posao-pao": {
+            status: "odbaceno",
+            shownAt: new Date(SADA - 60 * 60 * 1000).toISOString(),
+          },
+        },
+      },
+      SADA,
+    ) === false,
+    "posao-pao ne sme dvaput u istom danu",
+  );
+
+  // Dva odbacivanja zaredom → 14 dana, treće → do kraja bete.
+  const prvo = posleOdbacivanja(0, SADA);
+  check(prvo.dismissStreak === 1 && prvo.mutedUntil === null, "prvo odbacivanje ne ćuti sistem");
+
+  const drugo = posleOdbacivanja(1, SADA);
+  const dana = drugo.mutedUntil
+    ? Math.round((Date.parse(drugo.mutedUntil) - SADA) / (24 * 60 * 60 * 1000))
+    : 0;
+  check(dana === MOTOR.CUTANJE_DANA, `dva odbacivanja → ćutanje ${dana} dana`);
+
+  const trece = posleOdbacivanja(2, SADA);
+  check(
+    trece.mutedUntil !== null &&
+      Date.parse(trece.mutedUntil) - SADA > MOTOR.CUTANJE_DANA * 24 * 60 * 60 * 1000,
+    "treće odbacivanje ćuti do kraja bete",
+  );
+
+  // Ko odgovori, dobija mir — i streak mu se briše.
+  const odgovor = posleOdgovora(SADA);
+  check(
+    odgovor.dismissStreak === 0 &&
+      Math.round((Date.parse(odgovor.cooldownUntil) - SADA) / (24 * 60 * 60 * 1000)) ===
+        MOTOR.COOLDOWN_POSLE_ODGOVORA_DANA,
+    "odgovor → 7 dana mira i streak na nuli",
+  );
+}
+
+// `answers` prolazi šemom IZ kataloga, po ključu (pravilo 16).
+console.log("\nkatalog: provera odgovora");
+check(proveriOdgovor("prva-lista", { odgovor: "jeste" }).ok, "poznat odgovor prolazi");
+check(!proveriOdgovor("prva-lista", { odgovor: "mozda" }).ok, "nepoznata vrednost pada");
+check(!proveriOdgovor("prva-lista", { odgovor: "jeste", x: 1 }).ok, "nepoznat ključ pada");
+check(!proveriOdgovor("izmisljeno", { odgovor: "jeste" }).ok, "pitanje van kataloga pada");
+check(!proveriOdgovor("prazan-rezultat", { tekst: "a" }).ok, "prekratak tekst pada");
+check(proveriOdgovor("prazan-rezultat", { tekst: "bravar u Loznici" }).ok, "tekst prolazi");
+
+// F11.2: drugi korak i čipovi prolaze KROZ ISTU šemu, jer se na serveru spajaju
+// sa prvim odgovorom pa se proverava spoj (pravilo 16).
+check(
+  proveriOdgovor("prvi-potpisan", { odgovor: "presudno", preporuka: "da" }).ok,
+  "drugi korak (preporuka) prolazi istu šemu",
+);
+check(
+  !proveriOdgovor("prvi-potpisan", { odgovor: "presudno", preporuka: "možda" }).ok,
+  "nepoznata vrednost drugog koraka pada",
+);
+check(
+  proveriOdgovor("tacnost-podataka", { odgovor: "ponesto", netacno: ["telefon", "mejl"] }).ok,
+  "čipovi uz odgovor ponesto prolaze",
+);
+check(
+  !proveriOdgovor("tacnost-podataka", { odgovor: "sve-tacno", netacno: ["telefon"] }).ok,
+  "odgovor sve-tacno sa spiskom netačnih polja pada",
+);
+check(
+  !proveriOdgovor("tacnost-podataka", { odgovor: "ponesto", netacno: ["adresa"] }).ok,
+  "nepoznat čip pada",
+);
+check(proveriOdgovor("cena", { odgovor: "1990-3900" }).ok, "opseg cene prolazi");
+check(!proveriOdgovor("cena", { odgovor: "2500" }).ok, "slobodan iznos umesto opsega pada");
+
+// ── F11.2: rok pitanja i medijana cene ─────────────────────
+
+console.log("\nkatalog: rok i medijana");
+
+check(
+  KATALOG.every((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.do)),
+  "svako pitanje u katalogu ima rok (`do:`)",
+);
+
+const cena = pitanjeZaKljuc("cena");
+if (cena) {
+  const dan = 24 * 60 * 60 * 1000;
+  const rok = Date.parse(`${cena.do}T23:59:59.999Z`);
+
+  check(vaziPitanje(cena, rok - dan), "pitanje važi dan pre roka");
+  check(vaziPitanje(cena, rok), "pitanje važi do kraja poslednjeg dana");
+  check(!vaziPitanje(cena, rok + 1000), "posle roka pitanje za motor ne postoji");
+
+  // Rok je tvrđi od svega ostalog: ispunjen uslov ga ne oživljava.
+  const ispunjeno: Uslovi = { danaOdRegistracije: 30, otkljucano: 12, danaPauze: 0 };
+  const mirno2 = { pitanoUSesiji: false, ekranMiran: true, odUcitavanjaMs: 120_000 };
+  const prazno2 = { cooldownUntil: null, mutedUntil: null, dismissStreak: 0, poPitanju: {} };
+
+  check(
+    sledecePitanje(prazno2, { ...mirno2, uslovi: ispunjeno }, [cena], rok - dan)?.kljuc === "cena",
+    "ispunjen uslov pušta kampanjsko pitanje",
+  );
+  check(
+    sledecePitanje(prazno2, { ...mirno2, uslovi: ispunjeno }, [cena], rok + 1000) === null,
+    "istekao rok ćuti pitanje i kad je uslov ispunjen",
+  );
+  check(
+    sledecePitanje(
+      prazno2,
+      { ...mirno2, uslovi: { danaOdRegistracije: 30, otkljucano: 4, danaPauze: 0 } },
+      [cena],
+      rok - dan,
+    ) === null,
+    "manje od 5 otključanih → nema pitanja o ceni",
+  );
+  check(
+    sledecePitanje(
+      prazno2,
+      { ...mirno2, uslovi: { danaOdRegistracije: 3, otkljucano: 12, danaPauze: 0 } },
+      [cena],
+      rok - dan,
+    ) === null,
+    "manje od 7 dana od registracije → nema pitanja o ceni",
+  );
+  // Motor koji ne zna uslov ne sme da pretpostavi da je ispunjen.
+  check(
+    sledecePitanje(prazno2, mirno2, [cena], rok - dan) === null,
+    "bez stanja naloga kampanjsko pitanje otpada",
+  );
+}
+
+check(medijanaCene([]) === null, "medijana bez odgovora je null");
+check(medijanaCene(["ne-bih"]) === 0, "jedan odgovor → njegova sredina");
+// Sredine: 0 · 700 · 1.490 · 2.945 · 5.400 · 8.500 (F11 §2.3).
+check(
+  medijanaCene(["do-990", "990-1990", "1990-3900"]) === 1490,
+  "neparan broj odgovora → srednja vrednost",
+);
+check(
+  medijanaCene(["do-990", "990-1990"]) === Math.round((700 + 1490) / 2),
+  "paran broj odgovora → prosek dve srednje",
+);
+check(
+  medijanaCene(["izmisljeni-opseg", "990-1990"]) === 1490,
+  "nepoznat opseg se preskače, ne obara izveštaj",
+);
+check(
+  CENA_OPSEZI.length === 6 && CENA_OPSEZI.every((o) => o.sredina >= 0),
+  `šest opsega u RSD (${CENA_OPSEZI.map((o) => o.sredina).join(" · ")})`,
 );
 
 console.log(fail === 0 ? "\nSve prošlo." : `\n${fail} palo.`);

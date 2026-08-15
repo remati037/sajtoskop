@@ -4,7 +4,7 @@
 // Redosled je redosled rada: nađi → otključaj → vodi kroz pipeline. Nalog stoji
 // odvojeno, jer se tamo ne radi nego proverava.
 
-import { Coins, LayoutDashboard, ListChecks, KanbanSquare, Search } from "lucide-react";
+import { Coins, Inbox, LayoutDashboard, ListChecks, KanbanSquare, Search } from "lucide-react";
 
 export type NavStavka = {
   href: string;
@@ -29,6 +29,12 @@ export const NAVIGACIJA: NavGrupa[] = [
     naslov: "Nalog",
     stavke: [
       { href: "/krediti", label: "Krediti", Ikona: Coins, opis: "Stanje i izvod iz knjige" },
+      {
+        href: "/utisci",
+        label: "Moje prijave",
+        Ikona: Inbox,
+        opis: "Tvoje prijave i njihovi ishodi",
+      },
       {
         href: "/dashboard",
         label: "Kontrolna tabla",

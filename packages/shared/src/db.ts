@@ -13,6 +13,12 @@
 
 import type { AiIssue, PhoneKind, Platform, Signal, SiteStatus, UglyBand } from "./types";
 
+/**
+ * Dve uloge dok postoji jedan čovek (F12 §9: bez `support` i `read-only`).
+ * Vrednosti su iste kao u `profiles_role_valid`.
+ */
+export type AdminRole = "user" | "admin";
+
 export type ProfileRow = {
   id: string;
   email: string | null;
@@ -29,6 +35,31 @@ export type ProfileRow = {
    * isti čovek na drugom računaru ne bi dobio isti prozor iznova.
    */
   feedback_prompted_at: string | null;
+
+  /**
+   * Stanje motora pitanja (F11, migracija 0011).
+   *
+   * Stoji na profilu, a ne u zasebnoj tabeli, zato što `(app)/layout.tsx` profil
+   * ionako čita — globalni cooldown je time besplatan na svakom učitavanju
+   * (F11 §3.3). `feedback_unseen_count` puni tek F11.4.
+   */
+  feedback_cooldown_until: string | null;
+  feedback_muted_until: string | null;
+  feedback_dismiss_streak: number;
+  feedback_unseen_count: number;
+
+  /**
+   * Uloga (F12, migracija 0012). Izvor istine za to ko je admin; `ADMIN_BOOTSTRAP_IDS`
+   * je rezerva iz env-a i u ovoj koloni se ne vidi (F12 §1).
+   */
+  role: AdminRole;
+  /**
+   * Poslednji dolazak, upisan iz `(app)/layout.tsx` kroz `after()`, najviše
+   * jednom na sat (F12 §3.1). `null` znači da korisnik od uvođenja kolone nije
+   * otvorio nijedan ekran.
+   */
+  last_seen_at: string | null;
+
   created_at: string;
 };
 
@@ -83,7 +114,14 @@ export type UnlockRow = {
 };
 
 /** `scan` je od F9: plaćeno skeniranje kombinacije koje nema u kešu (0009). */
-export type CreditReason = "unlock" | "scan" | "monthly_grant" | "admin" | "refund";
+export type CreditReason =
+  | "unlock"
+  | "scan"
+  | "monthly_grant"
+  | "admin"
+  | "refund"
+  /** Nagrada za utisak (F11, 0011). Ide isključivo kroz `grant_feedback_credits`. */
+  | "feedback";
 
 export type CreditLedgerRow = {
   id: number;
@@ -204,8 +242,23 @@ export type SignedEventRow = {
 
 export type FeedbackKind = "bug" | "ideja" | "pohvala" | "drugo";
 
-/** Odakle je utisak došao: plutajuće dugme ili automatski podsetnik. */
-export type FeedbackSource = "dugme" | "podsetnik";
+/**
+ * Odakle je utisak došao.
+ *
+ * F10 je imao dva izvora (dugme, podsetnik). F11 dodaje tri sloja iz §1:
+ * kontekstualno pitanje, kampanjsko pitanje i incident. Svi pišu u istu tabelu i
+ * idu kroz isti mejl — jedan inboks, jedan admin, jedan izveštaj (odluka 1).
+ */
+export type FeedbackSource = "dugme" | "podsetnik" | "pitanje" | "kampanja" | "incident";
+
+/** Životni tok prijave u admin konzoli (F11 §4). Puni ga F11.3. */
+export type FeedbackStatus =
+  | "novo"
+  | "priznato"
+  | "u_radu"
+  | "reseno"
+  | "odbijeno"
+  | "duplikat";
 
 /**
  * Dijagnostika uz utisak. Namerno `jsonb`, a ne kolone: čita se očima u mejlu, a
@@ -222,14 +275,42 @@ export type FeedbackCtx = {
   ua: string;
   /** `'1440×900'`. Jedino što server ne zna, pa stiže sa klijenta. */
   viewport: string;
+  /**
+   * Dnevnik klijentskih grešaka (F11 odluka 10). Postoji SAMO uz `kind = 'bug'`
+   * i uz incident — server ga na svemu ostalom odbacuje, ne prima pa filtrira.
+   */
+  errors?: KlijentskaGreska[];
+};
+
+/**
+ * Jedan red iz dnevnika klijentskih grešaka.
+ *
+ * Šta ovde NIKAD ne sme da se nađe (F11 §8): telo zahteva, sadržaj polja,
+ * `localStorage`, i query string — zato je `ruta` gola putanja, bez `?`.
+ */
+export type KlijentskaGreska = {
+  /** Poruka greške, odsečena na 200 karaktera. */
+  poruka: string;
+  /** `'TypeError'`, `'unhandledrejection'` — vrsta, ne stek. */
+  tip: string;
+  /** `'/pretraga'`. Bez query stringa, bez hash-a. */
+  ruta: string;
+  /** ISO trenutak. */
+  vreme: string;
 };
 
 export type FeedbackRow = {
   id: number;
   user_id: string;
   country_code: string;
-  /** 1 loše · 2 ok · 3 odlično. `not null` — klik na ocenu je jedini obavezan korak. */
-  rating: 1 | 2 | 3;
+  /**
+   * 1 loše · 2 ok · 3 odlično.
+   *
+   * Od 0011 sme da bude `null`: odgovor na pitanje („Delimično", opseg cene)
+   * nema ocenu. Zapis bez ijednog sadržaja i dalje ne može da postoji —
+   * `feedback_ima_sadrzaj` traži bar jedno od ocene, odgovora i poruke.
+   */
+  rating: 1 | 2 | 3 | null;
   kind: FeedbackKind | null;
   message: string | null;
   source: FeedbackSource;
@@ -241,6 +322,213 @@ export type FeedbackRow = {
   email_error: string | null;
   created_at: string;
   updated_at: string;
+
+  // ── F11 (0011) ───────────────────────────────────────────
+  /** Ključ iz `feedback-katalog.ts`. `null` za utisak sa dugmeta. */
+  prompt_key: string | null;
+  /** Odgovor na pitanje, validiran šemom IZ kataloga (pravilo 16). */
+  answers: Record<string, unknown>;
+  status: FeedbackStatus;
+  /** 1–3, izvedeno serverski iz kataloga — nikad iz tela. */
+  severity: 1 | 2 | 3 | null;
+  tags: string[];
+  admin_note: string | null;
+  resolved_at: string | null;
+  notified_at: string | null;
+  seen_at: string | null;
+  screenshot_path: string | null;
+  reward_credits: number;
+  /** Obrazloženje koje vidi KORISNIK — za razliku od `admin_note` (F11.4, 0016). */
+  user_note: string | null;
+  /** Koliko je puta cron pokušao mejl „rešeno". Staje na 3 (F11 §9). */
+  notify_attempts: number;
+};
+
+// ── F11: stanje pitanja po korisniku (0011) ────────────────
+
+export type FeedbackPromptStatus = "prikazano" | "odgovoreno" | "odbaceno";
+
+export type FeedbackPromptRow = {
+  user_id: string;
+  prompt_key: string;
+  status: FeedbackPromptStatus;
+  shown_at: string;
+  answered_at: string | null;
+  dismissed_count: number;
+  feedback_id: number | null;
+};
+
+/** Beta dnevnik (0011). Sadržaj i ekran dolaze u F11.4. */
+export type ChangelogRow = {
+  id: number;
+  title: string;
+  body: string | null;
+  kind: "novo" | "promena" | "popravka";
+  from_feedback: number[];
+  shipped_at: string;
+  published: boolean;
+};
+
+/** `grant_feedback_credits` iz 0011 (F11 §4). Razlozi su na srpskom, kao u RPC-u. */
+export type FeedbackGrantResult = {
+  ok: boolean;
+  reason: string;
+  delta: number;
+};
+
+// ── F12: admin konzola (0012) ──────────────────────────────
+
+/**
+ * Jedan red dnevnika admin radnji (F12 §2).
+ *
+ * `actor_id` je nullable iako PRD piše `not null` — v. obrazloženje u migraciji
+ * 0012: brisanje admina mora da ostavi njegove radnje u dnevniku.
+ *
+ * `payload` NIKAD ne sadrži lozinku, token ni ključ (pravilo 14).
+ */
+export type AdminAuditRow = {
+  id: number;
+  actor_id: string | null;
+  /** `'credits.adjust'`, `'user.delete'` — imenski prostor pa radnja. */
+  action: string;
+  target_user: string | null;
+  target_ref: string | null;
+  payload: Record<string, unknown>;
+  ok: boolean;
+  error: string | null;
+  ip: string | null;
+  created_at: string;
+};
+
+/**
+ * `admin_adjust_credits` iz 0012 — jedini put do negativnog iznosa (pravilo 3).
+ * Razlozi su na srpskom tamo gde su pravilo proizvoda, i na engleskom tamo gde
+ * su isti kao u ostalim RPC-ovima.
+ */
+export type AdminAdjustResult = {
+  ok: boolean;
+  reason: string;
+  balance: number | null;
+};
+
+/** Jedan red liste korisnika iz `admin_users_page` (F12 §3.1). */
+export type AdminUserRow = {
+  id: string;
+  email: string | null;
+  plan: string;
+  role: AdminRole;
+  credits_balance: number;
+  created_at: string;
+  last_seen_at: string | null;
+  unlocks_count: number;
+  searches_count: number;
+  feedback_count: number;
+  /** Ukupan broj pogodaka pre sečenja na stranicu; isti u svakom redu. */
+  ukupno: number;
+};
+
+/**
+ * `admin_set_role` iz 0013 (F12 §1, „Zaštite od zaključavanja").
+ *
+ * Postoji zato što je „poslednji admin ostaje" provera koja mora da se desi u
+ * istoj transakciji sa upisom — brojanje u dva PostgREST zahteva to nije bilo.
+ * `admins` je broj admina POSLE izmene, ili broj zatečenih kad je izmena
+ * odbijena.
+ */
+export type AdminSetRoleResult = {
+  ok: boolean;
+  reason: "ok" | "unchanged" | "invalid_role" | "self" | "no_user" | "last_admin";
+  admins: number | null;
+};
+
+/**
+ * Šest kartica sa `/admin` (F12 §3.4) — jedan poziv `admin_overview`, bez
+ * ijednog spoljnog servisa.
+ *
+ * Oblik je 1:1 sa `jsonb_build_object` iz migracije 0013. Kad se tamo doda
+ * ključ, dodaje se i ovde — `tsc` to ne može da uhvati.
+ */
+export type AdminOverview = {
+  budzet: {
+    /** LA dan (`YYYY-MM-DD`) i LA mesec — Google resetuje kvotu u 09:00 lokalno. */
+    dan: string;
+    mesec: string;
+    dan_poziva: number;
+    dan_cap: number;
+    mesec_poziva: number;
+    mesec_cap: number;
+    iscrpljen: boolean;
+    dana_do_kraja: number;
+    /** Raspodela po SKU-u, npr. `{ "places:searchText": 12 }`. */
+    po_vrsti: Record<string, number>;
+  };
+  poslovi: {
+    na_cekanju: number;
+    u_radu: number;
+    palo_24h: number;
+    /** Namerno odloženi (`run_after` u budućnosti) — ne pale crveno stanje. */
+    odlozeno: number;
+    /** Koliko sekundi čeka najstariji posao kome je vreme došlo. */
+    najstariji_sec: number;
+  };
+  korisnici: {
+    ukupno: number;
+    novi_7d: number;
+    aktivni_7d: number;
+    aktivni_30d: number;
+    nikad: number;
+    admina: number;
+  };
+  krediti: {
+    dodeljeno: number;
+    potroseno: number;
+    po_razlogu: Partial<Record<CreditReason, number>>;
+  };
+  utisci: {
+    ukupno: number;
+    novih_7d: number;
+    otvoreni_bugovi: number;
+    nedirnuto: number;
+    pitanja: { prikazano: number; odgovoreno: number; odbaceno: number };
+    /**
+     * Odgovorenost razbijena po pitanju (0015).
+     *
+     * Zbirna brojka kaže da li mehanika radi; ova kaže KOJE pitanje ne radi.
+     * `kljuc` je sirov ključ iz `feedback_prompts` — naslov dolazi iz kataloga,
+     * pa i pitanje iz starije verzije kataloga i dalje izlazi u listi.
+     */
+    po_pitanju: {
+      kljuc: string;
+      prikazano: number;
+      odgovoreno: number;
+      odbaceno: number;
+    }[];
+    /**
+     * Koliko traje obrada prijave: od `created_at` do `resolved_at` (0015).
+     *
+     * Brojka o meni, ne o korisniku. Uz prosek ide i najstarija nerešena, jer
+     * prosek sam ume da laže — pet prijava rešenih za sat i jedna koja stoji tri
+     * nedelje daju odličan prosek.
+     */
+    obrada: {
+      reseno: number;
+      prosek_sec: number;
+      nereseno: number;
+      nereseno_najstarije_sec: number;
+    };
+    /** Sirovi odgovori; medijanu računa `medijanaCene()` — jedini izvor istine. */
+    cena_odgovori: string[];
+  };
+  baza: {
+    biznisa: number;
+    audita: number;
+    otkljucano: number;
+    pretraga: number;
+    iz_kesa: number;
+    /** Redovi kojima je Google podatak stariji od 30 dana (pravilo 1). */
+    stari_google: number;
+  };
+  trenutak: string;
 };
 
 export type ApiBudgetRow = {

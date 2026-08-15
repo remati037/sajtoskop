@@ -79,7 +79,8 @@ async function main(): Promise<void> {
   console.log("\nRLS");
   for (const t of ["profiles", "businesses", "website_audits", "unlocks",
                    "credit_ledger", "searches", "job_queue", "api_budget",
-                   "job_subscribers", "search_cache", "feedback"]) {
+                   "job_subscribers", "search_cache", "feedback",
+                   "feedback_prompts", "changelog", "admin_audit"]) {
     const r = await one<{ relrowsecurity: boolean }>(
       `select relrowsecurity from pg_class where relname = $1`, [t]);
     check(r?.relrowsecurity === true, `uključen na ${t}`);
@@ -521,6 +522,462 @@ async function main(): Promise<void> {
     "profiles.feedback_prompted_at postoji",
   );
 
+  // ── F11: motor utisaka ───────────────────────────────────
+  // Ovde stoje tri stvari koje bi tiho pale: da zapis bez ijednog sadržaja ne
+  // može da postoji, da `feedback` prolazi kroz `grant_credits` (telo funkcije,
+  // ne samo `check`), i da ista nagrada ne može da se dodeli dvaput.
+  console.log("\nF11 — feedback v2");
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('f11','f11@x.rs',5)`);
+
+  await mustFail(
+    `insert into feedback (user_id) values ('f11')`,
+    "zapis bez ocene, odgovora i poruke odbijen",
+  );
+  await mustFail(
+    `insert into feedback (user_id, rating, status) values ('f11', 2, 'bilo_sta')`,
+    "nepoznat status odbijen",
+  );
+  await mustFail(
+    `insert into feedback (user_id, rating, severity) values ('f11', 2, 5)`,
+    "težina van 1-3 odbijena",
+  );
+
+  // Ocena više nije obavezna: odgovor na pitanje je nema.
+  await db.exec(`
+    insert into feedback (user_id, prompt_key, answers, source)
+    values ('f11', 'prva-lista', '{"odgovor":"delimicno"}'::jsonb, 'pitanje')
+  `);
+  const bezOcene = await one<{ n: number }>(
+    `select count(*)::int as n from feedback where user_id='f11' and rating is null`);
+  check(bezOcene?.n === 1, "odgovor na pitanje sme bez ocene");
+
+  await mustFail(
+    `insert into feedback (user_id, rating, source) values ('f11', 2, 'sms')`,
+    "nepoznat izvor i dalje odbijen",
+  );
+  await db.exec(`insert into feedback (user_id, rating, source) values ('f11', 2, 'incident')`);
+
+  // F11.2 od sada stvarno upisuje `screenshot_path` (slika uz utisak) i čita
+  // `ctx.errors` (dnevnik klijentskih grešaka). Kolona i jsonb moraju da postoje
+  // pre nego što ruta pokuša da ih napuni.
+  await db.exec(`
+    insert into feedback (user_id, rating, kind, screenshot_path, ctx)
+    values ('f11', 1, 'bug', 'f11/aaaa.png',
+            '{"plan":"beta","credits":5,"unlocks":0,"ua":"x","viewport":"390×844",
+              "errors":[{"poruka":"pukao fetch","tip":"TypeError","ruta":"/pretraga",
+                         "vreme":"2026-08-12T10:00:00.000Z"}]}'::jsonb)
+  `);
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from feedback
+       where user_id='f11' and screenshot_path is not null
+         and jsonb_array_length(ctx->'errors') = 1`))?.n === 1,
+    "slika i dnevnik grešaka staju uz utisak",
+  );
+
+  console.log("\nfeedback_prompts");
+  await db.exec(`
+    insert into feedback_prompts (user_id, prompt_key) values ('f11', 'prva-lista')
+  `);
+  await mustFail(
+    `insert into feedback_prompts (user_id, prompt_key) values ('f11', 'prva-lista')`,
+    "isto pitanje drugi put odbijeno (PK)",
+  );
+  await mustFail(
+    `insert into feedback_prompts (user_id, prompt_key, status) values ('f11', 'x', 'ceka')`,
+    "nepoznat status pitanja odbijen",
+  );
+
+  console.log("\ngrant_feedback_credits");
+  type FbGrant = { ok: boolean; reason: string; delta: number };
+  const fbId = await one<{ id: number }>(
+    `select id from feedback where user_id='f11' order by id limit 1`);
+  const nagrada = (a: number, id: number | undefined) =>
+    one<FbGrant>(`select * from grant_feedback_credits('f11',$1,$2)`, [a, id ?? 0]);
+
+  // Bez izmene TELA `grant_credits` ovo bi vratilo `invalid_reason` i tiho ne
+  // dodelilo ništa — zamka koju F11 §4 izričito imenuje.
+  const prvaNagrada = await nagrada(1, fbId?.id);
+  check(prvaNagrada?.ok === true && prvaNagrada.delta === 1, "prva nagrada → +1 kredit");
+  check(
+    (await one<{ b: number }>(`select credits_balance as b from profiles where id='f11'`))?.b === 6,
+    "balans porastao tačno za 1",
+  );
+  check((await nagrada(1, fbId?.id))?.reason === "vec dodeljeno", "ista nagrada drugi put ne prolazi");
+  check((await nagrada(11, fbId?.id))?.reason === "iznos van granica", "iznos preko 10 odbijen");
+
+  const zapisNagrade = await one<{ n: number }>(
+    `select count(*)::int as n from credit_ledger
+     where user_id='f11' and reason='feedback' and ref_id = 'fb:' || $1::text`, [fbId?.id]);
+  check(zapisNagrade?.n === 1, "u knjizi tačno jedna stavka za taj utisak");
+
+  // Mesečni plafon je u RPC-u, a ne u aplikaciji — mora da izdrži i poziv koji
+  // zaobiđe web (F11 §4).
+  await db.exec(`
+    insert into credit_ledger (user_id, delta, reason, ref_id)
+    values ('f11', 19, 'feedback', 'fb:test-plafon')
+  `);
+  check(
+    (await nagrada(10, 999))?.reason === "mesecni plafon za utiske",
+    "preko 20 kredita mesečno iz utisaka → odbijeno",
+  );
+
+  console.log("\nchangelog");
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from pg_policies where tablename = 'changelog'`))?.n === 1,
+    "changelog ima tačno jednu politiku",
+  );
+
+  // ── F12: admin konzola ───────────────────────────────────
+  // Tri stvari koje bi tiho pale: da uloga ne može da bude bilo šta, da
+  // korekcija kredita ne može da odvede balans ispod nule, i da dupli klik ne
+  // dodeli dvaput. Sve tri su novac ili prava pristupa.
+  console.log("\nF12 — admin");
+  await db.exec(`insert into profiles (id, email, credits_balance) values
+    ('adm','adm@x.rs',0), ('meta','meta@x.rs',10)`);
+
+  await mustFail(`update profiles set role = 'superadmin' where id = 'adm'`, "nepoznata uloga odbijena");
+  await db.exec(`update profiles set role = 'admin' where id = 'adm'`);
+  check(
+    (await one<{ role: string }>(`select role from profiles where id='adm'`))?.role === "admin",
+    "uloga admin upisana",
+  );
+  check(
+    (await one<{ role: string }>(`select role from profiles where id='meta'`))?.role === "user",
+    "podrazumevana uloga je user (postojeći profili ne postaju admini)",
+  );
+
+  console.log("\nadmin_adjust_credits");
+  type Adjust = { ok: boolean; reason: string; balance: number };
+  const adjust = (delta: number, ref: string | null, user = "meta") =>
+    one<Adjust>(`select * from admin_adjust_credits('adm',$1,$2,'beleška',$3)`, [user, delta, ref]);
+
+  check((await adjust(0, null))?.reason === "invalid_amount", "delta 0 odbijena");
+  check((await adjust(501, null))?.reason === "iznos van granica", "iznos preko 500 odbijen");
+  check((await adjust(5, "adm:x", "nema_ga"))?.reason === "no_user", "nepostojeći korisnik → no_user");
+
+  const dodato = await adjust(30, "adm:r1");
+  check(dodato?.ok === true && dodato.balance === 40, `+30 → balans ${dodato?.balance}`);
+
+  // Poenta `ref_id`-ja iz forme: dupli klik ne sme da dodeli 60.
+  const ponovo = await adjust(30, "adm:r1");
+  check(ponovo?.reason === "already_applied" && ponovo.balance === 40,
+    "isti ref_id drugi put → already_applied, bez druge dodele");
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from credit_ledger where user_id='meta' and ref_id='adm:r1'`))?.n === 1,
+    "u knjizi tačno jedna stavka za taj ref_id",
+  );
+
+  // Jedini put do negativnog iznosa (pravilo 3) — i jedini koji sme da odbije.
+  const oduzeto = await adjust(-15, "adm:r2");
+  check(oduzeto?.ok === true && oduzeto.balance === 25, `−15 → balans ${oduzeto?.balance}`);
+  const preko = await adjust(-500, "adm:r3");
+  check(preko?.ok === false && preko.reason === "balans bi bio negativan",
+    "oduzimanje ispod nule odbijeno");
+  check(
+    (await one<{ b: number }>(`select credits_balance as b from profiles where id='meta'`))?.b === 25,
+    "odbijena korekcija ne menja balans",
+  );
+
+  // Pravilo 14: mutacija i njen trag su jedna transakcija.
+  const trag = await one<{ n: number; delta: string }>(
+    `select count(*)::int as n, max(payload->>'delta') as delta
+     from admin_audit where action='credits.adjust' and target_user='meta'`);
+  check(trag?.n === 2, `svaka uspela korekcija ima red u reviziji (${trag?.n})`);
+
+  // Brisanje admina NE sme da obori dnevnik njegovih radnji — zato je `actor_id`
+  // nullable, uprkos tome što PRD piše `not null` (v. komentar u 0012).
+  await db.exec(`delete from profiles where id = 'adm'`);
+  const posleBrisanja = await one<{ n: number; sirocad: number }>(
+    `select count(*)::int as n,
+            count(*) filter (where actor_id is null)::int as sirocad
+     from admin_audit where target_user='meta'`);
+  check(posleBrisanja?.n === 2 && posleBrisanja.sirocad === 2,
+    "brisanje aktera ostavlja dnevnik, sa actor_id = null");
+
+  console.log("\nadmin_users_page");
+  type Strana = {
+    id: string; email: string; role: string; credits_balance: number;
+    unlocks_count: string; searches_count: string; ukupno: string;
+  };
+  const strana = (filter: string | null, q: string | null = null, sort = "created_at") =>
+    db.query<Strana>(
+      `select * from admin_users_page($1,$2,null,$3,'desc',25,0)`, [q, filter, sort]);
+
+  const sve = await strana(null);
+  check(sve.rows.length > 0 && Number(sve.rows[0]?.ukupno) === sve.rows.length,
+    `lista vraća i ukupan broj (${sve.rows[0]?.ukupno})`);
+
+  const poMejlu = await strana(null, "meta@");
+  check(poMejlu.rows.length === 1 && poMejlu.rows[0]?.id === "meta", "filter po mejlu (ILIKE)");
+
+  // `u1` je ranije u ovom fajlu otključao `p1` i pretraživao — dakle nije „bez
+  // aktivnosti", a `meta` jeste. Bez ovog filtera nemam kome da pošaljem
+  // `zasto-ne-vracas` mejl (F12 §3.1).
+  const mrtvi = await strana("bez_aktivnosti");
+  check(mrtvi.rows.some((r) => r.id === "meta"), "filter bez_aktivnosti hvata neaktivan nalog");
+  check(!mrtvi.rows.some((r) => r.id === "u1"), "filter bez_aktivnosti preskače aktivan nalog");
+
+  const poOtkljucanima = await strana(null, null, "unlocks");
+  check(
+    Number(poOtkljucanima.rows[0]?.unlocks_count ?? 0) >=
+      Number(poOtkljucanima.rows[poOtkljucanima.rows.length - 1]?.unlocks_count ?? 0),
+    "sortiranje po broju otključanih radi (opadajuće)",
+  );
+
+  // Prvi admin postoji SAMO u `ADMIN_BOOTSTRAP_IDS` — `profiles.role` mu je
+  // `'user'`, jer ga niko nije postavio i ne može sam sebi (§1). Bez osmog
+  // parametra (0014) filter „Admini" je na takvoj instalaciji prazan, dakle
+  // beskoristan tačno tamo gde je najpotrebniji.
+  const bezEnva = await db.query<Strana>(
+    `select * from admin_users_page(null,'admini',null,'created_at','desc',25,0,'{}'::text[])`);
+  check(bezEnva.rows.length === 0, "filter admini bez env-a: nijedan (niko nema role='admin')");
+
+  const saEnvom = await db.query<Strana>(
+    `select * from admin_users_page(null,'admini',null,'created_at','desc',25,0,$1::text[])`,
+    [["meta"]]);
+  check(
+    saEnvom.rows.length === 1 && saEnvom.rows[0]?.id === "meta",
+    "filter admini hvata admina iz ADMIN_BOOTSTRAP_IDS",
+  );
+  check(
+    (await strana(null)).rows.length > 1,
+    "bootstrap spisak ne menja ostale filtere",
+  );
+
+  // ── F12.2: kaskada brisanja naloga ───────────────────────
+  // Webhook `user.deleted` briše JEDAN red — `profiles` — i računa na to da baza
+  // odnese ostalo (pravilo 15). Nijedna od tih veza nije dodata u 0012; sve su
+  // starije, i tačno zato ih niko ne bi primetio da se raziđu. Prvi
+  // `references profiles` bez `on delete cascade` u nekoj budućoj migraciji
+  // pretvara brisanje naloga u grešku stranog ključa — u produkciji, na radnji
+  // koja se ne može ponoviti do pola.
+  //
+  // Isto tako se proverava i suprotna strana: `businesses` i `website_audits`
+  // NE smeju da nestanu. To nisu korisnikovi podaci nego imovina proizvoda
+  // (00-kontekst §4).
+  console.log("\nF12.2 — kaskada brisanja naloga");
+  await db.exec(`
+    insert into profiles (id, email, credits_balance) values ('brisan','brisan@x.rs',5);
+    insert into unlocks (user_id, place_id) values ('brisan','p1');
+    insert into credit_ledger (user_id, delta, reason) values ('brisan',-1,'unlock');
+    insert into searches (user_id, country_code, city_slug, source)
+      values ('brisan','RS','nis','cache');
+    insert into feedback (user_id, rating) values ('brisan', 2);
+    insert into feedback_prompts (user_id, prompt_key) values ('brisan','prva-lista');
+    insert into lead_status (user_id, place_id, status, channel, contacted_at)
+      values ('brisan','p1','kontaktiran','mejl',now());
+    insert into outreach_messages (user_id, place_id, channel, body)
+      values ('brisan','p1','mejl','Dobar dan');
+    insert into job_queue (id, type, payload) values (9001,'scan','{}'::jsonb);
+    insert into job_subscribers (job_id, user_id) values (9001,'brisan');
+  `);
+
+  await db.exec(`delete from profiles where id = 'brisan'`);
+
+  for (const tabela of [
+    "unlocks",
+    "credit_ledger",
+    "feedback",
+    "feedback_prompts",
+    "lead_status",
+    "outreach_messages",
+    "job_subscribers",
+  ]) {
+    const r = await one<{ n: number }>(
+      `select count(*)::int as n from ${tabela} where user_id = 'brisan'`);
+    check(r?.n === 0, `${tabela}: kaskada odnela redove obrisanog naloga`);
+  }
+
+  // `searches` je `on delete set null`, ne cascade — i to je namerno: udeo keša u
+  // pretragama je brojka o sistemu, a ne o čoveku. Red ostaje, samo bez vlasnika.
+  const pretrage = await one<{ ukupno: number; bez: number }>(
+    `select count(*)::int as ukupno,
+            count(*) filter (where user_id is null)::int as bez
+     from searches where city_slug = 'nis' and source = 'cache'`);
+  check(
+    (pretrage?.ukupno ?? 0) >= 1 && (pretrage?.bez ?? 0) >= 1,
+    "searches preživljava brisanje, sa user_id = null",
+  );
+
+  check(
+    (await one<{ n: number }>(`select count(*)::int as n from businesses where place_id='p1'`))?.n === 1,
+    "businesses OSTAJE — nije korisnikov podatak",
+  );
+  check(
+    (await one<{ n: number }>(`select count(*)::int as n from website_audits where place_id='p1'`))?.n === 1,
+    "website_audits OSTAJE — nije korisnikov podatak",
+  );
+
+  // ── F12.3: uloga u jednoj transakciji i pregled sistema ──
+  // `admin_set_role` postoji zato što je „poslednji admin ostaje" do sada bila
+  // provera u dva zahteva (v. „S4 — šta se razišlo", tačka 1). Sve što se ovde
+  // proverava je prava pristupa, dakle jedina radnja u konzoli koja menja ko sme
+  // šta — a nju TypeScript ne može da uhvati.
+  console.log("\nF12.3 — admin_set_role");
+  await db.exec(`insert into profiles (id, email, credits_balance) values
+    ('a1','a1@x.rs',0), ('a2','a2@x.rs',0)`);
+  await db.exec(`update profiles set role = 'admin' where id = 'a1'`);
+
+  type Uloga = { ok: boolean; reason: string; admins: number };
+  const uloga = (actor: string, user: string, role: string) =>
+    one<Uloga>(`select * from admin_set_role($1,$2,$3)`, [actor, user, role]);
+
+  check((await uloga("a1", "a2", "superadmin"))?.reason === "invalid_role", "nepoznata uloga odbijena");
+  check((await uloga("a1", "a1", "user"))?.reason === "self", "sebi se uloga ne menja");
+  check((await uloga("a1", "nema_ga", "admin"))?.reason === "no_user", "nepostojeći nalog → no_user");
+
+  // Jedini admin u bazi. Ovo je slučaj zbog kog cela funkcija postoji.
+  const poslednji = await uloga("a2", "a1", "user");
+  check(poslednji?.ok === false && poslednji.reason === "last_admin",
+    "poslednji admin ne može da bude degradiran");
+  check(
+    (await one<{ role: string }>(`select role from profiles where id='a1'`))?.role === "admin",
+    "odbijena promena ne dira red u bazi",
+  );
+
+  const dodeljena = await uloga("a1", "a2", "admin");
+  check(dodeljena?.ok === true && dodeljena.admins === 2, `uloga dodeljena (admina: ${dodeljena?.admins})`);
+  check((await uloga("a1", "a2", "admin"))?.reason === "unchanged", "ista uloga drugi put → unchanged");
+
+  const skinuta = await uloga("a2", "a1", "user");
+  check(skinuta?.ok === true && skinuta.admins === 1,
+    "kad admina ima dvoje, jednom sme da se skine uloga");
+
+  console.log("\nadmin_overview");
+  const pregled = await one<{ v: Record<string, Record<string, unknown>> }>(
+    `select admin_overview(75, 900) as v`);
+
+  for (const kartica of ["budzet", "poslovi", "korisnici", "krediti", "utisci", "baza"]) {
+    check(pregled?.v?.[kartica] !== undefined, `pregled ima karticu „${kartica}"`);
+  }
+  check(pregled?.v?.budzet?.dan_cap === 75, "kap iz TS-a stiže do budžeta, nije zakucan u SQL-u");
+  check(
+    Number(pregled?.v?.korisnici?.ukupno ?? 0) >= 2,
+    `pregled broji profile (${pregled?.v?.korisnici?.ukupno})`,
+  );
+  // Posao 9001 je ubačen gore kao `pending` i od tada čeka — dakle ovo je i
+  // provera da „najstariji na čekanju" uopšte nešto vidi, jer se na njemu pali
+  // jedino crveno stanje osim budžeta (F12 §3.4).
+  check(Number(pregled?.v?.poslovi?.na_cekanju ?? 0) >= 1, "pregled vidi posao na čekanju");
+  check(
+    Array.isArray(pregled?.v?.utisci?.cena_odgovori),
+    "pregled vraća SIROVE odgovore o ceni — medijanu računa medijanaCene()",
+  );
+
+  // ── F11.3: utisci u konzoli ──────────────────────────────
+  // Migracija 0015 dopunjuje `admin_overview` sa dve stvari koje `/admin/utisci`
+  // prikazuje kao red brojki. Provera postoji zato što bi obe tiho vratile
+  // prazno: `jsonb` nema šemu, pa promašen ključ ne puca nego nestane sa ekrana.
+  //
+  // Isti razlog zbog kog se brojke uopšte računaju TU, a ne u drugoj funkciji:
+  // kartica „Utisci" na `/admin` i red brojki na `/admin/utisci` moraju da
+  // pokažu isti broj (F11 §6.6).
+  console.log("\nF11.3 — admin_overview: utisci");
+
+  // Odgovor na pitanje o ceni — ulazi u `cena_odgovori`, iz kog `medijanaCene()`
+  // računa medijanu. SQL je ovde ne dira (sredine opsega su u katalogu).
+  await db.exec(`
+    insert into feedback (user_id, prompt_key, answers, source)
+    values ('f11', 'cena', '{"odgovor":"990-1990"}'::jsonb, 'kampanja')
+  `);
+
+  // Funnel po pitanju: jedno odgovoreno, jedno odbačeno, jedno samo prikazano.
+  await db.exec(`
+    update feedback_prompts set status = 'odgovoreno' where user_id='f11' and prompt_key='prva-lista';
+    insert into feedback_prompts (user_id, prompt_key, status)
+      values ('f11', 'cena', 'odgovoreno'), ('f11', 'prazan-rezultat', 'odbaceno');
+  `);
+
+  // Prijava sa ishodom — `resolved_at` upisuje ruta pri prelasku u završni
+  // status, i samo iz njega se računa „prosek do odgovora".
+  await db.exec(`
+    update feedback set status = 'reseno', resolved_at = created_at + interval '2 hours'
+     where user_id = 'f11' and kind = 'bug'
+  `);
+
+  type Utisci = {
+    po_pitanju: { kljuc: string; prikazano: number; odgovoreno: number; odbaceno: number }[];
+    obrada: { reseno: number; prosek_sec: number; nereseno: number };
+    pitanja: { prikazano: number; odgovoreno: number };
+    cena_odgovori: string[];
+  };
+
+  const sviUtisci = (
+    await one<{ v: { utisci: Utisci } }>(`select admin_overview(75, 900) as v`)
+  )?.v?.utisci;
+
+  check(Array.isArray(sviUtisci?.po_pitanju), "pregled vraća odgovorenost po pitanju");
+
+  const prvaLista = sviUtisci?.po_pitanju.find((q) => q.kljuc === "prva-lista");
+  check(
+    prvaLista?.prikazano === 1 && prvaLista.odgovoreno === 1,
+    `po_pitanju broji odgovorena pitanja (${prvaLista?.odgovoreno}/${prvaLista?.prikazano})`,
+  );
+  check(
+    sviUtisci?.po_pitanju.find((q) => q.kljuc === "prazan-rezultat")?.odbaceno === 1,
+    "po_pitanju broji i odbačena",
+  );
+  // Zbir po pitanjima mora da se poklopi sa zbirnom brojkom — dve brojke o istoj
+  // stvari na istom ekranu koje se ne slažu su gore od nijedne.
+  check(
+    sviUtisci?.po_pitanju.reduce((z, q) => z + q.prikazano, 0) === sviUtisci?.pitanja.prikazano,
+    "zbir po pitanjima = zbirna odgovorenost",
+  );
+
+  check(
+    (sviUtisci?.obrada.reseno ?? 0) >= 1 && (sviUtisci?.obrada.prosek_sec ?? 0) === 7200,
+    `prosek do odgovora je 2 h (${sviUtisci?.obrada.prosek_sec} s)`,
+  );
+  check(
+    (sviUtisci?.obrada.nereseno ?? 0) >= 1,
+    `nerešene se broje odvojeno (${sviUtisci?.obrada.nereseno})`,
+  );
+  check(
+    sviUtisci?.cena_odgovori.includes("990-1990") === true,
+    "odgovor o ceni izlazi SIROV — medijanu i dalje računa medijanaCene()",
+  );
+
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from pg_indexes
+        where tablename = 'feedback' and indexname = 'feedback_created_idx'`))?.n === 1,
+    "lista utisaka ima indeks po created_at",
+  );
+
+  // ── F11.4: zatvaranje petlje ──────────────────────────────
+  // Migracija 0016 donosi dve kolone na kojima stoji ceo ostatak isporuke:
+  // `user_note` (obrazloženje koje korisnik vidi) i `notify_attempts` (brojač
+  // pokušaja mejla „rešeno"). Obe bi tiho radile prazno — `add column` ne puca
+  // kad se zaboravi, samo sve ostane bez teksta, odnosno na nula pokušaja.
+  console.log("\nF11.4 — petlja: user_note i notify_attempts");
+
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from information_schema.columns
+        where table_name = 'feedback' and column_name in ('user_note', 'notify_attempts')`,
+    ))?.n === 2,
+    "feedback ima i user_note i notify_attempts",
+  );
+
+  // Mejl „rešeno" čita upravo ovaj presek — parcijalni indeks mora da postoji,
+  // inače svaki dnevni prolaz šeta kroz celu tabelu.
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from pg_indexes
+        where tablename = 'feedback' and indexname = 'feedback_notify_idx'`,
+    ))?.n === 1,
+    "cron 'rešeno' ima parcijalni indeks",
+  );
+
+  // Ograničenje stvarno drži: negativan brojač ne sme da prođe.
+  await mustFail(
+    `update feedback set notify_attempts = -1 where id = (select id from feedback limit 1)`,
+    "notify_attempts ne sme da bude negativan",
+  );
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
@@ -528,7 +985,10 @@ async function main(): Promise<void> {
                     "fail_job", "defer_job", "reap_stuck_jobs", "claim_cache_miss",
                     "release_cache_miss", "grant_monthly_credits", "claim_export",
                     "spend_credit_and_scan", "refund_scan", "record_scan",
-                    "search_cache_state", "search_cache_overview"]) {
+                    "search_cache_state", "search_cache_overview",
+                    "grant_feedback_credits",
+                    "admin_adjust_credits", "admin_users_page",
+                    "admin_set_role", "admin_overview"]) {
     const r = await one<{ anon: boolean; svc: boolean }>(
       `select has_function_privilege('anon', p.oid, 'execute') as anon,
               has_function_privilege('service_role', p.oid, 'execute') as svc
