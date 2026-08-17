@@ -14,6 +14,7 @@ export function StatKartica({
   ikona,
   odUkupno,
   className,
+  num = true,
 }: {
   naslov: string;
   vrednost: string;
@@ -22,6 +23,9 @@ export function StatKartica({
   /** `[iskorišćeno, granica]` — crta traku napunjenosti. */
   odUkupno?: [number, number];
   className?: string;
+  // [Faza 5, 5.5] Vrednost koja NIJE broj (npr. „beta") ne sme da nosi .num —
+  // cifre dobijaju istu širinu, reči ne smeju (D7).
+  num?: boolean;
 }) {
   const procenat =
     odUkupno && odUkupno[1] > 0
@@ -46,7 +50,9 @@ export function StatKartica({
         )}
       </div>
 
-      <dd className="mt-2 text-2xl font-semibold num tracking-tight">{vrednost}</dd>
+      <dd className={cn("mt-2 text-2xl font-semibold tracking-tight", num && "num")}>
+        {vrednost}
+      </dd>
       {podnaslov && <dd className="mt-0.5 text-xs text-fg-muted">{podnaslov}</dd>}
 
       {procenat !== null && (

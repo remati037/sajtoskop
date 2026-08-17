@@ -203,7 +203,9 @@ function Blok({
     <section>
       <h3 className="text-xs font-medium uppercase tracking-wide text-fg-muted">{naslov}</h3>
 
-      <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
+      {/* [Faza 5, 5.6] Bez ugnježđenog okvira: spoljna kartica nosi ivicu, lista
+          je samo razdelnici (divide-y) — kartica u kartici (D8). */}
+      <ul className="mt-2 divide-y divide-border">
         {stavke.map((s) => (
           <li key={`${s.city}:${s.niche}`}>
             <Red

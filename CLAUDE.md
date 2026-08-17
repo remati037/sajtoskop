@@ -136,6 +136,7 @@ radijusi, senke i komponente su fiksni. Ne izmišljaj nove tokene ni nove nijans
 | `data-theme="dark"` + ključ `sajtoskop-theme` (§7.9) | `.dark` klasa + ključ `sajtoskop-tema` | Mehanički ekvivalentno. Obrazloženje iz dokumenta (deljen izbor sa landing sajtom) ne stoji — `localStorage` je po origin-u, pa `app.` i goli domen ionako ne dele ključ. |
 | Tri stanja teme: svetla / sistem / tamna (§7.9) | Dva: **tamna (podrazumevana)** i svetla | Proizvod ima jedan izgled po kome se pamti. „Sistem" je značio da isti korisnik na dva računara vidi dve aplikacije i da pola snimaka ekrana ispadne u svetloj temi bez ijedne odluke. Svetla tema ostaje i dalje se testira. Stara vrednost `sistem` u `localStorage`-u pada na tamnu, bez migracije. |
 | `--shadow-*` kao imena sirovih promenljivih | `--elev-*`, pa `@theme inline` mapira na `--shadow-*` | `--shadow-*` je Tailwind-ov prostor imena; direktno bi bila kružna referenca. Vrednosti iste. |
+| `--radius-*` kao imena sirovih promenljivih (§3.1) | `--r-sm` / `--r` / `--r-lg` (10 / 14 / 20 px), pa `@theme inline` mapira na `--radius-sm/md/lg/xl/2xl` | Isti razlog kao `--elev-*`: `--radius-*` je Tailwind-ov prostor imena. Postoje i `--radius-sm` (6 px) i `--radius-md` (8 px) kao pravi tokeni — dokument ih nema; `--radius-lg` i naviše su mapirani na `--r-*`. |
 
 ### Tokeni dopisani mimo dokumenta
 

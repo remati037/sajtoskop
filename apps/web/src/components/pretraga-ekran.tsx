@@ -1128,7 +1128,9 @@ function Cip({
       className={cn(
         "rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-150 disabled:opacity-50",
         ukljucen
-          ? "border-accent bg-accent text-accent-ink shadow-accent"
+          ? // [Faza 5, 5.1] shadow-accent je samo na primarnom dugmetu — stanje
+            // čipa nose obod i podloga.
+            "border-accent bg-accent text-accent-ink"
           : "border-border-strong bg-bg-elev text-fg-muted hover:border-fg-muted hover:text-fg",
         className,
       )}

@@ -159,7 +159,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
             className={cn(
               "h-10 rounded-lg border px-3.5 text-xs font-medium transition-all",
               samoBezSajta
-                ? "border-accent bg-accent text-accent-ink shadow-accent"
+                ? "border-accent bg-accent text-accent-ink"
                 : "border-border-strong bg-bg-elev text-fg-muted hover:border-fg-muted hover:text-fg",
             )}
           >
@@ -293,7 +293,7 @@ function Tabela({
                   {l.email ? (
                     <a
                       href={`mailto:${l.email}`}
-                      className="block max-w-[14rem] truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
+                      className="num block max-w-[14rem] truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
                     >
                       {l.email}
                     </a>
@@ -308,7 +308,7 @@ function Tabela({
                       href={l.websiteUrl}
                       target="_blank"
                       rel="noreferrer noopener nofollow"
-                      className="flex max-w-[12rem] items-center gap-1 truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
+                      className="num flex max-w-[12rem] items-center gap-1 truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
                     >
                       <ExternalLink className="h-3 w-3 shrink-0" />
                       <span className="truncate">
@@ -325,7 +325,7 @@ function Tabela({
                 </td>
 
                 <td className="py-3 text-right align-middle text-xs text-fg-muted">
-                  {l.unlockedAt ? formatDatum(l.unlockedAt) : "—"}
+                  {l.unlockedAt ? <span className="num">{formatDatum(l.unlockedAt)}</span> : "—"}
                 </td>
 
                 <td className="py-3 pr-4 text-right align-middle">

@@ -113,7 +113,9 @@ export function LeadTabela({ leads, cityLabels, onUnlock, otkljucavam, disabled 
                       size="sm"
                       disabled={disabled || otkljucavam !== null}
                       onClick={() => onUnlock(lead.placeId)}
-                      className="hover:border-accent hover:bg-accent hover:text-accent-ink hover:shadow-accent"
+                                            // [Faza 5, 5.1] shadow-accent je samo na primarnom dugmetu —
+                      // hover nosi obod i podloga.
+                      className="hover:border-accent hover:bg-accent hover:text-accent-ink"
                     >
                       <Lock className="h-3 w-3" />
                       {otkljucavam === lead.placeId ? "Otključavam…" : "Otključaj · 1 kredit"}
@@ -150,7 +152,7 @@ function OtkljucanKontakt({ lead: l }: { lead: Extract<PublicLead, { isUnlocked:
       {l.email ? (
         <a
           href={`mailto:${l.email}`}
-          className="max-w-[14rem] truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
+          className="num max-w-[14rem] truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
         >
           {l.email}
         </a>
@@ -164,7 +166,7 @@ function OtkljucanKontakt({ lead: l }: { lead: Extract<PublicLead, { isUnlocked:
             href={l.websiteUrl}
             target="_blank"
             rel="noreferrer noopener nofollow"
-            className="flex max-w-[10rem] items-center gap-1 truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
+            className="num flex max-w-[10rem] items-center gap-1 truncate underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
           >
             <ExternalLink className="h-3 w-3 shrink-0" />
             <span className="truncate">{l.websiteUrl.replace(/^https?:\/\/(www\.)?/, "")}</span>

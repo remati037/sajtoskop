@@ -93,7 +93,7 @@ export default async function Page() {
             ikona={<Coins />}
             odUkupno={[profile.credits_balance, plan.monthlyCredits]}
           />
-          <StatKartica naslov="Plan" vrednost={profile.plan} podnaslov="beta" ikona={<Gauge />} />
+          <StatKartica naslov="Plan" vrednost={profile.plan} podnaslov="beta" ikona={<Gauge />} num={false} />
           <StatKartica
             naslov="Pretraga van keša"
             vrednost={`${profile.cache_miss_count} / ${plan.cacheMissPerDay}`}

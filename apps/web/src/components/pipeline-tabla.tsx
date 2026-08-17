@@ -331,7 +331,11 @@ function Kartica({
 
       <p className="mt-0.5 truncate text-xs text-fg-muted">
         {cityLabels[r.citySlug] ?? r.citySlug}
-        {r.contactedAt && ` · ${formatDatum(r.contactedAt)}`}
+        {r.contactedAt && (
+          <>
+            {" "}· <span className="num">{formatDatum(r.contactedAt)}</span>
+          </>
+        )}
       </p>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">

@@ -180,7 +180,7 @@ function Poruke({
 
       <p className="text-xs text-fg-muted">{KANAL_OPIS[kanal]}</p>
 
-      <PorukaBlok poruka={p} placeId={placeId} kanal={kanal} naKontakt={naKontakt} />
+      <PorukaBlok poruka={p} placeId={placeId} kanal={kanal} naKontakt={naKontakt} primarno />
 
       <AiVarijanta placeId={placeId} kanal={kanal} sablon={p} naKontakt={naKontakt} />
 
@@ -346,6 +346,7 @@ function PorukaBlok({
   naKontakt,
   naslov,
   izvor = "sablon",
+  primarno = false,
 }: {
   poruka: Poruka;
   placeId: string;
@@ -354,6 +355,9 @@ function PorukaBlok({
   naslov?: string;
   /** Šta se upisuje u `outreach_messages.source` — šablon ili AI varijanta. */
   izvor?: "sablon" | "ai";
+  // [Faza 5, 5.2] Jedno primarno dugme po dijalogu — glavna (šablonska)
+  // poruka; follow-up i AI varijanta su outline.
+  primarno?: boolean;
 }) {
   const [stanje, setStanje] = useState<"mirno" | "radim" | "kopirano" | "greska">("mirno");
   const utisci = useUtisci();
@@ -426,13 +430,15 @@ function PorukaBlok({
 
         <Button
           type="button"
-          variant={stanje === "kopirano" ? "secondary" : "primary"}
+          // [Faza 5, 5.2] Primarno je samo glavna poruka — ostali „Kopiraj" su
+          // outline, da dijalog nema tri jednaka glavna dugmeta.
+          variant={stanje === "kopirano" ? "secondary" : primarno ? "primary" : "outline"}
           size="sm"
           onClick={() => void kopiraj()}
           disabled={stanje === "radim"}
         >
           {stanje === "kopirano" ? (
-            <Check className="h-3.5 w-3.5 text-accent" />
+            <Check className="h-3.5 w-3.5 text-accent-text" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}

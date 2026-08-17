@@ -175,7 +175,7 @@ function Preklop({ lead, onClose }: { lead: Otkljucan; onClose: () => void }) {
               href={lead.websiteUrl}
               target="_blank"
               rel="noreferrer noopener nofollow"
-              className="flex items-center gap-1 truncate text-xs text-fg-muted underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
+              className="num flex items-center gap-1 truncate text-xs text-fg-muted underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
             >
               <ExternalLink className="h-3 w-3 shrink-0" />
               <span className="truncate">
@@ -316,7 +316,7 @@ function Presuda({ tekst }: { tekst: string }) {
         <p className="text-sm leading-relaxed">„{tekst}"</p>
         <Button type="button" variant="outline" size="sm" onClick={kopiraj} className="shrink-0">
           {kopirano ? (
-            <Check className="h-3.5 w-3.5 text-accent" />
+            <Check className="h-3.5 w-3.5 text-accent-text" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}

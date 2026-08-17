@@ -26,6 +26,7 @@ sledeću sesiju.
 | S10 | Faza 2 — ispravnost: uvoz, pretraga, web | `PLAN-IZMENA.md` | `0019` | 1–2 dana | ☑ |
 | S11 | Faza 3 — performanse | `PLAN-IZMENA.md` | `0020` | 1–2 dana | ☑ |
 | S12 | Faza 4 — UX | `PLAN-IZMENA.md` | — | 2–3 dana | ☑ |
+| S13 | Faza 5 — dizajn sistem | `PLAN-IZMENA.md` | — | 0,5–1 dan | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1698,7 +1699,80 @@ Stavke Faze 5:
 Gotovo kad: dizajn sistem bez odstupanja (osim dokumentovanih); grep provera
 nema hex u JSX-u. typecheck, check:sql, test prolaze.
 
+```
+
+---
+
+## S13 — Faza 5: dizajn sistem ☑ isporučeno
+
+Rad iz `docs/PLAN-IZMENA.md`, Faza 5. Zatvara nalaze D1–D8 iz revizije. Nijedna
+migracija.
+
+### Šta je isporučeno
+
+- **5.1 — `shadow-accent` samo na primarnom dugmetu (D3):** skinut sa filter
+  čipa „Bez funkcionalnog sajta" (`moja-lista-ekran`), toggle čipova filter trake
+  (`pretraga-ekran`) i hover-a dugmeta „Otključaj" (`lead-tabela`). Stanja sada
+  nose obod i podloga; `ui/button.tsx` je jedini koji ga koristi.
+- **5.2 — jedno primarno „Kopiraj" po dijalogu (D4):** `PorukaBlok` dobija
+  `primarno` prop — glavna (šablonska) poruka je primary, follow-up i AI
+  varijanta su outline.
+- **5.3 — `.num` na datumima i URL-ovima (D1, D2):** krediti (datum), moja-lista
+  (mejl, sajt, datum otključavanja), lead-tabela (mejl, sajt; telefon je već
+  imao), pipeline-tabla (datum kontakta), snimak (sajt u preklopu).
+- **5.4 — `text-accent-text` na ikonicama (D6):** Check ikonice u `snimak` i
+  `poruke-panel` — zelena kao tekst isključivo kroz `--accent-text`.
+- **5.5 — `StatKartica` opciona `num` (D7):** dashboard kartica „Plan" (vrednost
+  „beta") je bez `.num`; cifre i dalje imaju istu širinu.
+- **5.6 — kes-lista bez ugnježđenog okvira (D8):** unutrašnji spisak je samo
+  `divide-y` — ivicu nosi spoljna kartica.
+- **5.7 — radijus odstupanje dokumentovano (D5):** tablica „Odstupanja od
+  dokumenta" u CLAUDE.md dobila red o `--r-sm/--r/--r-lg` → `--radius-*`
+  mapiranju i postojanju `--radius-sm/md`.
+
+### Šta se razišlo sa planom
+
+Ništa bitno — svih sedam stavki je urađeno kako je planirano. Napomena: `5.3` je
+pokrio i mejl linkove (nisu URL ali su adrese — ista logika `.num`-a).
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql`, `pnpm test`, `pnpm build` prolaze.
+`grep -rn "shadow-accent" apps/web/src` pokazuje samo `ui/button.tsx`.
+**Vizuelna provera obe teme i telefona (≤ 390 px) ostaje na meni.**
+
+### Prompt (za sledeću sesiju — Faza 6, baza i higijena)
+
+```
+Radimo Fazu 6 iz docs/PLAN-IZMENA.md (baza, zadržavanje, operativna higijena).
+Pročitaj prvo CLAUDE.md, docs/PLAN-IZMENA.md, docs/REVIZIJA.md (odeljak 9 i 11) i
+odeljak „S13 — Faza 5" u docs/SESIJE.md. Ne diraj Fazu 7 (testovi) — osim ako
+sama faza ne zatraži proveru.
+
+Zatečeno stanje: S1–S13 gotovi (F11/F12, Faze 0–5). Migracije idu do 0020;
+sledeća je 0021.
+
+Stavke Faze 6:
+6.1 Odluka o per-redu TTL-u (B1) + primera (filter ili oznaka) — lib/search.ts,
+    moja-lista.ts, poruke.ts + SESIJE zapis.
+6.2 Prekid kaskade website_audits/signed_events od businesses (restrict) — migracija.
+6.3 Nedeljni cron čišćenja: job_queue > 30 dana, searches > 90 dana,
+    api_budget > 3 meseca — novi /api/cron/cistka + vercel.json.
+6.4 partial zastavica u search_cache — migracija + scan.ts + UI oznaka.
+6.5 CHECK-ovi: rating ≤ 5, http_status 100–599, signed_events.country_code —
+    migracija.
+6.6 Tipovi: JobQueueRow.dedupe_key, JobSubscriberRow — packages/shared/src/db.ts.
+6.7 validate-migrations.ts: RLS lista + lead_status/outreach_messages/
+    signed_events.
+6.8 pg_dump backup skripta (cron na Hetzneru, 7 dana, offsite) — scripts/ +
+    komentar u docker-compose.yml.
+6.9 npm audit --prod u CI + Dependabot — .github/workflows/ci.yml +
+    .github/dependabot.yml.
+
+Gotovo kad: check:sql prolazi sa novim migracijama; backup skripta isprobana;
+CI ima audit korak. typecheck, check:sql, test prolaze.
+
 Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md
-(S13 — Faza 5) i napiši mi prompt za Fazu 6.
+(S14 — Faza 6) i napiši mi prompt za Fazu 7.
 ```
 

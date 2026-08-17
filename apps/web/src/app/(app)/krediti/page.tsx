@@ -119,7 +119,8 @@ export default async function Page() {
                       className="border-b border-border/70 transition-colors last:border-0 hover:bg-bg-subtle/60"
                     >
                       <td className="py-2.5 pl-4 text-fg-muted">
-                        {formatDatum(s.createdAt)}
+                        {/* Faza 5, 5.3: datum je broj — .num ga drži u istoj širini. */}
+                        <span className="num">{formatDatum(s.createdAt)}</span>
                       </td>
                       <td className="py-2.5">{RAZLOG_KREDITA[s.reason]}</td>
                       <td className="py-2.5 text-fg-muted">
