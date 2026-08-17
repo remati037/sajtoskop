@@ -24,6 +24,7 @@ import {
 } from "./public-lead";
 import { signScreenshots } from "./screenshots";
 import { PAGE_SIZE, type SearchFilters, type SearchResponse, type SearchSummary } from "./search-types";
+import { inGrupe } from "./upiti";
 
 /**
  * Koliko redova uopšte povlačimo iz baze za jedan (grad, niša) ključ.
@@ -127,15 +128,19 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
     };
   }
 
-  const { data: audits, error: aErr } = await db
-    .from("website_audits")
-    .select(AUDIT_COLUMNS)
-    .in("place_id", rows.map((r) => r.place_id))
-    .returns<AuditQueryRow[]>();
+  // [Faza 2, 2.2] Audita ima do `FETCH_CAP` (1200) — jedan `.in()` bi napravio
+  // URL od ~30 KB. Grupe od 200, spajanje u mapu.
+  const auditByPlace = new Map<string, LeadAudit>();
+  for (const deo of inGrupe(rows.map((r) => r.place_id))) {
+    const { data: audits, error: aErr } = await db
+      .from("website_audits")
+      .select(AUDIT_COLUMNS)
+      .in("place_id", deo)
+      .returns<AuditQueryRow[]>();
 
-  if (aErr) throw new Error(`Čitanje audita nije uspelo: ${aErr.message}`);
-
-  const auditByPlace = new Map<string, LeadAudit>((audits ?? []).map((a) => [a.place_id, a]));
+    if (aErr) throw new Error(`Čitanje audita nije uspelo: ${aErr.message}`);
+    for (const a of audits ?? []) auditByPlace.set(a.place_id, a);
+  }
 
   const paired = rows.map((b) => ({ b, a: auditByPlace.get(b.place_id) ?? null }));
   const filtered = paired.filter(({ a }) => matchesFilters(a, input.filters));
@@ -268,14 +273,19 @@ function summarize(rows: { a: LeadAudit | null }[]): SearchSummary {
 async function getUnlockedPlaceIds(placeIds: string[]): Promise<Set<string>> {
   if (placeIds.length === 0) return new Set();
 
-  const { data, error } = await userSupabase()
-    .from("unlocks")
-    .select("place_id")
-    .in("place_id", placeIds)
-    .returns<{ place_id: string }[]>();
+  // [Faza 2, 2.2] Do 30 id-jeva po stranici — grupe su tu za svaki slučaj.
+  const nadjeno = new Set<string>();
+  for (const deo of inGrupe(placeIds)) {
+    const { data, error } = await userSupabase()
+      .from("unlocks")
+      .select("place_id")
+      .in("place_id", deo)
+      .returns<{ place_id: string }[]>();
 
-  if (error) throw new Error(`Čitanje otključavanja nije uspelo: ${error.message}`);
-  return new Set((data ?? []).map((r) => r.place_id));
+    if (error) throw new Error(`Čitanje otključavanja nije uspelo: ${error.message}`);
+    for (const r of data ?? []) nadjeno.add(r.place_id);
+  }
+  return nadjeno;
 }
 
 // ── istorija pretraga ──────────────────────────────────────

@@ -103,6 +103,33 @@ async function scheduleEnrichment(userId: string, placeId: string): Promise<void
 }
 
 /**
+ * [Faza 2, 2.1] Otključavanje za BULK UVOZ — bez UI čitanja.
+ *
+ * `unlockLead` posle RPC-a čita lead i balans za odgovor ekrana; uvoz te
+ * podatke ne koristi, pa bi ~4 upita po redu bila bačena. Ostaje ISTI
+ * `spend_credit_and_unlock` (jedini put do kredita, pravilo 3) i isti upis
+ * `enrich_full` posla — razlika je samo u čitanjima koja uvoz ne gleda.
+ */
+export async function otkljucajZaUvoz(
+  userId: string,
+  placeId: string,
+): Promise<{ ok: boolean; reason: SpendReason }> {
+  const { data, error } = await adminSupabase().rpc("spend_credit_and_unlock", {
+    p_user: userId,
+    p_place: placeId,
+  });
+
+  if (error) throw new Error(`Otključavanje nije uspelo: ${error.message}`);
+
+  const row = ((data ?? []) as RpcResult<SpendReason>[])[0];
+  if (!row) throw new Error("spend_credit_and_unlock nije vratio rezultat.");
+
+  if (!row.ok) return { ok: false, reason: row.reason };
+  if (row.reason === "unlocked") await scheduleEnrichment(userId, placeId);
+  return { ok: true, reason: row.reason };
+}
+
+/**
  * Lead posle otključavanja, kroz istu `toPublicLead` funkciju koju koristi
  * pretraga (PRD §1). Odgovor rute tako ne može da se raziđe sa odgovorom liste —
  * a što je važnije, novo polje u `website_audits` je i ovde podrazumevano

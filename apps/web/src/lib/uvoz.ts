@@ -31,13 +31,24 @@ import "server-only";
 import { CITIES, fromCsv, foldForSearch, slugify } from "@sajtoskop/shared";
 import type { BusinessRow, LeadStatusValue } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
-import { unlockLead } from "./unlock";
+import { otkljucajZaUvoz } from "./unlock";
 
 /** Gornja granica jednog uvoza. Sheet od par stotina redova je stvarni slučaj. */
 const MAX_REDOVA = 2000;
 
 /** Koliko biznisa se učitava za uparivanje. Zaštita od uvoza sa 50 gradova. */
 const MAX_KANDIDATA = 20_000;
+
+/**
+ * [Faza 2, 2.1] Koliko redova se obrađuje istovremeno.
+ *
+ * Stara verzija je išla red po red — 2000 redova × 2–4 RPC poziva u prozoru od
+ * 60 s (Vercel Hobby) znači da je veliki uvoz UVEK istekao na pola (W1).
+ * Paralelne grupe od 30 spuštaju vreme na sekunde; kredite i dalje čuva sama
+ * baza (`spend_credit_and_unlock` je atomičan), a `kreditiPresli` samo
+ * zaustavlja nove grupe kad balans padne na nulu.
+ */
+const GRUPA = 30;
 
 /**
  * Nazivi kolona koje uvoz prepoznaje, po nameni.
@@ -218,8 +229,12 @@ export async function uveziPipeline(
   const db = adminSupabase();
   let kreditiPresli = false;
 
-  for (const s of stavke) {
-    if (!s.grad) continue;
+  // [Faza 2, 2.1] Jedan red CSV-a = jedan zadatak. Zadaci se pokreću u
+  // grupama od `GRUPA`; izveštaj i `kreditiPresli` su deljeno stanje, a JS je
+  // single-threaded pa su upisi u njih atomični. Retry posle prekida NE duplira:
+  // otključavanja su idempotentna po (user_id, place_id), a statusi su upsert.
+  const obradi = async (s: (typeof stavke)[number]) => {
+    if (!s.grad) return;
 
     // Telefon prvi: broj je jedinstven, naziv nije. Uparivanje po nazivu je
     // rezerva za redove u kojima telefona nema.
@@ -231,12 +246,12 @@ export async function uveziPipeline(
       if (izvestaj.primeriNenadjenih.length < 5 && s.naziv) {
         izvestaj.primeriNenadjenih.push(s.naziv);
       }
-      continue;
+      return;
     }
 
     if (pogoci.length > 1) {
       izvestaj.dvosmisleno++;
-      continue;
+      return;
     }
 
     const placeId = pogoci[0]!;
@@ -244,14 +259,14 @@ export async function uveziPipeline(
     if (!otkljucani.has(placeId)) {
       if (!trosiKredite || kreditiPresli) {
         izvestaj[trosiKredite ? "bezKredita" : "zakljucano"]++;
-        continue;
+        return;
       }
 
-      // Isti put kao dugme „Otključaj", ne direktan RPC: `unlockLead` uz kredit
-      // upisuje i `enrich_full` posao. Bez toga bi uvezeni prospekt ostao bez
-      // screenshota, PageSpeed skora i analize — dakle bez svega zbog čega je
-      // kredit i skinut, i to bi se primetilo tek kad mu se otvori kartica.
-      const ishod = await unlockLead(userId, placeId);
+      // Isti put kao dugme „Otključaj", bez čitanja za UI: `otkljucajZaUvoz`
+      // zove isti `spend_credit_and_unlock` i upisuje `enrich_full` posao.
+      // Bez toga bi uvezeni prospekt ostao bez screenshota, PageSpeed skora i
+      // analize — dakle bez svega zbog čega je kredit i skinut.
+      const ishod = await otkljucajZaUvoz(userId, placeId);
       if (!ishod.ok) {
         izvestaj.bezKredita++;
         // Samo prazan balans zaustavlja ostatak uvoza: svaki dalji poziv bi
@@ -259,7 +274,7 @@ export async function uveziPipeline(
         // iz drugog razloga (`no_place` — biznis obrisan između uparivanja i
         // otključavanja) je greška tog jednog reda i ne sme da obori uvoz.
         if (ishod.reason === "insufficient_credits") kreditiPresli = true;
-        continue;
+        return;
       }
       otkljucani.add(placeId);
     }
@@ -285,6 +300,11 @@ export async function uveziPipeline(
     }
 
     izvestaj.uvezeno++;
+  };
+
+  const saGradom = stavke.filter((s) => s.grad !== null);
+  for (let i = 0; i < saGradom.length; i += GRUPA) {
+    await Promise.all(saGradom.slice(i, i + GRUPA).map(obradi));
   }
 
   return { ok: true, izvestaj };

@@ -19,6 +19,7 @@ import {
 import { signScreenshots } from "./screenshots";
 import type { UnlockedLead } from "./search-types";
 import { adminSupabase, userSupabase } from "./supabase";
+import { inGrupe } from "./upiti";
 
 /**
  * Gornja granica jednog čitanja liste. Beta plan daje 30 kredita mesečno, pa je
@@ -62,28 +63,32 @@ export async function getMojaLista(filter: MojaListaFilter = {}): Promise<MojLea
   const ids = redovi.map((r) => r.place_id);
   const db = adminSupabase();
 
-  let upit = db.from("businesses").select(LEAD_BUSINESS_COLUMNS).in("place_id", ids);
-  if (filter.citySlug) upit = upit.eq("city_slug", filter.citySlug);
-  if (filter.nicheSlug) upit = upit.eq("niche_slug", filter.nicheSlug);
+  // [Faza 2, 2.2] `ids` ide do 2000 — jedan `.in()` bi napravio URL od ~50 KB.
+  // Grupe od 200, pa spajanje (W3).
+  const firme: LeadBusiness[] = [];
+  for (const deo of inGrupe(ids)) {
+    let upit = db.from("businesses").select(LEAD_BUSINESS_COLUMNS).in("place_id", deo);
+    if (filter.citySlug) upit = upit.eq("city_slug", filter.citySlug);
+    if (filter.nicheSlug) upit = upit.eq("niche_slug", filter.nicheSlug);
 
-  const { data: businesses, error: bErr } = await upit.returns<LeadBusiness[]>();
-  if (bErr) throw new Error(`Čitanje prospekata nije uspelo: ${bErr.message}`);
+    const { data: deoFirmi, error: bErr } = await upit.returns<LeadBusiness[]>();
+    if (bErr) throw new Error(`Čitanje prospekata nije uspelo: ${bErr.message}`);
+    firme.push(...(deoFirmi ?? []));
+  }
 
-  const firme = businesses ?? [];
   if (firme.length === 0) return [];
 
-  const { data: audits, error: aErr } = await db
-    .from("website_audits")
-    .select(`place_id, ${LEAD_AUDIT_COLUMNS}`)
-    .in(
-      "place_id",
-      firme.map((b) => b.place_id),
-    )
-    .returns<(LeadAudit & { place_id: string })[]>();
+  const auditPoMestu = new Map<string, LeadAudit>();
+  for (const deo of inGrupe(firme.map((b) => b.place_id))) {
+    const { data: audits, error: aErr } = await db
+      .from("website_audits")
+      .select(`place_id, ${LEAD_AUDIT_COLUMNS}`)
+      .in("place_id", deo)
+      .returns<(LeadAudit & { place_id: string })[]>();
 
-  if (aErr) throw new Error(`Čitanje audita nije uspelo: ${aErr.message}`);
-
-  const auditPoMestu = new Map((audits ?? []).map((a) => [a.place_id, a]));
+    if (aErr) throw new Error(`Čitanje audita nije uspelo: ${aErr.message}`);
+    for (const a of audits ?? []) auditPoMestu.set(a.place_id, a);
+  }
 
   // Cela lista je po definiciji otključana, pa se potpisuje sve odjednom —
   // jedan poziv ka Storage-u umesto dva po redu.

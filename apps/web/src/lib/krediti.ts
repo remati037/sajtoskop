@@ -9,6 +9,7 @@ import "server-only";
 import { CITIES, NICHES } from "@sajtoskop/shared";
 import type { CreditLedgerRow } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
+import { inGrupe } from "./upiti";
 
 const CAP = 200;
 
@@ -63,15 +64,18 @@ export async function getIstorijaKredita(): Promise<StavkaKnjige[]> {
   const nazivi = new Map<string, string>();
 
   if (placeIds.length > 0) {
-    const { data: firme, error: bErr } = await adminSupabase()
-      .from("businesses")
-      .select("place_id, name")
-      .in("place_id", [...new Set(placeIds)])
-      .returns<{ place_id: string; name: string }[]>();
+    // [Faza 2, 2.2] `.in()` u grupama — spisak ume da bude dugačak (W3).
+    for (const deo of inGrupe([...new Set(placeIds)])) {
+      const { data: firme, error: bErr } = await adminSupabase()
+        .from("businesses")
+        .select("place_id, name")
+        .in("place_id", deo)
+        .returns<{ place_id: string; name: string }[]>();
 
-    // Naziv je ukras; bez njega stavka i dalje ima datum, iznos i razlog.
-    if (bErr) console.error(`[krediti] nazivi prospekata: ${bErr.message}`);
-    else for (const f of firme ?? []) nazivi.set(f.place_id, f.name);
+      // Naziv je ukras; bez njega stavka i dalje ima datum, iznos i razlog.
+      if (bErr) console.error(`[krediti] nazivi prospekata: ${bErr.message}`);
+      else for (const f of firme ?? []) nazivi.set(f.place_id, f.name);
+    }
   }
 
   // `scan` i njegov povraćaj nose `ref_id = 'scan:<job_id>'` (F9 §2), pa se
@@ -84,19 +88,22 @@ export async function getIstorijaKredita(): Promise<StavkaKnjige[]> {
   const kombinacije = new Map<number, string>();
 
   if (jobIds.length > 0) {
-    const { data: poslovi, error: jErr } = await adminSupabase()
-      .from("job_queue")
-      .select("id, payload")
-      .in("id", jobIds)
-      .returns<{ id: number; payload: Record<string, unknown> }[]>();
+    // [Faza 2, 2.2] Isti režim kao za place_id-jeve iznad.
+    for (const deo of inGrupe(jobIds)) {
+      const { data: poslovi, error: jErr } = await adminSupabase()
+        .from("job_queue")
+        .select("id, payload")
+        .in("id", deo)
+        .returns<{ id: number; payload: Record<string, unknown> }[]>();
 
-    if (jErr) console.error(`[krediti] kombinacije skeniranja: ${jErr.message}`);
-    else {
-      for (const p of poslovi ?? []) {
-        const grad = typeof p.payload.citySlug === "string" ? p.payload.citySlug : null;
-        const nisa = typeof p.payload.nicheSlug === "string" ? p.payload.nicheSlug : null;
-        if (!grad || !nisa) continue;
-        kombinacije.set(p.id, `${GRAD_LABEL.get(grad) ?? grad} · ${NISA_LABEL.get(nisa) ?? nisa}`);
+      if (jErr) console.error(`[krediti] kombinacije skeniranja: ${jErr.message}`);
+      else {
+        for (const p of poslovi ?? []) {
+          const grad = typeof p.payload.citySlug === "string" ? p.payload.citySlug : null;
+          const nisa = typeof p.payload.nicheSlug === "string" ? p.payload.nicheSlug : null;
+          if (!grad || !nisa) continue;
+          kombinacije.set(p.id, `${GRAD_LABEL.get(grad) ?? grad} · ${NISA_LABEL.get(nisa) ?? nisa}`);
+        }
       }
     }
   }

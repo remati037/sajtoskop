@@ -1140,6 +1140,41 @@ async function main(): Promise<void> {
     "nepostojeći red → nema",
   );
 
+  // ── Faza 2: enqueue_job trka i dedup poruka ──────────────
+  // PGlite ima jednu konekciju, pa se prava trka ne može izvesti — ali ishod
+  // koji trka mora da ima (isti job_id, drugi je `joined`, nijedan 500) može.
+  // Sama grana `unique_violation` u enqueue_job je pokrivena kodom (0019).
+  console.log("\nFaza 2 — enqueue_job (trka na prvom upisu)");
+  const trka1 = await one<Enq>(
+    `select * from enqueue_job('scan', '{"citySlug":"trka"}'::jsonb, 'RS:trka:x', 'u1')`);
+  const trka2 = await one<Enq>(
+    `select * from enqueue_job('scan', '{"citySlug":"trka"}'::jsonb, 'RS:trka:x', 'u2')`);
+  check(
+    trka1?.joined === false && trka2?.joined === true && trka1?.job_id === trka2?.job_id,
+    `drugi upis istog ključa → joined, isti job_id (2.3)  (${trka1?.job_id}/${trka2?.job_id})`,
+  );
+
+  console.log("\nFaza 2 — outreach_messages dedup (2.5)");
+  await db.exec(`
+    insert into outreach_messages (user_id, place_id, channel, body)
+    values ('u1', 'p1', 'mejl', 'ista poruka')
+  `);
+  await mustFail(
+    `insert into outreach_messages (user_id, place_id, channel, body)
+     values ('u1', 'p1', 'mejl', 'ista poruka')`,
+    "dupli (user, place, kanal, tekst) odbijen",
+  );
+  // `on conflict do nothing` — tačno ono što ruta i worker zovu — preskače.
+  await db.exec(`
+    insert into outreach_messages (user_id, place_id, channel, body)
+    values ('u1', 'p1', 'mejl', 'ista poruka')
+    on conflict do nothing
+  `);
+  const poruke = await one<{ n: number }>(
+    `select count(*)::int as n from outreach_messages
+     where user_id = 'u1' and place_id = 'p1' and body = 'ista poruka'`);
+  check(poruke?.n === 1, "on conflict do nothing ne duplira");
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",

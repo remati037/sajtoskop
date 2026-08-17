@@ -23,6 +23,7 @@ sledeću sesiju.
 | S7 | F11.4 — zatvaranje petlje | `F11-utisci-v2.md` | `0016` | 0,75 dan | ☑ |
 | S8 | Faza 0 — worker: novac i pouzdanost | `PLAN-IZMENA.md` | `0017` | 0,5–1 dan | ☑ |
 | S9 | Faza 1 — bezbednost: P1 lista | `PLAN-IZMENA.md` | `0018` | 0,5–1 dan | ☑ |
+| S10 | Faza 2 — ispravnost: uvoz, pretraga, web | `PLAN-IZMENA.md` | `0019` | 1–2 dana | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1377,5 +1378,113 @@ typecheck, check:sql, test prolaze.
 
 Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md (S10 — Faza 2)
 i napiši mi prompt za Fazu 3.
+```
+
+---
+
+## S10 — Faza 2: ispravnost — uvoz, pretraga, web bugovi ☑ isporučeno
+
+Rad iz `docs/PLAN-IZMENA.md`, Faza 2. Zatvara nalaze W1–W7, N1 i N6 iz revizije.
+
+### Šta je isporučeno
+
+- **2.1 — CSV uvoz u paralelnim grupama (W1):** petlja red-po-red (do 4000+ RPC
+  poziva za 2000 redova, uvek istekne u 60 s) je zamenjena grupama od 30 paralelnih
+  zadataka. Uz to, novo `otkljucajZaUvoz` u `lib/unlock.ts` — isti
+  `spend_credit_and_unlock` (jedini put do kredita) + upis `enrich_full` posla, ali BEZ
+  ~4 UI čitanja koja `unlockLead` radi za odgovor ekrana. `kreditiPresli` je kumulativna
+  provera budžeta: kad balans padne na nulu, nove grupe preskaču otključavanje; samu
+  granicu i dalje drži baza, atomično po redu. **W2 (retry ne duplira):** otključavanja
+  su idempotentna po (user_id, place_id), statusi i beleške su upsert — ponovljen uvoz
+  ne skida kredit dvaput. To je zapisano u `lib/uvoz.ts` i u odstupanjima ispod.
+- **2.2 — `.in()` u grupama (W3):** novi `lib/upiti.ts` (`inGrupe`, po 200) primenjen na
+  svih 7 mesta: `search.ts` (auditi do 1200 + otključani), `moja-lista.ts` (biznisi i
+  auditi do 2000), `krediti.ts` (place_id i job_ids), `admin-korisnici.ts` (place_id).
+- **2.3 — trka na prvom scanu (N1):** `enqueue_job` u migraciji 0019 hvata
+  `unique_violation` (dva procesa prošla kroz prazan `for update`) i preuzima tuđi red —
+  `joined=true`, isti job_id, nijedan 500.
+- **2.4 — poruke drugog posla (W4):** `GET /api/poruke/ai` posle provere pretplate čita
+  `job_queue.payload` i uparuje `placeId` i kanal (i tip posla) pre čitanja poruke.
+  Neusklađeno → 404, isti odgovor kao za tuđ posao.
+- **2.5 — dupli klik na „Kopiraj" (W5):** jedinstveni indeks
+  `outreach_messages_dedupe_idx (user_id, place_id, channel, body)` u migraciji 0019;
+  ruta (`lib/poruke.ts`) i worker (`rewrite-message.ts`) upisuju kroz `upsert` sa
+  `ignoreDuplicates: true`. Retry posla u workeru ne upisuje drugi red.
+- **2.6 — nema pollovanja posla 0 (N6):** `spend_credit_and_scan` koji vrati `ok` bez
+  `job_id` je interna greška (500), ne `job: {id: 0}`. Klijent se ne kači na posao koji
+  ne postoji; ponovljen pokušaj je bezbedan (idempotencija po kombinaciji).
+- **2.7 — plaćen scan nikad ne vrati 500 (W7):** keš-čitanje posle naplate je u
+  `try/catch` — pad se loguje, odgovor ostaje `queued` sa job id, klijent polluje posao.
+- **2.8 — seed ne pregazi sveže audite:** `existingAudits` sada čita i `enriched_at`;
+  seed upisuje osnovni audit samo tamo gde ga nema ili gde je arhiva novija. `audit_level
+  > 1` se i dalje ne dira; svež level-1 audit iz rada više ne biva prepisan podacima iz
+  avgusta (nalaz 5.3).
+- **Limiter:** `/api/uvoz` i `POST /api/poruke/ai` su dobili IP tempo (Faza 1 obrazac).
+- **Provere:** `check:sql` — blok „Faza 2": enqueue_job drugi upis → joined + isti
+  job_id; outreach_messages dedup (dupli red odbijen, `on conflict do nothing` ne
+  duplira).
+
+### Šta se razišlo sa planom
+
+1. **2.1 — paralelne grupe, ne batch RPC.** Plan nudi oba; izabrane su grupe od 30 jer
+   batch RPC u SQL-u ne može da pozove postojeću kreditnu mašineriju bez dupliranja
+   logike (a `enrich_full` enqueue ionako ide kroz red). Uz `otkljucajZaUvoz` (bez UI
+   čitanja) 2000 redova staje u sekunde, daleko ispod 60 s.
+2. **2.1/W2 — „ceo uvoz u jednoj transakciji" nije sprovedeno.** PostgREST nema
+   transakciju preko više poziva, a job_queue varijanta je nesrazmerna beti. Umesto toga:
+   retry je dokazano bezbedan (unlocks idempotentni po PK, statusi upsert — provereno i
+   zapisano u kodu). Ono što ostaje je parcijalan rezultat na TVRDOM timeoutu (Vercel
+   ubije funkciju, ne može se uhvatiti) — sa grupama od 30 je to praktično nestalo. Ako
+   ikad zatreba sve-ili-ništa, put je job_queue posao, ne nova migracija.
+3. **2.5 — dedup ključ bez vremenskog prozora.** Isti tekst kopiran NAMERNO drugi put za
+   isti lead ne pravi nov red u arhivi. Retko (tekst se menja), a jedinstvenost je
+   vrednija — zapisano u migraciji.
+4. **2.8 — seed sada poredi `enriched_at` za level-1 audite**, ne samo `audit_level`.
+   Plan pominje `audit_level > 1`; prošireno na svežinu jer je nalaz revizije bio o
+   svežim level-1 auditima.
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql`, `pnpm test`, `pnpm build` prolaze. Nijedan nov
+Places poziv; migracija 0019 ne dira nijedan podatak. **Ručne provere ostaju na meni:**
+
+1. uvezi CSV sa 2000 redova (i sa `trosiKredite`) — izveštaj stiže za nekoliko sekundi,
+   ne 60 s; pokreni isti uvoz drugi put — broj otključanih se ne menja;
+2. uvezi CSV posle ispražnjenog balansa — `bezKredita` raste, uvoz staje, nijedan kredit
+   ne ide ispod nule;
+3. dva brza POST-a na `/api/search` za istu kombinaciju koja se prvi put skenira — oba
+   dobiju isti `jobId`, nijedan 500;
+4. dupli klik na „Kopiraj" — jedan red u `outreach_messages`; ponovljen `rewrite_message`
+   posao — jedan AI red;
+5. uvezi CSV pa izmeni `enriched_at` na svež audit (level 1) i ponovi seed — audit ostaje;
+6. `/api/poruke/ai` GET sa jobId drugog posla (drugi placeId) — 404, ne tuđa poruka.
+
+### Prompt (za sledeću sesiju — Faza 3, performanse)
+
+```
+Radimo Fazu 3 iz docs/PLAN-IZMENA.md (performanse). Pročitaj prvo CLAUDE.md,
+docs/PLAN-IZMENA.md, docs/REVIZIJA.md (odeljak 6) i odeljak „S10 — Faza 2" u
+docs/SESIJE.md. Ne diraj Fazu 4 (UX) ni Fazu 5 (dizajn sistem).
+
+Zatečeno stanje: S1–S10 gotovi (F11/F12, Faze 0–2). Migracije idu do 0019; sledeća
+je 0020. `.in()` je već u grupama (2.2); `lib/upiti.ts` ima `inGrupe`.
+
+Stavke Faze 3:
+3.1 signedScreenshots: false za CSV izvoz; lenjo potpisivanje za /lista —
+    lib/moja-lista.ts, lib/export.ts. Izvoz bez ijednog Storage poziva.
+3.2 Worker upisuje found/analyzed na red posla → polling je jedan upit —
+    migracija + jobs/scan.ts + lib/jobs.ts. Polling s backoffom (3 s → 10 s).
+3.3 search_cache brojači umesto pogleda — migracija + record_scan + upis audita.
+3.4 Pretraga: filter/sort u SQL-u ili keš stranice 30 s — migracija + lib/search.ts.
+3.5 Indeksi: credit_ledger (user_id, created_at desc), admin_audit (actor_id,
+    created_at desc), businesses (city_slug) — migracija.
+3.6 Suspense + skeletoni; feedback-engine čitanja van blokirajućeg puta layout-a —
+    (app)/layout.tsx, stranice.
+
+Gotovo kad: polling jednog scana troši < 60 upita (danas ~180); izvoz i pretraga ne
+potpisuju nepotrebno; EXPLAIN na glavnim upitima bez seq scan-a.
+
+Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md (S11 — Faza 3)
+i napiši mi prompt za Fazu 4.
 ```
 

@@ -196,29 +196,57 @@ export async function POST(req: Request): Promise<Response> {
     // se potroši drugi put.
     if (!charge.charged) await releaseCacheMiss(userId);
 
+    // [Faza 2, 2.6] Naplata koja prođe bez job_id je interna greška, ne `job: 0`
+    // (N6): klijent koji polluje posao 0 zauvek visi na traci. Klijent dobija 500
+    // i može da pokuša ponovo — `spend_credit_and_scan` je idempotentan po
+    // kombinaciji, pa ponovljen pokušaj ne skida kredit dvaput.
+    const jobId = charge.jobId;
+    if (jobId === null) {
+      throw new Error("spend_credit_and_scan je vratio ok bez job_id.");
+    }
+
     // Zastareo keš se NE prikazuje dok novi scan ne završi (F9, odluka 3 §0).
     // Sveži keš se prikazuje i tokom ručnog osvežavanja — nema razloga da ekran
     // ostane prazan dok se osvežava nešto što je i dalje ispravno.
-    const result = stanje.fresh
-      ? await searchCachedLeads({
-          userId, city, niche, filters, page,
-          scannedAt: stanje.scannedAt,
-          source: "api",
-        })
-      : {
-          status: "cache" as const,
-          freshness: null,
-          total: 0,
-          page,
-          pageSize: PAGE_SIZE,
-          results: [],
-          summary: PRAZAN_SUMAR,
-        };
+    //
+    // [Faza 2, 2.7] Keš-čitanje posle naplate ne sme da obori odgovor (W7):
+    // korisnik je platio, pa odgovor MORA da bude `queued` sa job id — klijent
+    // polluje posao i rezultati stižu čim scan završi. Pad keš-čitanja se
+    // loguje i vraća se prazan `queued`.
+    let result: Awaited<ReturnType<typeof searchCachedLeads>>;
+    try {
+      result = stanje.fresh
+        ? await searchCachedLeads({
+            userId, city, niche, filters, page,
+            scannedAt: stanje.scannedAt,
+            source: "api",
+          })
+        : {
+            status: "cache" as const,
+            freshness: null,
+            total: 0,
+            page,
+            pageSize: PAGE_SIZE,
+            results: [],
+            summary: PRAZAN_SUMAR,
+          };
+    } catch (err) {
+      console.error("[api/search] keš-čitanje posle naplate:", err);
+      result = {
+        status: "cache" as const,
+        freshness: null,
+        total: 0,
+        page,
+        pageSize: PAGE_SIZE,
+        results: [],
+        summary: PRAZAN_SUMAR,
+      };
+    }
 
     const body: SearchResponse = {
       ...result,
       status: "queued",
-      job: { id: charge.jobId ?? 0, joined: charge.joined },
+      job: { id: jobId, joined: charge.joined },
       charged: charge.charged,
       creditsLeft: charge.creditsLeft,
     };

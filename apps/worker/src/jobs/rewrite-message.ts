@@ -313,13 +313,19 @@ async function upisi(
   channel: MessageChannel,
   body: string,
 ): Promise<void> {
-  const { error } = await db.from("outreach_messages").insert({
-    user_id: userId,
-    place_id: placeId,
-    channel,
-    body,
-    source: "ai",
-  });
+  // [Faza 2, 2.5] `ignoreDuplicates`: ponovljen posao (žetva posle pada) ne sme
+  // da upiše drugi red za istu poruku — jedinstven je po
+  // (user_id, place_id, channel, body), migracija 0019.
+  const { error } = await db.from("outreach_messages").upsert(
+    {
+      user_id: userId,
+      place_id: placeId,
+      channel,
+      body,
+      source: "ai",
+    },
+    { onConflict: "user_id,place_id,channel,body", ignoreDuplicates: true },
+  );
 
   if (error) throw new Error(`Upis AI poruke nije uspeo: ${error.message}`);
 }

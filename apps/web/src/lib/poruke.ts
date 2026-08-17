@@ -141,15 +141,20 @@ export async function zabeleziKopiranje(
 
   // `poziv` nema tekst poruke — telefonski razgovor se ne arhivira.
   if (channel !== "poziv" && body.trim()) {
-    const { error: mErr } = await db.from("outreach_messages").insert({
-      user_id: userId,
-      place_id: placeId,
-      // Suženo gornjim `!== "poziv"` — `outreach_messages.channel` po CHECK
-      // ograničenju prima samo kanale koji imaju tekst.
-      channel: channel satisfies MessageChannel as MessageChannel,
-      body,
-      source,
-    });
+    // [Faza 2, 2.5] Dedup po (user_id, place_id, channel, body): dupli klik na
+    // „Kopiraj" ne sme da upiše drugi red (W5). `ignoreDuplicates` čuva prvi.
+    const { error: mErr } = await db.from("outreach_messages").upsert(
+      {
+        user_id: userId,
+        place_id: placeId,
+        // Suženo gornjim `!== "poziv"` — `outreach_messages.channel` po CHECK
+        // ograničenju prima samo kanale koji imaju tekst.
+        channel: channel satisfies MessageChannel as MessageChannel,
+        body,
+        source,
+      },
+      { onConflict: "user_id,place_id,channel,body", ignoreDuplicates: true },
+    );
 
     // Ne ruši odgovor: status je upisan, a to je ono što korisnik vidi. Gubitak
     // arhive je vredan loga, ne crvene poruke na ekranu.

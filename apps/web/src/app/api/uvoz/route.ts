@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
+import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError } from "@/lib/search-types";
 import { uveziPipeline } from "@/lib/uvoz";
 
@@ -34,6 +35,10 @@ function greska(poruka: string, status: number): Response {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2) — uvoz troši i kredite i bazu.
+  const ogranicen = await proveriIpTempo(req, "uvoz");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();

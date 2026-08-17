@@ -125,17 +125,24 @@ async function existingBusinesses(db: SupabaseClient, ids: string[]): Promise<Ma
   return found;
 }
 
-/** place_id → audit_level, za sve što je već u bazi. */
-async function existingAudits(db: SupabaseClient, ids: string[]): Promise<Map<string, number>> {
-  const found = new Map<string, number>();
+/** place_id → audit_level + enriched_at, za sve što je već u bazi. */
+async function existingAudits(
+  db: SupabaseClient,
+  ids: string[],
+): Promise<Map<string, { audit_level: number; enriched_at: string | null }>> {
+  const found = new Map<string, { audit_level: number; enriched_at: string | null }>();
   for (const part of chunks(ids, CHUNK)) {
     const { data, error } = await db
       .from("website_audits")
-      .select("place_id, audit_level")
+      .select("place_id, audit_level, enriched_at")
       .in("place_id", part);
     if (error) throw new Error(`Čitanje website_audits nije uspelo: ${error.message}`);
-    for (const row of (data ?? []) as { place_id: string; audit_level: number }[]) {
-      found.set(row.place_id, row.audit_level);
+    for (const row of (data ?? []) as {
+      place_id: string;
+      audit_level: number;
+      enriched_at: string | null;
+    }[]) {
+      found.set(row.place_id, { audit_level: row.audit_level, enriched_at: row.enriched_at });
     }
   }
   return found;
@@ -165,9 +172,19 @@ async function write(db: SupabaseClient, records: SeedRecord[]): Promise<void> {
   console.log(`  businesses: ${businesses.length} upisano`);
 
   // Audit tek posle biznisa — FK na businesses(place_id).
+  // [Faza 2, 2.8] Pored `audit_level > 1`, seed ne sme da pregazi ni SVEŽ
+  // osnovni audit (nalaz iz revizije 5.3): enrich_basic iz rada ume da upiše
+  // level-1 audit danas, a seed bi ga prepisao podacima iz avgusta. Isti test
+  // kao za `businesses` — upiši samo tamo gde arhiva nije starija od baze.
   const levels = await existingAudits(db, ids);
   const audits: AuditInsert[] = records
-    .filter((r) => (levels.get(r.audit.place_id) ?? 1) <= 1)
+    .filter((r) => {
+      const trenutni = levels.get(r.audit.place_id);
+      if (!trenutni) return true; // nema audita — upiši osnovni
+      if (trenutni.audit_level > 1) return false; // obogaćen — ne diraj
+      // Sme da pregazi samo stariji level-1 audit; svežiji se ne vraća unazad.
+      return trenutni.enriched_at === null || trenutni.enriched_at <= r.audit.enriched_at;
+    })
     .map((r) => r.audit);
 
   const skippedEnriched = records.length - audits.length;

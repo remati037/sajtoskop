@@ -27,6 +27,7 @@ import type {
 } from "@sajtoskop/shared";
 import { adminBootstrapIds } from "./env";
 import { adminSupabase } from "./supabase";
+import { inGrupe } from "./upiti";
 
 /** Stranica po 25 (F12 §3.1). Menja se ovde i nigde više. */
 export const PO_STRANI = 25;
@@ -259,14 +260,17 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
   const nazivi = new Map<string, string>();
 
   if (placeIds.length > 0) {
-    const { data: firme, error: bErr } = await db
-      .from("businesses")
-      .select("place_id, name")
-      .in("place_id", placeIds)
-      .returns<{ place_id: string; name: string }[]>();
+    // [Faza 2, 2.2] `.in()` u grupama — korisnik ume da ima stotine unlockova.
+    for (const deo of inGrupe(placeIds)) {
+      const { data: firme, error: bErr } = await db
+        .from("businesses")
+        .select("place_id, name")
+        .in("place_id", deo)
+        .returns<{ place_id: string; name: string }[]>();
 
-    if (bErr) console.error("[admin] nazivi prospekata:", bErr.message);
-    else for (const f of firme ?? []) nazivi.set(f.place_id, f.name);
+      if (bErr) console.error("[admin] nazivi prospekata:", bErr.message);
+      else for (const f of firme ?? []) nazivi.set(f.place_id, f.name);
+    }
   }
 
   const poKoloni = new Map<LeadStatusValue, number>();

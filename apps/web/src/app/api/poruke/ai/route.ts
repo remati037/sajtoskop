@@ -16,8 +16,9 @@ import { brojReci } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
 import { enqueueRewrite, getJobForUser } from "@/lib/jobs";
 import { kanalEnum } from "@/lib/pipeline-schema";
+import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError } from "@/lib/search-types";
-import { userSupabase } from "@/lib/supabase";
+import { adminSupabase, userSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -47,6 +48,10 @@ async function jeOtkljucan(placeId: string): Promise<boolean> {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2) — AI varijanta troši dnevni cap.
+  const ogranicen = await proveriIpTempo(req, "poruke-ai");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();
@@ -119,6 +124,28 @@ export async function GET(req: Request): Promise<Response> {
     // daju isti odgovor, kao i u `/api/job/:id`.
     const job = await getJobForUser(jobId);
     if (!job) return greska("Posao ne postoji.", 404);
+
+    // [Faza 2, 2.4] Pretplata ne znači da je posao za BAŠ ovaj lead (W4):
+    // korisnik sa dva rewrite posla ume da dobije poruku drugog. Payload je iz
+    // baze, ne iz URL-a — uparivanje se radi ovde, pre čitanja poruke.
+    const { data: posao } = await adminSupabase()
+      .from("job_queue")
+      .select("payload")
+      .eq("id", jobId)
+      .maybeSingle<{ payload: Record<string, unknown> }>();
+
+    if (!posao) return greska("Posao ne postoji.", 404);
+
+    const payloadPlace = posao.payload.placeId;
+    const payloadKanal = posao.payload.channel;
+    if (
+      job.type !== "rewrite_message" ||
+      payloadPlace !== placeId ||
+      payloadKanal !== channel.data
+    ) {
+      // Isti odgovor kao za tuđ posao — ne otkriva se šta u payloadu stoji.
+      return greska("Posao ne postoji.", 404);
+    }
 
     const { data, error } = await userSupabase()
       .from("outreach_messages")
