@@ -183,6 +183,18 @@ export type JobQueueRow = {
   last_error: string | null;
   created_at: string;
   finished_at: string | null;
+  /** [Faza 6, 6.6] Ključ deduplikacije (0003) — pre je postojao samo u SQL-u. */
+  dedupe_key: string | null;
+  /** [Faza 6, 6.6] Napredak scana (0020) — upisuje worker, čita polling. */
+  found: number | null;
+  analyzed: number | null;
+};
+
+/** [Faza 6, 6.6] Red iz `job_subscribers` (0003) — ko čeka rezultat posla. */
+export type JobSubscriberRow = {
+  job_id: number;
+  user_id: string;
+  created_at: string;
 };
 
 // ── F7: kanban, poruke, događaj „potpisan" (0007) ──────────

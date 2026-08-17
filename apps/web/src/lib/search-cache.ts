@@ -28,6 +28,8 @@ export type StanjeKesa = {
   fresh: boolean;
   total: number;
   noSite: number;
+  /** [Faza 6, 6.4] Budžet je stao usred scana — rezultat nije potpun (B5). */
+  partial: boolean;
 };
 
 /**
@@ -57,11 +59,30 @@ export async function stanjeKesa(city: string, niche: string): Promise<StanjeKes
   // pošlo naopako — a tiho „nije u kešu" bi značilo naplatu bez razloga.
   if (!row) throw new Error("search_cache_state nije vratio rezultat.");
 
+  // [Faza 6, 6.4] `partial` ne menja oblik RPC funkcije (0009 je ponovo
+  // kreira u check:sql), pa se čita direktno iz tabele — jedan upit manje bitan
+  // od samog stanja, a ne sme da obori pretragu ako padne.
+  let partial = false;
+  try {
+    const { data: p } = await adminSupabase()
+      .from("search_cache")
+      .select("partial")
+      .eq("country_code", COUNTRY)
+      .eq("city_slug", city)
+      .eq("niche_slug", niche)
+      .maybeSingle<{ partial: boolean }>();
+    partial = p?.partial ?? false;
+  } catch {
+    // Bez zastavice kombinacija izgleda kao potpuna — bolje nego da padne ceo
+    // `/api/search` zbog ukrasa.
+  }
+
   return {
     scannedAt: row.scanned_at,
     fresh: row.fresh,
     total: row.total,
     noSite: row.no_site,
+    partial,
   };
 }
 
@@ -91,6 +112,21 @@ export async function listaKesa(userId: string): Promise<KesStavka[]> {
     mine: boolean;
   }[];
 
+  // [Faza 6, 6.4] Zastavice parcijalnosti u JEDNOM upitu (oblik overview
+  // funkcije se ne dira — 0009 je ponovo kreira u check:sql). Pad se guta:
+  // bez oznake kombinacija izgleda potpuna, a lista ostaje.
+  const parcijalne = new Set<string>();
+  try {
+    const { data: p } = await adminSupabase()
+      .from("search_cache")
+      .select("city_slug, niche_slug, partial")
+      .eq("partial", true)
+      .returns<{ city_slug: string; niche_slug: string }[]>();
+    for (const r of p ?? []) parcijalne.add(`${r.city_slug}:${r.niche_slug}`);
+  } catch {
+    // ukras — ne ruši listu
+  }
+
   return rows.map((r) => ({
     city: r.city_slug,
     niche: r.niche_slug,
@@ -101,5 +137,6 @@ export async function listaKesa(userId: string): Promise<KesStavka[]> {
     fresh: r.fresh,
     mine: r.mine,
     empty: r.total === 0,
+    partial: parcijalne.has(`${r.city_slug}:${r.niche_slug}`),
   }));
 }

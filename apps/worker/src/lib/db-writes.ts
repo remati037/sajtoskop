@@ -105,6 +105,8 @@ export async function recordScan(args: {
   nicheSlug: string;
   count: number;
   jobId: number | null;
+  /** [Faza 6, 6.4] Budžet je stao usred scana — kombinacija se pamti kao parcijalna. */
+  partial?: boolean;
 }): Promise<void> {
   const { error } = await supabaseAdmin().rpc("record_scan", {
     p_country: args.countryCode,
@@ -112,6 +114,7 @@ export async function recordScan(args: {
     p_niche: args.nicheSlug,
     p_count: args.count,
     p_job_id: args.jobId,
+    p_partial: args.partial ?? false,
   });
 
   if (error) console.error(`[db] record_scan nije uspeo: ${error.message}`);
@@ -427,4 +430,39 @@ export async function markSiteDead(placeId: string): Promise<void> {
     );
 
   if (error) throw new Error(`Upis statusa 'mrtav' nije uspeo: ${error.message}`);
+}
+
+// ── zadržavanje podataka (Faza 6, 6.3) ─────────────────────
+
+/**
+ * Nedeljno čišćenje zastarelih redova (B6).
+ *
+ * `job_queue` (done/failed stariji od 30 dana), `searches` (istorija pretraga
+ * starija od 90 dana) i `api_budget` (stariji od 3 meseca). Knjiga
+ * `credit_ledger` se ČUVA — to je izvor istine o kreditima. Vercel Hobby ima
+ * samo dva cron slota (oba zauzeta), pa čišćenje živi u workeru, jednom
+ * nedeljno kroz reaper petlju.
+ *
+ * Vraća koliko je redova obrisano po tabeli.
+ */
+export async function cistkaZastarelo(): Promise<{ poslovi: number; pretrage: number; budzet: number }> {
+  const db = supabaseAdmin();
+  const [poslovi, pretrage, budzet] = await Promise.all([
+    db
+      .from("job_queue")
+      .delete()
+      .in("status", ["done", "failed"])
+      .lt("finished_at", new Date(Date.now() - 30 * 86_400_000).toISOString()),
+    db.from("searches").delete().lt("created_at", new Date(Date.now() - 90 * 86_400_000).toISOString()),
+    db.from("api_budget").delete().lt("day", new Date(Date.now() - 93 * 86_400_000).toISOString().slice(0, 10)),
+  ]);
+
+  const greska = poslovi.error?.message ?? pretrage.error?.message ?? budzet.error?.message;
+  if (greska) throw new Error(`Čišćenje nije uspelo: ${greska}`);
+
+  return {
+    poslovi: poslovi.count ?? 0,
+    pretrage: pretrage.count ?? 0,
+    budzet: budzet.count ?? 0,
+  };
 }

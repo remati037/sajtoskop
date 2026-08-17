@@ -13,7 +13,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { creditMonth } from "@sajtoskop/shared";
 import { BudgetError } from "./lib/api-budget";
-import { refundScan } from "./lib/db-writes";
+import { cistkaZastarelo, refundScan } from "./lib/db-writes";
 import { loadRootEnv } from "./lib/env";
 import { claimJob, completeJob, deferJob, enqueueJob, failJob, reapStuckJobs } from "./lib/queue";
 import { closeBrowser } from "./lib/screenshot";
@@ -34,6 +34,9 @@ const REAP_EVERY_MS = 5 * 60 * 1000;
 
 /** Na koliko se proverava da li tekući mesec ima dodelu kredita (F4 §2). */
 const SCHEDULE_EVERY_MS = 60 * 60 * 1000;
+
+/** [Faza 6, 6.3] Koliko često se briše zastarelo (job_queue, searches, api_budget). */
+const CISTKA_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Koliko se čeka pre nego što se PALA mesečna dodela pokuša ponovo.
@@ -179,6 +182,12 @@ async function refundFailedScans(): Promise<void> {
 }
 
 async function reaperLoop(): Promise<void> {
+  // [Faza 6, 6.3] Nedeljno čišćenje zastarelih redova (B6). Vercel Hobby ima
+  // samo dva cron slota (oba zauzeta), pa zadržavanje podataka radi worker.
+  // U memoriji se pamti samo poslednji prolaz — posle restarta se čišćenje
+  // ponovi, a obrisano je idempotentno (delete po datumu).
+  let poslednjaCistka = Date.now() - CISTKA_EVERY_MS; // prva runda čišćenja odmah
+
   while (running) {
     try {
       const { requeued, failed } = await reapStuckJobs(STUCK_MINUTES);
@@ -187,6 +196,19 @@ async function reaperLoop(): Promise<void> {
       }
 
       await refundFailedScans();
+
+      if (Date.now() - poslednjaCistka >= CISTKA_EVERY_MS) {
+        poslednjaCistka = Date.now();
+        try {
+          const obrisano = await cistkaZastarelo();
+          log(
+            `čišćenje: ${obrisano.poslovi} poslova, ${obrisano.pretrage} pretraga, ` +
+              `${obrisano.budzet} dana budžeta`,
+          );
+        } catch (err) {
+          log(`čišćenje nije uspelo: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     } catch (err) {
       log(`žetva nije uspela: ${err instanceof Error ? err.message : String(err)}`);
     }

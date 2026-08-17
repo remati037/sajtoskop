@@ -27,6 +27,7 @@ sledeću sesiju.
 | S11 | Faza 3 — performanse | `PLAN-IZMENA.md` | `0020` | 1–2 dana | ☑ |
 | S12 | Faza 4 — UX | `PLAN-IZMENA.md` | — | 2–3 dana | ☑ |
 | S13 | Faza 5 — dizajn sistem | `PLAN-IZMENA.md` | — | 0,5–1 dan | ☑ |
+| S14 | Faza 6 — baza, zadržavanje, higijena | `PLAN-IZMENA.md` | `0021` | 1 dan | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1772,7 +1773,101 @@ Stavke Faze 6:
 Gotovo kad: check:sql prolazi sa novim migracijama; backup skripta isprobana;
 CI ima audit korak. typecheck, check:sql, test prolaze.
 
+```
+
+---
+
+## S14 — Faza 6: baza, zadržavanje, operativna higijena ☑ isporučeno
+
+Rad iz `docs/PLAN-IZMENA.md`, Faza 6. Zatvara nalaze B1, B2, B5, B6, B7–B10 i
+B12 iz revizije.
+
+### Šta je isporučeno
+
+- **6.1 — per-red TTL (B1), ODLUKA: opcija (b).** `search_listing` dobija
+  `p_ttl_days` (30, `GOOGLE_TTL_DAYS`) i filter
+  `google_refreshed_at >= now() - 30 dana`: kombinacija može da bude sveža a
+  neki njeni redovi stari (biznis koji je poslednji scan ispustio) — oni ne
+  izlaze iz pretrage. **Otključani prospekti su svesno izuzeti** (moja-lista,
+  poruke): to su kupovani podaci korisnika i ne nestaju posle 30 dana; njihova
+  svežina se obnavlja kroz `refresh_google` posao. Zapisano ovde i u migraciji.
+- **6.2 — prekid kaskade (B2):** `website_audits.place_id` i
+  `signed_events.place_id` → `on delete restrict`. Biznis sa auditom ili
+  potpisom se ne može obrisati kaskadom; `businesses` redovi se ionako nikad ne
+  brišu (komentar u migraciji).
+- **6.3 — nedeljno čišćenje (B6):** `cistkaZastarelo()` u workeru
+  (`db-writes.ts`) — `job_queue` done/failed stariji od 30 dana, `searches`
+  stariji od 90, `api_budget` stariji od 3 meseca; pokreće se iz reaper petlje
+  jednom nedeljno (Vercel Hobby ima samo dva cron slota, oba zauzeta). Knjiga
+  `credit_ledger` se ČUVA.
+- **6.4 — `partial` u `search_cache` (B5):** kolona + `record_scan(p_partial)`;
+  worker je prosleđuje kad budžet stane usred scana. Oznaka „delimično" u
+  kes-listi (bezbednosno — parcijalan rezultat ne izgleda kao potpun). Oblik
+  `search_cache_state`/`search_cache_overview` se NE menja (0009 ih ponovo
+  kreira u check:sql), pa web čita zastavicu direktno iz tabele.
+- **6.5 — CHECK-ovi (B10):** `businesses.rating <= 5`, `website_audits.
+  http_status` 100–599, `signed_events.country_code ~ '^[A-Z]{2}$'`.
+- **6.6 — tipovi (B11):** `JobQueueRow.dedupe_key` + `found`/`analyzed`,
+  `JobSubscriberRow` u `packages/shared/src/db.ts`.
+- **6.7 — validate-migrations (B12):** RLS lista dobija `lead_status`,
+  `outreach_messages`, `signed_events`.
+- **6.8 — backup:** `scripts/backup.sh` — dnevni `pg_dump` (read-only,
+  `--no-owner --no-privileges`), 7 kopija, uputstvo za off-site; komentar u
+  `apps/worker/docker-compose.yml`.
+- **6.9 — zavisnosti:** `pnpm audit --prod` u CI (informativno) +
+  `.github/dependabot.yml` (nedeljno, grupisanje TypeScript alata).
+
+### Šta se razišlo sa planom
+
+1. **6.1 — izabrana je opcija (b) iz B1** (filter na `google_refreshed_at`), ne
+   (c) („samo redovi koje je poslednji scan dirnuo"). (b) je najbezbednije po
+   pravilo 1 i trivijalno se izvodi u SQL-u; (c) traži vezu red-scan koja ne
+   postoji. Razlika u praksi je mala — red koji je poslednji scan ispustio ima
+   star `google_refreshed_at` i ispadne pod (b).
+2. **6.3 — čišćenje živi u workeru, ne u `/api/cron/cistka`.** Hobby plan
+   dozvoljava dva crona i oba su zauzeta (digest + nedeljni izveštaj); worker
+   već ima reaper petlju i radi na Hetzneru non-stop.
+3. **6.4 — `partial` ne menja oblik RPC funkcija** (v. iznad); web ga čita
+   direktno iz `search_cache`. Cena: jedan mali upit po `/api/search` i po listi
+   keša — prihvatljivo naspram lomljenja idempotencije migracija.
+4. **6.8 — backup skripta je isporučena ali nije isprobana na pravom
+   `DATABASE_URL`-u** (nema ga lokalno). Ostaje kao ručni korak.
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql`, `pnpm test`, `pnpm build` prolaze.
+**Ručni koraci ostaju na meni:**
+
+1. `scripts/backup.sh` nad pravim `DATABASE_URL`-om — dump + 7 kopija;
+2. postavi cron na Hetzneru (primer u skripti) i rclone za off-site;
+3. parcijalan scan (isprazni dnevni budžet usred rada) — kes-lista pokazuje
+   „delimično", a sledeći pun scan skida oznaku;
+4. proveri da obrisan biznis (ručno, ako ikad) sada puca umesto da obriše
+   audite i potpise.
+
+### Prompt (za sledeću sesiju — Faza 7, testovi i kvalitet)
+
+```
+Radimo Fazu 7 iz docs/PLAN-IZMENA.md (testovi i kvalitet). Pročitaj prvo
+CLAUDE.md, docs/PLAN-IZMENA.md, docs/REVIZIJA.md (odeljak 10) i odeljak „S14 —
+Faza 6" u docs/SESIJE.md. Ovo je poslednja faza plana.
+
+Zatečeno stanje: S1–S14 gotovi (F11/F12, Faze 0–6). Migracije idu do 0021.
+
+Stavke Faze 7:
+7.1 Test za trke: spend_credit_and_scan (dupli prvi scan), admin_adjust_credits
+    (idempotencija), enqueue_job (unique_violation) — kroz
+    scripts/validate-migrations.ts ili PGlite testove.
+7.2 Test za ideOdmah granu (bug/ocena 1/incident) posle izmene 1.5.
+7.3 ESLint + eslint-config-next (flat) u CI.
+7.4 CI garancija da ugly-score ne uđe u bundle (grep nad .next/static).
+7.5 apps/web/.clerk/ u .gitignore.
+
+Gotovo kad: pnpm test pokriva novčane trke; pnpm lint prolazi; CI dokazuje da
+težine nisu u bundle-u. typecheck, check:sql, test prolaze.
+
 Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md
-(S14 — Faza 6) i napiši mi prompt za Fazu 7.
+(S15 — Faza 7), prepiši „Pregled po fazama" u PLAN-IZMENA.md kao završen i
+napiši mi kratak pregled celog plana.
 ```
 

@@ -81,7 +81,8 @@ async function main(): Promise<void> {
                    "credit_ledger", "searches", "job_queue", "api_budget",
                    "job_subscribers", "search_cache", "feedback",
                    "feedback_prompts", "changelog", "admin_audit",
-                   "request_limits", "webhook_events"]) {
+                   "request_limits", "webhook_events",
+                   "lead_status", "outreach_messages", "signed_events"]) {
     const r = await one<{ relrowsecurity: boolean }>(
       `select relrowsecurity from pg_class where relname = $1`, [t]);
     check(r?.relrowsecurity === true, `uključen na ${t}`);
@@ -1213,6 +1214,10 @@ async function main(): Promise<void> {
   );
 
   console.log("\nFaza 3 — search_listing (filter/sort/limit u SQL-u)");
+  // F9 blok iznad je pomerio google_refreshed_at u prošlost (test pravila 1);
+  // per-red TTL iz Faze 6 (6.1) ih zato ispravno izbacuje iz pretrage. Za ovaj
+  // test se redovi osveže, da se proverava filter, a ne TTL.
+  await db.exec(`update businesses set google_refreshed_at = now() where city_slug = 'nis'`);
   type Lst = { place_id: string; site_status: string | null; total: number; no_site: number; ok: number };
   const lst = (only: boolean, page = 1) =>
     one<Lst>(`select * from search_listing('RS', 'nis', 'stomatolog', $1, false, false, null, $2, 30)`, [only, page]);
@@ -1222,6 +1227,48 @@ async function main(): Promise<void> {
     `search_listing vraća agregat + sort po statusu (${l1?.place_id})`,
   );
   check((await lst(true))?.total === 2, "filter onlyNoSite u SQL-u");
+
+  // ── Faza 6: restrict kaskade, CHECK-ovi, partial ─────────
+  console.log("\nFaza 6 — restrict kaskade od businesses (6.2)");
+  // p1 ima audit i unlocks — brisanje mora da padne na website_audits restrict.
+  await mustFail(
+    `delete from businesses where place_id = 'p1'`,
+    "brisanje biznisa sa auditom odbijeno (restrict)",
+  );
+  // f2 nema audit — jedini trag je signed_events; i njega restrict čuva.
+  await db.exec(`insert into signed_events (user_id, place_id, country_code) values ('u1', 'f2', 'RS')`);
+  await mustFail(
+    `delete from businesses where place_id = 'f2'`,
+    "brisanje biznisa sa potpisom odbijeno (restrict)",
+  );
+
+  console.log("\nFaza 6 — CHECK-ovi (6.5)");
+  await mustFail(
+    `update businesses set rating = 6 where place_id = 'p1'`,
+    "rating preko 5 odbijen",
+  );
+  await mustFail(
+    `update website_audits set http_status = 99 where place_id = 'p1'`,
+    "http_status van 100-599 odbijen",
+  );
+  await mustFail(
+    `insert into signed_events (user_id, place_id, country_code) values ('u1', 'p1', 'srb')`,
+    "neispravan country_code u signed_events odbijen",
+  );
+
+  console.log("\nFaza 6 — partial u registru keša (6.4)");
+  await db.exec(`select record_scan('RS', 'nis', 'stomatolog', 3, null, true)`);
+  check(
+    (await one<{ partial: boolean }>(
+      `select partial from search_cache where country_code = 'RS' and city_slug = 'nis' and niche_slug = 'stomatolog'`))?.partial === true,
+    "parcijalan scan se pamti kao partial",
+  );
+  await db.exec(`select record_scan('RS', 'nis', 'stomatolog', 3, null, false)`);
+  check(
+    (await one<{ partial: boolean }>(
+      `select partial from search_cache where country_code = 'RS' and city_slug = 'nis' and niche_slug = 'stomatolog'`))?.partial === false,
+    "pun scan vraća partial na false",
+  );
 
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",

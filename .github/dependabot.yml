@@ -1,0 +1,18 @@
+# [Faza 6, 6.9] Automatski PR-ovi za zavisnosti.
+# Posebno bitno za `playwright`/`chromium` — renderuje se nepoznat sadržaj,
+# pa su tu CVE-jevi stvarna pretnja, a ne teoretska.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      typescript-tooling:
+        patterns: ["typescript", "tsx", "@types/*"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly

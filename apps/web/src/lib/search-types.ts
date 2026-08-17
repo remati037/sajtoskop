@@ -170,6 +170,8 @@ export type KesStavka = {
   fresh: boolean;
   /** Korisnik je ovu kombinaciju već tražio — ide u blok „Tvoje pretrage". */
   mine: boolean;
+  /** [Faza 6, 6.4] Budžet je stao usred scana — kombinacija nije potpuna (B5). */
+  partial: boolean;
   /** Skenirano, ali Google nema nijednu firmu. Ostaje u listi, sivo. */
   empty: boolean;
 };

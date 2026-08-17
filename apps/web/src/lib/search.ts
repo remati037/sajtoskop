@@ -11,6 +11,7 @@
 // izlaska prolazi kroz `toPublicLead()`, a `userId` dolazi iz Clerk sesije.
 
 import "server-only";
+import { GOOGLE_TTL_DAYS } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
 import { istekKesa } from "./search-cache";
 import { screenshotPathsOf, toPublicLead, type LeadAudit, type LeadBusiness } from "./public-lead";
@@ -59,6 +60,9 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
     p_min_score: input.filters.minScore ?? null,
     p_page: input.page,
     p_page_size: PAGE_SIZE,
+    // [Faza 6, 6.1] Per-red TTL (pravilo 1): kombinacija može da bude sveža a
+    // neki njeni redovi stari — oni se ne serviraju (odluka b iz REVIZIJA B1).
+    p_ttl_days: GOOGLE_TTL_DAYS,
   });
 
   if (error) throw new Error(`Čitanje pretrage nije uspelo: ${error.message}`);

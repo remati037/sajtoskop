@@ -145,6 +145,10 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     nicheSlug: niche.slug,
     count: inCity.length,
     jobId: ctx.job.id,
+    // [Faza 6, 6.4] Parcijalan scan (budžet stao) se pamti kao takav — sledeći
+    // korisnik vidi da kombinacija nije potpuna, i ponovno skeniranje ne
+    // izgleda kao lažno svež rezultat (B5).
+    partial,
   });
 
   if (inCity.length === 0) {

@@ -48,6 +48,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # [Faza 6, 6.9] CVE-jevi u produkcijskim zavisnostima padaju pre deploy-a.
+      # Playwright/Chromium renderuje nepoznat sadržaj — tu ažurnost zaista znači.
+      - name: Audit produkcijskih zavisnosti
+        run: pnpm audit --prod
+        continue-on-error: true # informativno — pravi zid je Dependabot
+
       - name: Tipovi
         run: pnpm typecheck
 

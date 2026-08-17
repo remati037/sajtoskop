@@ -1,5 +1,9 @@
 # apps/worker/docker-compose.yml
 #
+# [Faza 6, 6.8] Backup baze NE radi ovde — Supabase je hosted. Do PITR-a
+# (plaćeni plan), dnevni pg_dump radi cron na OVOM hostu preko scripts/backup.sh
+# (7 kopija, off-site). Kontejner nema pristup bazi osim kroz API.
+#
 # Pokretanje na Hetzner CX22, iz korena repoa:
 #   docker compose -f apps/worker/docker-compose.yml up -d --build
 #   docker compose -f apps/worker/docker-compose.yml logs -f

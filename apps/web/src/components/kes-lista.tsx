@@ -267,6 +267,17 @@ function Red({
           </span>
         )}
 
+        {/* [Faza 6, 6.4] Parcijalan scan — budžet je stao usred skeniranja, pa
+            kombinacija možda nije potpuna (B5). */}
+        {stavka.partial && (
+          <span
+            title="Skeniranje je prekinuto (budžet). Rezultat možda nije potpun — ponovo skeniranje vraća punu listu."
+            className="rounded-full border border-warn/30 bg-warn-wash px-2 py-0.5 text-[10px] font-medium text-warn-text"
+          >
+            delimično
+          </span>
+        )}
+
         <span className={cn("num whitespace-nowrap", uskoro ? "text-warn-text" : "text-fg-muted")}>
           {uskoro
             ? dana <= 0
