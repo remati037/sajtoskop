@@ -140,6 +140,41 @@ export async function refundScan(jobId: number): Promise<number> {
   return ((data ?? []) as { refunded: number }[])[0]?.refunded ?? 0;
 }
 
+// ── napredak posla (Faza 3, 3.2) ───────────────────────────
+
+/**
+ * Upiši `found`/`analyzed` na red scan posla.
+ *
+ * [Faza 3, 3.2] Web polling čita napredak ISKLJUČIVO sa reda posla
+ * (`get_job_for_user` = jedan upit, P3) — nekada je brojao `businesses` i
+ * `website_audits` na svaki poziv. Neuspeh upisa ne ruši scan: traka napretka
+ * je ukras, podaci su u `businesses`.
+ */
+export async function zapisiNapredak(
+  jobId: number,
+  found: number,
+  analyzed: number,
+): Promise<void> {
+  const { error } = await supabaseAdmin()
+    .from("job_queue")
+    .update({ found, analyzed })
+    .eq("id", jobId);
+
+  if (error) console.error(`[db] upis napretka (#${jobId}) nije uspeo: ${error.message}`);
+}
+
+/**
+ * Enrich_basic je upisao audit → diže `analyzed` roditeljskog scan posla.
+ *
+ * Poziva se POSLE uspešnog `upsertAudit`, i to samo kad posao zna svog
+ * roditelja (`scanJobId` u payloadu). Neuspeh se loguje — sledeći scan svejedno
+ * prepiše brojač iz stvarnog stanja.
+ */
+export async function inkrementirajAnalizu(jobId: number): Promise<void> {
+  const { error } = await supabaseAdmin().rpc("inkrementiraj_analizu", { p_job_id: jobId });
+  if (error) console.error(`[db] inkrement analize (#${jobId}) nije uspeo: ${error.message}`);
+}
+
 // ── website_audits ─────────────────────────────────────────
 
 /**

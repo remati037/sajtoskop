@@ -104,8 +104,10 @@ export async function POST(req: Request): Promise<Response> {
  * `outreach_messages`. Tuđa poruka se ne može pročitati ni sa tačnim `placeId`-om.
  */
 export async function GET(req: Request): Promise<Response> {
+  // [Faza 3, 3.2] Identitet ide eksplicitno u get_job_for_user (pretplata u SQL-u).
+  let userId: string;
   try {
-    await requireUserId();
+    userId = await requireUserId();
   } catch {
     return greska("Nisi prijavljen.", 401);
   }
@@ -120,9 +122,9 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   try {
-    // `getJobForUser` proverava pretplatu kroz RLS — tuđi i nepostojeći posao
+    // `getJobForUser` proverava pretplatu kroz RPC — tuđi i nepostojeći posao
     // daju isti odgovor, kao i u `/api/job/:id`.
-    const job = await getJobForUser(jobId);
+    const job = await getJobForUser(userId, jobId);
     if (!job) return greska("Posao ne postoji.", 404);
 
     // [Faza 2, 2.4] Pretplata ne znači da je posao za BAŠ ovaj lead (W4):

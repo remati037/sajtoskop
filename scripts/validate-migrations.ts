@@ -1175,6 +1175,54 @@ async function main(): Promise<void> {
      where user_id = 'u1' and place_id = 'p1' and body = 'ista poruka'`);
   check(poruke?.n === 1, "on conflict do nothing ne duplira");
 
+  // ── Faza 3: napredak posla, brojači keša, pretraga u SQL-u ──
+  console.log("\nFaza 3 — get_job_for_user (1 upit po pollingu)");
+  // scan posao iz "enqueue_job i dedup" bloka ima pretplatnike u1 i u2.
+  type Gj = { id: number; found: number | null; analyzed: number | null };
+  const gj = (u: string, id: number) =>
+    one<Gj>(`select * from get_job_for_user($1, $2)`, [id, u]);
+  check((await gj("u1", j1?.job_id ?? 0))?.id === j1?.job_id, "pretplaćeni vidi posao");
+  check((await gj("u2", j1?.job_id ?? 0))?.id === j1?.job_id, "drugi pretplatnik vidi isti posao");
+  check((await gj("nema_ga", j1?.job_id ?? 0)) === undefined, "nepretplaćeni ne vidi ništa");
+  await db.exec(`update job_queue set found = 5, analyzed = 2 where id = ${j1?.job_id}`);
+  check(
+    (await gj("u1", j1?.job_id ?? 0))?.found === 5 && (await gj("u1", j1?.job_id ?? 0))?.analyzed === 2,
+    "found/analyzed stižu sa reda posla",
+  );
+  await db.exec(`select inkrementiraj_analizu(${j1?.job_id})`);
+  check((await gj("u1", j1?.job_id ?? 0))?.analyzed === 3, "inkrementiraj_analizu diže broj");
+
+  console.log("\nFaza 3 — search_cache brojači (umesto pogleda)");
+  type St = { total: number; no_site: number };
+  const st = (c: string, n: string) =>
+    one<St>(`select * from search_cache_state('RS', $1, $2, 30)`, [c, n]);
+  // iz F9 bloka: nis/stomatolog ima f1 (nema_sajt) i f2.
+  check(
+    (await st("nis", "stomatolog"))?.total === 2 && (await st("nis", "stomatolog"))?.no_site === 1,
+    `search_cache_state čita brojače (${(await st("nis", "stomatolog"))?.total})`,
+  );
+  // Trigger: nov biznis + audit nema_sajt diže oba brojača.
+  await db.exec(`
+    insert into businesses (place_id, city_slug, niche_slug, name) values ('f3', 'nis', 'stomatolog', 'Firma 3');
+    insert into website_audits (place_id, site_status) values ('f3', 'nema_sajt');
+  `);
+  const st2 = await st("nis", "stomatolog");
+  check(
+    st2?.total === 3 && st2?.no_site === 2,
+    `trigger osvežava i total i no_site (${st2?.total}/${st2?.no_site})`,
+  );
+
+  console.log("\nFaza 3 — search_listing (filter/sort/limit u SQL-u)");
+  type Lst = { place_id: string; site_status: string | null; total: number; no_site: number; ok: number };
+  const lst = (only: boolean, page = 1) =>
+    one<Lst>(`select * from search_listing('RS', 'nis', 'stomatolog', $1, false, false, null, $2, 30)`, [only, page]);
+  const l1 = await lst(false);
+  check(
+    l1?.total === 3 && l1?.no_site === 2 && l1?.site_status === "nema_sajt",
+    `search_listing vraća agregat + sort po statusu (${l1?.place_id})`,
+  );
+  check((await lst(true))?.total === 2, "filter onlyNoSite u SQL-u");
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
@@ -1186,7 +1234,8 @@ async function main(): Promise<void> {
                     "grant_feedback_credits",
                     "admin_adjust_credits", "admin_users_page",
                     "admin_set_role", "admin_overview",
-                    "claim_request", "zabelezi_utisak", "dopuni_utisak"]) {
+                    "claim_request", "zabelezi_utisak", "dopuni_utisak",
+                    "get_job_for_user", "inkrementiraj_analizu", "search_listing"]) {
     const r = await one<{ anon: boolean; svc: boolean }>(
       `select has_function_privilege('anon', p.oid, 'execute') as anon,
               has_function_privilege('service_role', p.oid, 'execute') as svc

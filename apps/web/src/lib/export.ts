@@ -73,7 +73,9 @@ export type ExportInput = {
 export async function exportUnlockedCsv(input: ExportInput): Promise<ExportResult> {
   const cap = planFor(input.plan).exportPerDay;
 
-  const sve = await getMojaLista(input.filter);
+  // [Faza 3, 3.1] `potpisi: false` — CSV ne prikazuje snimke, pa ne sme ni da
+  // potpisuje URL-ove (P1): izvoz 2000 redova = nula Storage poziva.
+  const sve = await getMojaLista(input.filter, { potpisi: false });
   const zeljeno = Math.min(input.limit ?? cap, cap, sve.length);
 
   const claim = await claimExport(input.userId, cap, zeljeno);

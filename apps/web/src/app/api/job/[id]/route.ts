@@ -20,8 +20,11 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  // [Faza 3, 3.2] Identitet ide EKSPLICITNO u RPC (get_job_for_user) — pretplata
+  // se proverava u SQL-u, u istom upitu kao i čitanje posla.
+  let userId: string;
   try {
-    await requireUserId();
+    userId = await requireUserId();
   } catch {
     return NextResponse.json({ greska: "Nisi prijavljen." }, { status: 401 });
   }
@@ -36,7 +39,7 @@ export async function GET(
   const headers = { "Cache-Control": "private, no-store" };
 
   try {
-    const job = await getJobForUser(jobId);
+    const job = await getJobForUser(userId, jobId);
     if (!job) {
       return NextResponse.json({ greska: "Posao ne postoji." }, { status: 404, headers });
     }

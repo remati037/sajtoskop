@@ -65,6 +65,8 @@ const PRAZNI_FILTERI: SearchFilters = { onlyNoSite: false, onlySocial: false, on
 
 /** Na koliko se pita za status posla. */
 const POLL_MS = 3000;
+/** Gornja granica backoff-a u pratiPosao (3.2). */
+const POLL_MAX_MS = 10_000;
 
 /**
  * Koliko se čeka pošto tabela sedne pre nego što se javi motoru pitanja.
@@ -340,6 +342,7 @@ export function PretragaEkran({
    */
   async function pratiPosao(jobId: number, token: number, z: Zahtev) {
     const kraj = Date.now() + MAX_CEKANJE_MS;
+    let krug = 0;
     let poslednjeAnalizirano = -1;
     let mirnihKrugova = 0;
 
@@ -354,7 +357,11 @@ export function PretragaEkran({
     }
 
     while (token === pollToken.current && Date.now() < kraj) {
-      await pauza(POLL_MS);
+      // [Faza 3, 3.2] Backoff: kasniji krugovi su sve ređi (3 s → 10 s), jer
+      // sve ređe menjaju stanje; rani ostaju česti da traka krene brzo.
+      const odziv = Math.min(POLL_MS * Math.pow(1.3, krug), POLL_MAX_MS);
+      await pauza(odziv);
+      krug++;
       if (token !== pollToken.current) return;
 
       let stanje: JobStatusResponse;

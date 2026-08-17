@@ -46,7 +46,11 @@ export type MojaListaFilter = {
  * sa ostatkom aplikacije i novo polje u `website_audits` se ni ovde ne pojavi
  * dok se svesno ne doda u `UnlockedLead`.
  */
-export async function getMojaLista(filter: MojaListaFilter = {}): Promise<MojLead[]> {
+export async function getMojaLista(
+  filter: MojaListaFilter = {},
+  opcije: { potpisi?: boolean } = {},
+): Promise<MojLead[]> {
+  const potpisi = opcije.potpisi ?? true;
   const { data: unlocks, error } = await userSupabase()
     .from("unlocks")
     .select("place_id, created_at")
@@ -92,9 +96,14 @@ export async function getMojaLista(filter: MojaListaFilter = {}): Promise<MojLea
 
   // Cela lista je po definiciji otključana, pa se potpisuje sve odjednom —
   // jedan poziv ka Storage-u umesto dva po redu.
-  const signed = await signScreenshots(
-    firme.flatMap((b) => screenshotPathsOf(auditPoMestu.get(b.place_id) ?? null)),
-  );
+  // [Faza 3, 3.1] `potpisi: false` za CSV izvoz: izvoz ne prikazuje snimke, pa
+  // ne sme ni da potpisuje (P1). `/lista` i kanban potpisuju — ali jednim
+  // `createSignedUrls` pozivom za sve putanje.
+  const signed = potpisi
+    ? await signScreenshots(
+        firme.flatMap((b) => screenshotPathsOf(auditPoMestu.get(b.place_id) ?? null)),
+      )
+    : new Map<string, string>();
 
   const lista: MojLead[] = [];
 

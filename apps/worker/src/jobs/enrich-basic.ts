@@ -6,7 +6,7 @@
 // lazy, na unlock (pravilo 5). Ovaj posao se pokreće bulk, po biznisu.
 
 import { extractEmails, scoreSite } from "@sajtoskop/shared";
-import { getBusinessSite, upsertAudit } from "../lib/db-writes";
+import { getBusinessSite, inkrementirajAnalizu, upsertAudit } from "../lib/db-writes";
 import { fetchSite, UA } from "../lib/fetch-site";
 import { mayCrawl } from "../lib/robots";
 import type { JobContext, JobResult } from "./types";
@@ -40,7 +40,7 @@ async function fetchContactPage(origin: string, path: string): Promise<string | 
 }
 
 export async function runEnrichBasic(raw: unknown, ctx: JobContext): Promise<JobResult> {
-  const { placeId } = enrichBasicPayloadSchema.parse(raw);
+  const { placeId, scanJobId } = enrichBasicPayloadSchema.parse(raw);
 
   const business = await getBusinessSite(placeId);
   if (!business) {
@@ -96,6 +96,10 @@ export async function runEnrichBasic(raw: unknown, ctx: JobContext): Promise<Job
   }
 
   await upsertAudit({ placeId, site, score, emails: emails.slice(0, 3) });
+
+  // [Faza 3, 3.2] Audit je upisan — diži `analyzed` roditeljskog scan posla
+  // (kad ga ima; CLI i ručno pokretanje nemaju). Neuspeh se loguje unutra.
+  if (scanJobId) await inkrementirajAnalizu(scanJobId);
 
   const skorText = score ? `skor ${score.score} (${score.band})` : site.status;
   return {

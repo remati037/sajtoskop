@@ -22,6 +22,11 @@ export const scanPayloadSchema = z.strictObject({
 
 export const enrichBasicPayloadSchema = z.strictObject({
   placeId: z.string().min(1),
+  /**
+   * [Faza 3, 3.2] ID scan posla koji je naručio ovaj audit — za napredak
+   * (`analyzed` na redu posla). CLI i ručno pokretanje ga nemaju.
+   */
+  scanJobId: z.number().int().optional(),
 });
 
 /**

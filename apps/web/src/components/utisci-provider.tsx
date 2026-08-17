@@ -107,19 +107,62 @@ const kasniji = (a: string | null, b: string | null): string | null => {
   return Date.parse(a) >= Date.parse(b) ? a : b;
 };
 
+/**
+ * Tiho stanje dok server odgovor još nije stigao (Faza 3, 3.6).
+ *
+ * Layout više ne šalje stanje motora pre prvog bajta; provider ga povlači sa
+ * `/api/utisci/stanje` posle prikaza. Dok stiže, odluke se ne donose uopšte
+ * (`ucitanoSaServera` kapija u `prijaviDogadjaj`), pa ni jedno pitanje ne može
+ * da se pojavi na osnovu praznog stanja — nema bljeska ni ponovljenog pitanja.
+ */
+const TIHO_STANJE: MotorStanje = {
+  cooldownUntil: null,
+  mutedUntil: null,
+  dismissStreak: 0,
+  poPitanju: {},
+};
+
+const TIHI_USLOVI: Uslovi = { danaOdRegistracije: 0, otkljucano: 0, danaPauze: 0 };
+
 export function UtisciProvider({
   stanje,
   uslovi,
   children,
 }: {
-  /** Stanje motora sa servera. Menja se na svakom punom učitavanju. */
-  stanje: MotorStanje;
-  /** Stanje naloga za kampanjska pitanja (F11 §2.3). Isti put, isti trenutak. */
-  uslovi: Uslovi;
+  /** `null` od Faze 3 (3.6): stanje se povlači klijentski posle prvog prikaza. */
+  stanje: MotorStanje | null;
+  /** Isti put kao `stanje` (3.6). */
+  uslovi: Uslovi | null;
   children: React.ReactNode;
 }) {
   const putanja = usePathname();
   const [aktivno, setAktivno] = useState<string | null>(null);
+
+  // [Faza 3, 3.6] Server stanje živi u state-u: kada dođe kroz prop (stari
+  // put), odmah; inače se povlači jednom posle montiranja.
+  const [serverStanje, setServerStanje] = useState<MotorStanje | null>(stanje);
+  const [serverUslovi, setServerUslovi] = useState<Uslovi | null>(uslovi);
+  const [ucitanoSaServera, setUcitanoSaServera] = useState(stanje !== null && uslovi !== null);
+
+  useEffect(() => {
+    if (stanje !== null && uslovi !== null) return;
+    let ziv = true;
+    fetch("/api/utisci/stanje", { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ stanje: MotorStanje; uslovi: Uslovi }>) : null))
+      .then((telo) => {
+        if (!ziv || !telo) return;
+        setServerStanje(telo.stanje);
+        setServerUslovi(telo.uslovi);
+        setUcitanoSaServera(true);
+      })
+      .catch(() => {
+        // Bez veze sa serverom nema ni pitanja — sledeći pun učitaj pokušava
+        // ponovo. Ćutanje je ispravnije od pitanja na osnovu praznog stanja.
+      });
+    return () => {
+      ziv = false;
+    };
+  }, [stanje, uslovi]);
 
   // Dnevnik klijentskih grešaka se puni od prvog trenutka, a šalje se samo uz
   // prijavu kvara (F11 odluka 10). Ovde je zato što je ovaj provider jedina
@@ -153,13 +196,16 @@ export function UtisciProvider({
   }, [aktivno]);
 
   const trenutnoStanje = useCallback(
-    (): MotorStanje => ({
-      cooldownUntil: kasniji(stanje.cooldownUntil, lokalniCooldown.current),
-      mutedUntil: kasniji(stanje.mutedUntil, lokalniMute.current),
-      dismissStreak: lokalniStreak.current ?? stanje.dismissStreak,
-      poPitanju: { ...stanje.poPitanju, ...lokalno.current },
-    }),
-    [stanje],
+    (): MotorStanje => {
+      const izServera = serverStanje ?? TIHO_STANJE;
+      return {
+        cooldownUntil: kasniji(izServera.cooldownUntil, lokalniCooldown.current),
+        mutedUntil: kasniji(izServera.mutedUntil, lokalniMute.current),
+        dismissStreak: lokalniStreak.current ?? izServera.dismissStreak,
+        poPitanju: { ...izServera.poPitanju, ...lokalno.current },
+      };
+    },
+    [serverStanje],
   );
 
   const postaviMir = useCallback((izvor: string, sledeci: boolean) => {
@@ -169,6 +215,9 @@ export function UtisciProvider({
 
   const prijaviDogadjaj = useCallback(
     (kljuc: string, dodatniOdgovor?: Record<string, unknown>) => {
+      // [Faza 3, 3.6] Dok server stanje ne stigne, odluke se ne donose — pitanje
+      // na osnovu praznog stanja bi bilo ponovljeno ili preko cooldown-a.
+      if (!ucitanoSaServera) return;
       if (uToku.current || aktivnoRef.current !== null) return;
 
       const pitanje = pitanjeZaKljuc(kljuc);
@@ -180,7 +229,7 @@ export function UtisciProvider({
           pitanoUSesiji: procitajSesiju(),
           ekranMiran: nemir.current.size === 0,
           odUcitavanjaMs: Date.now() - ucitano.current,
-          uslovi,
+          uslovi: serverUslovi ?? TIHI_USLOVI,
         },
         [pitanje],
       );
@@ -216,7 +265,7 @@ export function UtisciProvider({
         }
       })();
     },
-    [trenutnoStanje, uslovi],
+    [trenutnoStanje, serverUslovi, ucitanoSaServera],
   );
 
   const posalji = useCallback(
@@ -304,7 +353,7 @@ export function UtisciProvider({
   const api = useMemo<UtisciApi>(
     () => ({
       aktivno,
-      uslovi,
+      uslovi: serverUslovi ?? TIHI_USLOVI,
       prijaviDogadjaj,
       postaviMir,
       posalji,
@@ -313,7 +362,7 @@ export function UtisciProvider({
       odbaci,
       zatvori,
     }),
-    [aktivno, uslovi, prijaviDogadjaj, postaviMir, posalji, dopuni, dopuniOdgovor, odbaci, zatvori],
+    [aktivno, serverUslovi, prijaviDogadjaj, postaviMir, posalji, dopuni, dopuniOdgovor, odbaci, zatvori],
   );
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;

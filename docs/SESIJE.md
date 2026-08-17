@@ -24,6 +24,7 @@ sledeću sesiju.
 | S8 | Faza 0 — worker: novac i pouzdanost | `PLAN-IZMENA.md` | `0017` | 0,5–1 dan | ☑ |
 | S9 | Faza 1 — bezbednost: P1 lista | `PLAN-IZMENA.md` | `0018` | 0,5–1 dan | ☑ |
 | S10 | Faza 2 — ispravnost: uvoz, pretraga, web | `PLAN-IZMENA.md` | `0019` | 1–2 dana | ☑ |
+| S11 | Faza 3 — performanse | `PLAN-IZMENA.md` | `0020` | 1–2 dana | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1484,7 +1485,113 @@ Stavke Faze 3:
 Gotovo kad: polling jednog scana troši < 60 upita (danas ~180); izvoz i pretraga ne
 potpisuju nepotrebno; EXPLAIN na glavnim upitima bez seq scan-a.
 
-Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md (S11 — Faza 3)
-i napiši mi prompt za Fazu 4.
+```
+
+---
+
+## S11 — Faza 3: performanse ☑ isporučeno
+
+Rad iz `docs/PLAN-IZMENA.md`, Faza 3. Zatvara nalaze P1–P4 i P6–P8 iz revizije.
+
+### Šta je isporučeno
+
+- **3.1 — izvoz bez Storage poziva (P1):** `getMojaLista(filter, { potpisi: false })`;
+  CSV izvoz više ne potpisuje screenshotove (izvoz 2000 redova = nula Storage
+  poziva). `/lista` i kanban potpisuju i dalje, jednim `createSignedUrls`.
+- **3.2 — polling posla = 1 upit (P3):** migracija 0020 dodaje `job_queue.found/
+  analyzed` + RPC `get_job_for_user(p_job_id, p_user)` (pretplata + red u istoj
+  transakciji) + `inkrementiraj_analizu`. Worker upisuje `found`/`analyzed` na
+  kraju scana (početno `analyzed` = već postojeći auditi), a svaki `enrich_basic`
+  koji upiše audit diže `analyzed` roditeljskog posla (`scanJobId` u payloadu,
+  opciono — CLI i ručno pokretanje ga nemaju). `getJobForUser(userId, jobId)` u
+  web-u zove RPC; rute `job/[id]` i `poruke/ai` prosleđuju identitet. Polling u
+  `pretraga-ekran` dobija backoff 3 s → 10 s.
+- **3.3 — brojači keša umesto pogleda (P6):** `search_cache.total/no_site` +
+  trigger na `website_audits` (osvežava oba brojača pri svakoj izmeni
+  `site_status`) + `record_scan` (upisuje početno stanje). `search_cache_state`
+  i `search_cache_overview` čitaju brojače; pogled `search_cache_stats` je
+  OBRIŠAN — puna agregacija po zahtevu više ne postoji ni kroz jedan put.
+- **3.4 — pretraga u SQL-u (P2):** RPC `search_listing` — filter (toggle-i +
+  minScore), sort (status, pa skor desc nulls last, pa ime, pa place_id) i
+  LIMIT/OFFSET u jednom upitu, sa agregatima cele filtrirane kombinacije kroz
+  window funkcije (`count(*) over ()`). `searchCachedLeads` više ne povlači 1200
+  redova ni ne sortira u JS-u — stiže samo tražena stranica; `FETCH_CAP` je
+  uklonjen.
+- **3.5 — indeksi (B7–B9):** `credit_ledger (user_id, created_at desc)`
+  (zamenjuje stari `(user_id)`), `admin_audit (actor_id, created_at desc)`,
+  `businesses (city_slug)`.
+- **3.6 — prvi bajt bez feedback upita (P4):** layout više ne čeka
+  `citajStanjeMotora` + `citajUslove` — `UtisciProvider` ih povlači klijentski,
+  sa nove rute `GET /api/utisci/stanje`, posle prvog prikaza. Isti broj upita,
+  samo posle prvog bajta; dok stanje ne stigne, motor ne donosi nijednu odluku
+  (nema pitanja na osnovu praznog stanja).
+- **Provere:** `check:sql` — blok „Faza 3": get_job_for_user (pretplaćeni vidi,
+  nepretplaćeni ništa, found/analyzed sa reda, inkrement), search_cache brojači
+  (record_scan + trigger), search_listing (agregati, filter). Tri nove funkcije
+  u listi prava.
+
+### Šta se razišlo sa planom
+
+1. **3.4 — izabran je SQL listing, ne keš stranice 30 s.** Keš u serverless-u je
+   per-instanca i nepouzdan; SQL put je robustan i ujedno rešava „total" i
+   sumar. Sort je isti kao u TS-u, samo je konačni razvezivač `place_id`
+   umesto `localeCompare` — redosled stranica ostaje stabilan.
+2. **3.3 — brojače održava i trigger, ne samo `record_scan`.** Bez toga bi
+   `no_site` bio zamrznut na stanje poslednjeg scana, a auditi (koji stižu POSLE
+   scana) ga menjaju — kes-lista bi pokazivala „0 bez sajta" za kombinaciju koja
+   ih ima 20. Trigger preračunava i `total` i `no_site` pri svakoj izmeni
+   `site_status`; brojači su tako uvek konzistentni sa stvarnim stanjem.
+3. **3.6 — Suspense/skeletoni po stranama nisu rađeni.** Jezgro (prvi bajt bez
+   feedback upita) jeste; same stranice su serverske komponente sa brzim
+   upitima (indeksi iz 3.5) i u „Gotovo kad" Faze 3 ih nema. Ako se pokaže
+   potreba, ide uz Fazu 4 (UX).
+4. **`isSubscribed` je uklonjen iz `lib/jobs.ts`** — pretplatu sada proverava
+   RPC (isti uslov, ista politika, jedan upit).
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql`, `pnpm test`, `pnpm build` prolaze. Nijedan
+nov Places poziv. **Ručne provere ostaju na meni:**
+
+1. pokreni scan i gledaj mrežu: `/api/job/:id` je jedan zahtev po krugu, a
+   krugovi se razređuju (3 s → 10 s); traka napretka i dalje raste kako auditi
+   stižu;
+2. `/lista` i CSV izvoz: u Network tabu izvoz nema nijedan poziv ka Storage-u;
+3. otvori Pretragu za veliki grad — prvi bajt stiže odmah, brojevi (total,
+   „bez sajta") tačni; pređi na stranu 2 i nazad — stabilan redosled;
+4. otvori bilo koju stranu — feedback pitanja se i dalje javljaju (sad posle
+   prvog prikaza, klijentski); `EXPLAIN` na `search_listing`, `credit_ledger`
+   po korisniku i `admin_audit` po akteru — bez seq scan-a.
+
+### Prompt (za sledeću sesiju — Faza 4, UX)
+
+```
+Radimo Fazu 4 iz docs/PLAN-IZMENA.md (UX). Pročitaj prvo CLAUDE.md,
+docs/DIZAJN-SISTEM.md, docs/PLAN-IZMENA.md, docs/REVIZIJA.md (odeljak 7) i
+odeljak „S11 — Faza 3" u docs/SESIJE.md. Ne diraj Fazu 5 (dizajn sistem).
+
+Zatečeno stanje: S1–S11 gotovi (F11/F12, Faze 0–3). Migracije idu do 0020;
+sledeća je 0021 (verovatno nije ni potrebna za ovu fazu — sve je komponentno).
+
+Stavke Faze 4:
+4.1 „Premesti u…" u kanban kartici (touch/tastatura rezerva) — pipeline-tabla.tsx.
+4.2 Sinhronizacija redovi ← kartice prop — pipeline-tabla.tsx:53.
+4.3 Stanje pretrage u URL-u (?grad=&nisa=&bezSajta=1&strana=) + Back —
+    pretraga-ekran.tsx.
+4.4 Reset poslednji/data pri promeni comboboxa — pretraga-ekran.tsx:152.
+4.5 Polling timeout → osveziKes() + dugme „Proveri ponovo" — pretraga-ekran.tsx:420.
+4.6 Poruka o otključavanju uz tabelu (ili scrollIntoView) — pretraga-ekran.tsx:682.
+4.7 Onboarding „Prvi koraci" na dashboard — dashboard/page.tsx.
+4.8 A11y: role=alert, aria-activedescendant, aria-expanded, roving tabindex —
+    ui/alert.tsx, combobox.tsx, kes-lista.tsx, prekidac-teme.tsx.
+4.9 Beleška u kanbanu: Esc otkazuje — pipeline-tabla.tsx:355.
+4.10 „Snimak se pravi" ≠ „nije dostupan" — snimak.tsx:146.
+4.11 Polling pauza na skriveni tab — pretraga-ekran.tsx, poruke-panel.tsx.
+
+Gotovo kad: sve stavke iz §7 REVIZIJA zatvorene; obe teme i telefon
+(≤ 390 px) vizuelno provereni. typecheck, check:sql, test prolaze.
+
+Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md
+(S12 — Faza 4) i napiši mi prompt za Fazu 5.
 ```
 

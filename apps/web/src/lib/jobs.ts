@@ -294,78 +294,54 @@ async function isSubscribed(jobId: number): Promise<boolean> {
   return data !== null;
 }
 
-/** Koliko je od nađenih biznisa već analizirano. Za traku napretka. */
-async function scanProgress(
-  countryCode: string,
-  city: string,
-  niche: string,
-): Promise<JobProgress> {
-  const db = adminSupabase();
-
-  const { data, error } = await db
-    .from("businesses")
-    .select("place_id")
-    .eq("country_code", countryCode)
-    .eq("city_slug", city)
-    .eq("niche_slug", niche)
-    .returns<{ place_id: string }[]>();
-
-  if (error) throw new Error(`Čitanje napretka nije uspelo: ${error.message}`);
-
-  const ids = (data ?? []).map((r) => r.place_id);
-  if (ids.length === 0) return { found: 0, analyzed: 0 };
-
-  const { count, error: aErr } = await db
-    .from("website_audits")
-    .select("place_id", { count: "exact", head: true })
-    .in("place_id", ids);
-
-  if (aErr) throw new Error(`Čitanje napretka nije uspelo: ${aErr.message}`);
-
-  return { found: ids.length, analyzed: count ?? 0 };
-}
-
-/** `null` znači „ne postoji ili nije tvoj" — namerno se ne razlikuje. */
-export async function getJobForUser(jobId: number): Promise<JobView | null> {
-  if (!(await isSubscribed(jobId))) return null;
-
-  const { data, error } = await adminSupabase()
-    .from("job_queue")
-    .select("id, type, payload, status, attempts, max_attempts, created_at, finished_at, last_error")
-    .eq("id", jobId)
-    .maybeSingle<{
-      id: number;
-      type: JobType;
-      payload: Record<string, unknown>;
-      status: JobStatus;
-      attempts: number;
-      max_attempts: number;
-      created_at: string;
-      finished_at: string | null;
-      last_error: string | null;
-    }>();
+/**
+ * [Faza 3, 3.2] `null` znači „ne postoji ili nije tvoj" — namerno se ne razlikuje.
+ *
+ * JEDAN upit: `get_job_for_user` RPC proverava pretplatu i vraća red zajedno sa
+ * `found`/`analyzed` koje je worker upisao (P3). Stara verzija je radila četiri
+ * upita po pollingu (pretplata + posao + dva za napredak).
+ *
+ * `userId` mora da dođe od pozivaoca iz verifikovane sesije (pravilo 8) — RPC
+ * ne čita sesiju sam.
+ */
+export async function getJobForUser(userId: string, jobId: number): Promise<JobView | null> {
+  const { data, error } = await adminSupabase().rpc("get_job_for_user", {
+    p_job_id: jobId,
+    p_user: userId,
+  });
 
   if (error) throw new Error(`Čitanje posla nije uspelo: ${error.message}`);
-  if (!data) return null;
 
-  let progress: JobProgress | null = null;
-  const city = typeof data.payload.citySlug === "string" ? data.payload.citySlug : null;
-  const niche = typeof data.payload.nicheSlug === "string" ? data.payload.nicheSlug : null;
-  const country = typeof data.payload.countryCode === "string" ? data.payload.countryCode : "RS";
+  const row = ((data ?? []) as {
+    id: number;
+    type: JobType;
+    status: JobStatus;
+    attempts: number;
+    max_attempts: number;
+    created_at: string;
+    finished_at: string | null;
+    last_error: string | null;
+    found: number | null;
+    analyzed: number | null;
+  }[])[0];
 
-  if (city && niche) progress = await scanProgress(country, city, niche);
+  if (!row) return null;
 
   return {
-    id: data.id,
-    type: data.type,
-    status: data.status,
-    attempts: data.attempts,
-    maxAttempts: data.max_attempts,
-    createdAt: data.created_at,
-    finishedAt: data.finished_at,
+    id: row.id,
+    type: row.type,
+    status: row.status,
+    attempts: row.attempts,
+    maxAttempts: row.max_attempts,
+    createdAt: row.created_at,
+    finishedAt: row.finished_at,
     // `last_error` je tehnička poruka i stoji i posle uspešnog ponavljanja.
     // Korisniku se pokazuje samo kad je posao stvarno odustao.
-    error: data.status === "failed" ? data.last_error : null,
-    progress,
+    error: row.status === "failed" ? row.last_error : null,
+    // Napredak upisuje worker — poslovi koji nisu scan nemaju `found`/`analyzed`.
+    progress:
+      row.found === null && row.analyzed === null
+        ? null
+        : { found: row.found ?? 0, analyzed: row.analyzed ?? 0 },
   };
 }

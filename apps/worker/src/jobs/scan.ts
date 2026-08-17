@@ -20,7 +20,7 @@ import {
   resolveNiche,
 } from "@sajtoskop/shared";
 import { BudgetError } from "../lib/api-budget";
-import { placeIdsNeedingAudit, recordScan, refundScan, upsertBusinesses } from "../lib/db-writes";
+import { placeIdsNeedingAudit, recordScan, refundScan, upsertBusinesses, zapisiNapredak } from "../lib/db-writes";
 import { searchText } from "../lib/places";
 import { enqueueMany } from "../lib/queue";
 import type { JobContext, JobResult } from "./types";
@@ -148,6 +148,10 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
   });
 
   if (inCity.length === 0) {
+    // [Faza 3, 3.2] Napredak i za prazan rezultat — klijent vidi „0 nađeno"
+    // umesto trake koja čeka.
+    await zapisiNapredak(ctx.job.id, 0, 0);
+
     // Platio je skeniranje, dobio prazan ekran — kredit se vraća (F9, odluka 5).
     // Parcijalan scan sa nula rezultata ide istim putem: budžet je pukao pre
     // nego što je išta stiglo, dakle korisnik nema ništa za svoj kredit.
@@ -164,10 +168,18 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
   // Audit se namerno NE radi ovde: `scan` mora da završi za sekunde da bi lista
   // bila vidljiva. Preuzimanje sajtova je 1 zahtev/s po domenu i traje minutima.
   const needAudit = await placeIdsNeedingAudit(inCity.map((b) => b.placeId));
+
+  // [Faza 3, 3.2] Početno stanje napretka: `analyzed` su auditi koji su već
+  // postojali; svaki `enrich_basic` koji upiše audit diže broj
+  // (inkrementirajAnalizu).
+  await zapisiNapredak(ctx.job.id, inCity.length, inCity.length - needAudit.length);
+
   const created = await enqueueMany(
     needAudit.map((placeId) => ({
       type: "enrich_basic" as const,
-      payload: { placeId },
+      // scanJobId: za napredak na redu posla (3.2) — enrich_basic posle upisa
+      // audita diže `analyzed` roditeljskog posla.
+      payload: { placeId, scanJobId: ctx.job.id },
       dedupeKey: placeId,
     })),
   );

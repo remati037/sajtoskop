@@ -22,7 +22,6 @@ import { jeAdminIzProfila } from "@/lib/admin";
 import { requireSession } from "@/lib/auth";
 import { trebaPodsetnik } from "@/lib/feedback";
 import { citajProfil, ensureProfile, zabeleziDolazak } from "@/lib/profile";
-import { citajStanjeMotora, citajUslove } from "@/lib/utisci";
 import { OkvirAplikacije } from "@/components/okvir-aplikacije";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -54,18 +53,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const plan = planFor(profile?.plan);
 
-  // F11 §3.3: cooldown, ćutanje i streak dolaze iz profila koji je već pročitan,
-  // a `feedback_prompts` je JEDAN upit po punom učitavanju (≤ 12 redova). Layout
-  // se ne izvršava ponovo pri klijentskoj navigaciji, pa prelazak
-  // `/pretraga → /lista` ne košta ni jedan upit.
-  //
-  // F11.2 dodaje `uslovi` — stanje naloga za kampanjska pitanja (dana od
-  // registracije, otključanih, dužina pauze). Dva upita, oba po punom
-  // učitavanju, nijedan Places poziv.
-  const [stanjeUtisaka, usloviUtisaka] = await Promise.all([
-    citajStanjeMotora(userId, profile),
-    citajUslove(userId, profile),
-  ]);
+  // [Faza 3, 3.6] Stanje motora utisaka se odavde više NE čita — layout je
+  // čekao na feedback upite pre prvog bajta (P4). `UtisciProvider` ga povlači
+  // klijentski, sa `/api/utisci/stanje`, posle prvog prikaza. Isti broj upita,
+  // samo posle prvog bajta; odluke motora su svejedno izvor istine (pravila iz
+  // kataloga važe i u pregledaču i na serveru).
 
   // F12 §3.1: „Poslednji put" u admin listi, i dužina pauze za `zasto-ne-vracas`.
   //
@@ -88,10 +80,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // F10 §4.4: podsetnik posle tri dana. Izvedeno iz profila koji je već
       // pročitan — nijedan dodatan upit po učitavanju strane.
       traziUtisak={trebaPodsetnik(profile, plan.monthlyCredits)}
-      // F11 §3: stanje motora pitanja. Odluku donosi `UtisciProvider` u
-      // pregledaču, po pravilima iz `@sajtoskop/shared/feedback-motor`.
-      stanjeUtisaka={stanjeUtisaka}
-      usloviUtisaka={usloviUtisaka}
+      // F11 §3: stanje motora pitanja. Od Faze 3 (3.6) `null` — provider ga
+      // povlači klijentski posle prvog prikaza.
+      stanjeUtisaka={null}
+      usloviUtisaka={null}
       // F12: ulaz u konzolu iz aplikacije. Bez ovoga se `/admin` otvara samo
       // ručnim kucanjem adrese — što je bila zaštita ni od koga, jer strana
       // ionako svakog neadmina dočeka sa `404`.

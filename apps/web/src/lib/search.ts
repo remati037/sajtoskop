@@ -11,39 +11,12 @@
 // izlaska prolazi kroz `toPublicLead()`, a `userId` dolazi iz Clerk sesije.
 
 import "server-only";
-import type { SiteStatus } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
 import { istekKesa } from "./search-cache";
-import {
-  LEAD_AUDIT_COLUMNS,
-  LEAD_BUSINESS_COLUMNS,
-  screenshotPathsOf,
-  toPublicLead,
-  type LeadAudit,
-  type LeadBusiness,
-} from "./public-lead";
+import { screenshotPathsOf, toPublicLead, type LeadAudit, type LeadBusiness } from "./public-lead";
 import { signScreenshots } from "./screenshots";
 import { PAGE_SIZE, type SearchFilters, type SearchResponse, type SearchSummary } from "./search-types";
 import { inGrupe } from "./upiti";
-
-/**
- * Koliko redova uopšte povlačimo iz baze za jedan (grad, niša) ključ.
- * Sortiranje po `site_status` pa `ugly_score` ne može u PostgREST-u jer se
- * kriterijum nalazi u drugoj tabeli, pa se sortira i sabira ovde. Zato postoji
- * cap: `MAX_PAGE * PAGE_SIZE` = 600 redova je sve što se ikako može adresirati,
- * 1200 je duplo od toga. Places vraća max ~60 rezultata po upitu, pa se ovo u
- * praksi dodiruje samo za deep sweep velikog grada (F3).
- */
-const FETCH_CAP = 1200;
-
-// Pretraga uzima kolone za `toPublicLead` plus dve svoje: `google_refreshed_at`
-// za svežinu i `place_id` za spajanje audita sa biznisom.
-const BUSINESS_COLUMNS = `${LEAD_BUSINESS_COLUMNS}, google_refreshed_at`;
-
-const AUDIT_COLUMNS = `place_id, ${LEAD_AUDIT_COLUMNS}`;
-
-type BusinessQueryRow = LeadBusiness & { google_refreshed_at: string };
-type AuditQueryRow = LeadAudit & { place_id: string };
 
 export type SearchInput = {
   userId: string;
@@ -62,17 +35,6 @@ export type SearchInput = {
   source?: "cache" | "api";
 };
 
-// Redosled po kvalitetu leada, ne po abecedi (PRD §4).
-const STATUS_RANK: Record<SiteStatus, number> = {
-  nema_sajt: 0,
-  mrtav: 1,
-  samo_drustvene: 2,
-  ok: 3,
-};
-
-// Biznis bez reda u `website_audits` još nije analiziran — ide na dno.
-const UNAUDITED_RANK = 4;
-
 const EMPTY_SUMMARY: SearchSummary = { noSite: 0, social: 0, dead: 0, ugly: 0, ok: 0 };
 
 export async function searchCachedLeads(input: SearchInput): Promise<SearchResponse> {
@@ -83,26 +45,26 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
     : null;
   const db = adminSupabase();
 
-  const { data: businesses, error: bErr } = await db
-    .from("businesses")
-    .select(BUSINESS_COLUMNS)
-    .eq("country_code", countryCode)
-    .eq("city_slug", input.city)
-    .eq("niche_slug", input.niche)
-    .order("place_id", { ascending: true })
-    .limit(FETCH_CAP)
-    .returns<BusinessQueryRow[]>();
+  // [Faza 3, 3.4] Filter, sort i limit su u SQL-u (`search_listing`, migracija
+  // 0020): umesto 1200 biznisa + audita u dva upita i JS sortiranja na svakom
+  // pollingu, stiže samo tražena stranica zajedno sa agregatima (P2). Sort je
+  // isti kao u TS-u — status, pa skor, pa ime.
+  const { data, error } = await db.rpc("search_listing", {
+    p_country: countryCode,
+    p_city: input.city,
+    p_niche: input.niche,
+    p_only_no_site: input.filters.onlyNoSite ?? false,
+    p_only_social: input.filters.onlySocial ?? false,
+    p_only_dead: input.filters.onlyDead ?? false,
+    p_min_score: input.filters.minScore ?? null,
+    p_page: input.page,
+    p_page_size: PAGE_SIZE,
+  });
 
-  if (bErr) throw new Error(`Čitanje biznisa nije uspelo: ${bErr.message}`);
+  if (error) throw new Error(`Čitanje pretrage nije uspelo: ${error.message}`);
 
-  const rows = businesses ?? [];
-
-  if (rows.length === FETCH_CAP) {
-    // Ne ćuti o odsečenom rezultatu — `total` i `summary` bi bili tiho pogrešni.
-    console.warn(
-      `[search] ${input.city}/${input.niche}: dostignut FETCH_CAP=${FETCH_CAP}, sumar je nepotpun.`,
-    );
-  }
+  const rows = (data ?? []) as ListingRow[];
+  const total = rows[0]?.total ?? 0;
 
   if (rows.length === 0) {
     // Prazno više ne znači „nije skenirano" (to je od F9 odluka rute, iz
@@ -128,26 +90,10 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
     };
   }
 
-  // [Faza 2, 2.2] Audita ima do `FETCH_CAP` (1200) — jedan `.in()` bi napravio
-  // URL od ~30 KB. Grupe od 200, spajanje u mapu.
-  const auditByPlace = new Map<string, LeadAudit>();
-  for (const deo of inGrupe(rows.map((r) => r.place_id))) {
-    const { data: audits, error: aErr } = await db
-      .from("website_audits")
-      .select(AUDIT_COLUMNS)
-      .in("place_id", deo)
-      .returns<AuditQueryRow[]>();
-
-    if (aErr) throw new Error(`Čitanje audita nije uspelo: ${aErr.message}`);
-    for (const a of audits ?? []) auditByPlace.set(a.place_id, a);
-  }
-
-  const paired = rows.map((b) => ({ b, a: auditByPlace.get(b.place_id) ?? null }));
-  const filtered = paired.filter(({ a }) => matchesFilters(a, input.filters));
-  filtered.sort(compareLeads);
-
-  const start = (input.page - 1) * PAGE_SIZE;
-  const pageRows = filtered.slice(start, start + PAGE_SIZE);
+  const pageRows = rows.map((r) => ({
+    b: uBiznis(r),
+    a: r.site_status === null ? null : uAudit(r),
+  }));
 
   // Unlock status se traži samo za redove koji stvarno izlaze — najviše 30 id-jeva.
   const unlocked = await getUnlockedPlaceIds(pageRows.map(({ b }) => b.place_id));
@@ -165,88 +111,72 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
     countryCode,
     city: input.city,
     niche: input.niche,
-    count: filtered.length,
+    count: total,
     source,
   });
 
   return {
     status: "cache",
     freshness,
-    total: filtered.length,
+    total,
     page: input.page,
     pageSize: PAGE_SIZE,
     results: pageRows.map(({ b, a }) => toPublicLead(b, a, unlocked.has(b.place_id), signed)),
-    summary: summarize(filtered),
+    summary: {
+      noSite: rows[0]!.no_site,
+      social: rows[0]!.social,
+      dead: rows[0]!.dead,
+      ugly: rows[0]!.ugly,
+      ok: rows[0]!.ok,
+    },
   };
 }
 
-// ── filteri ────────────────────────────────────────────────
-// Tri statusna toggle-a se sabiraju kao ILI (uključi i bez sajta i mrtve), a
-// `minScore` se primenjuje kao I nad tim. Redovi bez numeričkog skora
-// (`nema_sajt`, `mrtav`, `samo_drustvene`) ispadaju čim se `minScore` postavi —
-// po definiciji Ugly Score-a oni skor nemaju.
-function matchesFilters(a: LeadAudit | null, f: SearchFilters): boolean {
-  const wanted: SiteStatus[] = [];
-  if (f.onlyNoSite) wanted.push("nema_sajt");
-  if (f.onlySocial) wanted.push("samo_drustvene");
-  if (f.onlyDead) wanted.push("mrtav");
+// ── oblik reda iz `search_listing` (migracija 0020) ────────
+// Kolone su namerno iste kao `LEAD_BUSINESS_COLUMNS`/`LEAD_AUDIT_COLUMNS`, da
+// `toPublicLead` ostane jedina kapija — samo što sada sve stiže u jednom upitu.
+type ListingRow = LeadBusiness &
+  LeadAudit & {
+    google_refreshed_at: string;
+    total: number;
+    no_site: number;
+    social: number;
+    dead: number;
+    ugly: number;
+    ok: number;
+  };
 
-  if (wanted.length > 0 && (!a || !wanted.includes(a.site_status))) return false;
-
-  if (f.minScore !== undefined) {
-    if (a?.ugly_score == null || a.ugly_score < f.minScore) return false;
-  }
-
-  return true;
+function uBiznis(r: ListingRow): LeadBusiness {
+  return {
+    place_id: r.place_id,
+    name: r.name,
+    city_slug: r.city_slug,
+    niche_slug: r.niche_slug,
+    address: r.address,
+    phone: r.phone,
+    phone_type: r.phone_type,
+    website_url: r.website_url,
+    rating: r.rating,
+    user_ratings_total: r.user_ratings_total,
+  };
 }
 
-// ── sortiranje ─────────────────────────────────────────────
-function rankOf(a: LeadAudit | null): number {
-  return a ? STATUS_RANK[a.site_status] : UNAUDITED_RANK;
-}
-
-function compareLeads(
-  x: { b: LeadBusiness; a: LeadAudit | null },
-  y: { b: LeadBusiness; a: LeadAudit | null },
-): number {
-  const byStatus = rankOf(x.a) - rankOf(y.a);
-  if (byStatus !== 0) return byStatus;
-
-  const byScore = (y.a?.ugly_score ?? -1) - (x.a?.ugly_score ?? -1);
-  if (byScore !== 0) return byScore;
-
-  // Stabilan rasplet, da ista pretraga uvek daje isti redosled stranica.
-  return x.b.name.localeCompare(y.b.name, "sr-Latn-RS");
-}
-
-// ── sumar ──────────────────────────────────────────────────
-// Ista rečenica koju CLI ispisuje. Prag „ružnog" ne stoji ovde kao broj — čita se
-// iz `ugly_band`, koji je izračunat u `packages/shared/src/ugly-score.ts` (pravilo 6).
-// Biznis bez audita ne ulazi ni u jednu kategoriju, pa zbir ume da bude manji od
-// `total`; u praksi se ne dešava jer seed i worker upisuju audit uz svaki biznis.
-function summarize(rows: { a: LeadAudit | null }[]): SearchSummary {
-  const s = { ...EMPTY_SUMMARY };
-
-  for (const { a } of rows) {
-    if (!a) continue;
-    switch (a.site_status) {
-      case "nema_sajt":
-        s.noSite++;
-        break;
-      case "samo_drustvene":
-        s.social++;
-        break;
-      case "mrtav":
-        s.dead++;
-        break;
-      case "ok":
-        if (a.ugly_band === "ruzan" || a.ugly_band === "katastrofa") s.ugly++;
-        else s.ok++;
-        break;
-    }
-  }
-
-  return s;
+function uAudit(r: ListingRow): LeadAudit {
+  return {
+    site_status: r.site_status,
+    ugly_band: r.ugly_band,
+    platform: r.platform,
+    ugly_score: r.ugly_score,
+    signals: r.signals,
+    emails: r.emails,
+    psi_mobile_score: r.psi_mobile_score,
+    psi_lcp_ms: r.psi_lcp_ms,
+    ai_issues: r.ai_issues,
+    ai_verdict: r.ai_verdict,
+    ai_solidan: r.ai_solidan,
+    screenshot_desktop: r.screenshot_desktop,
+    screenshot_mobile: r.screenshot_mobile,
+  };
 }
 
 // ── otključavanja ──────────────────────────────────────────

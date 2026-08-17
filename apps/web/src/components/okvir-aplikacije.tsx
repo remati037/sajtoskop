@@ -43,15 +43,16 @@ type Props = {
    */
   traziUtisak?: boolean;
   /**
-   * Stanje motora pitanja (F11 §3). Dolazi iz istog profila i jednog dodatnog
-   * upita nad `feedback_prompts` — v. `(app)/layout.tsx`.
+   * Stanje motora pitanja (F11 §3). Od Faze 3 (3.6) dolazi kao `null` iz
+   * layout-a, a `UtisciProvider` ga povlači klijentski posle prvog prikaza —
+   * prvi bajt ne čeka na feedback upite.
    */
-  stanjeUtisaka: MotorStanje;
+  stanjeUtisaka: MotorStanje | null;
   /**
    * Stanje naloga za kampanjska pitanja (F11 §2.3): dana od registracije,
-   * otključanih, dužina pauze. Iz istog layout-a, dva upita po punom učitavanju.
+   * otključanih, dužina pauze. Isti put kao `stanjeUtisaka` (3.6).
    */
-  usloviUtisaka: Uslovi;
+  usloviUtisaka: Uslovi | null;
   /**
    * Prikazati ulaz u admin konzolu (F12). Računa se serverski, iz profila koji
    * layout ionako čita.
