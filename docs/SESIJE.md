@@ -1340,6 +1340,18 @@ iz `docs/bezbednost-i-zastita.md` koje su bile otvorene.
    planirano u PLAN-IZMENA.md — „Gotovo kad" Faze 1 pominje samo backup, ali plan eksplicitno
    drži zavisnosti u Fazi 6. Pravni tekstovi (P0, ZZPL) su F8/ROADMAP.
 
+### Popravke posle prve upotrebe
+
+1. **CSP je blokirao Clerk JS.** Clerk 6 dinamički učitava `clerk-js` sa Frontend
+   API domena (`https://<domen>/npm/@clerk/…`), a Faza 1 CSP je u `script-src`
+   dozvoljavao samo `'self'` + `'unsafe-inline'` — sa custom domenom
+   (`clerk.sajtoskop.com`) app se uopšte nije dizao („Failed to load Clerk JS").
+   CSP sada izvlači Clerk domen iz `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+   (dekoduje `pk_test_<base64>` u `<domen>$`) i ubacuje ga u `script-src`,
+   `connect-src` (+`wss://`) i `img-src` — radi i za default instancu
+   (`*.clerk.accounts.dev`) i za custom domen. Fallback kad ključ nedostaje:
+   `*.clerk.accounts.dev` + `clerk.sajtoskop.com`.
+
 ### Provereno
 
 `pnpm typecheck`, `pnpm check:sql`, `pnpm test`, `pnpm build` prolaze; `curl -I` nad

@@ -26,19 +26,48 @@ function loadRootEnv(): void {
 
 loadRootEnv();
 
+/**
+ * Clerk domen iz publishable ključa, za CSP.
+ *
+ * `pk_test_<base64url>` dekoduje se u `<domen>$` — npr. `clerk.sajtoskop.com$`
+ * (custom domen) ili `real-boxer-65.clerk.accounts.dev$` (default instanca).
+ * Clerk 6 dinamički učitava `clerk-js` sa tog domena (`/npm/@clerk/…`) i zove
+ * isti domen kao Frontend API, pa CSP mora da ga dozvoli u `script-src`,
+ * `connect-src` i `img-src` — wildcard `*.clerk.accounts.dev` custom domen NE
+ * pokriva (to je naš poddomen, ne Clerk-ov).
+ *
+ * Ako ključ nedostaje ili se ne dekoduje, pada se na spisak koji pokriva i
+ * default instancu i custom domen ovog projekta.
+ */
+function clerkDomains(): string[] {
+  const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
+  const b64 = pk.replace(/^pk_(test|live)_/, "");
+  try {
+    const decoded = Buffer.from(b64, "base64url").toString("utf8").replace(/\$$/, "").trim();
+    if (decoded && decoded.includes(".") && !decoded.includes(" ")) return [decoded];
+  } catch {
+    // padni na podrazumevano ispod
+  }
+  return ["*.clerk.accounts.dev", "clerk.sajtoskop.com"];
+}
+
+const clerk = clerkDomains().map((d) => `https://${d}`).join(" ");
+const clerkWss = clerkDomains().map((d) => `wss://${d}`).join(" ");
+
 // ── bezbednosni headeri (Faza 1, 1.1; P1 iz docs/bezbednost-i-zastita.md) ──
-// CSP je sastavljen oko onoga što app STVARNO koristi: Clerk (connect/img),
-// Supabase (connect/img — potpisani URL-ovi slika), blob/data za snimke i
-// avatare, i inline temna skripta u <head>-u (zato 'unsafe-inline' u
-// script-src — nonce bi tražio middleware i menjao ceo layout).
+// CSP je sastavljen oko onoga što app STVARNO koristi: Clerk (script/connect/img
+// — domen se izvlači iz publishable ključa, v. `clerkDomains()`), Supabase
+// (connect/img — potpisani URL-ovi slika), blob/data za snimke i avatare, i
+// inline temna skripta u <head>-u (zato 'unsafe-inline' u script-src — nonce bi
+// tražio middleware i menjao ceo layout).
 // `frame-ancestors 'none'` je CSP ekvivalent `X-Frame-Options: DENY`; stoje oba.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline' ${clerk}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev",
+  `img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev ${clerk}`,
   "font-src 'self' data:",
-  "connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev wss://*.clerk.accounts.dev https://*.clerk.com",
+  `connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com ${clerk}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
