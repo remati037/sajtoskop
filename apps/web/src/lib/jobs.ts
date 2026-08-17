@@ -189,6 +189,80 @@ export async function zivPlacenPosao(args: {
 }
 
 /**
+ * Koliko unazad se gleda za scan koji je završio a nije ostavio red u registru.
+ * Duže od trajanja jednog scana (sekunde), kraće od bilo kog TTL-a.
+ */
+const BEZ_REGISTRA_MINUTA = 60;
+
+/**
+ * ID `scan` posla koji je ZAVRŠIO, a kombinacija je i dalje van keša.
+ *
+ * Ugovor `runScan`-a je da svaki uspešan scan upiše red u `search_cache` — i za
+ * prazan rezultat. Kad se posao završi kao `done`, a `search_cache_state` i
+ * dalje kaže „nije sveže", taj ugovor je pao: podaci možda jesu u `businesses`,
+ * ali ih niko ne servira, a naplata se po istoj logici ponavlja svaki put.
+ *
+ * Baš to se desilo u avgustu 2026 — na Hetzneru je radila stara slika workera
+ * koja `record_scan` uopšte nije zvala. Pet skeniranja iste kombinacije, pet
+ * skinutih kredita, nijedan rezultat i nijedna greška nigde.
+ *
+ * Provera je po KOMBINACIJI, ne po platiocu: kad registracija pukne, pukla je
+ * za svakoga ko posle naiđe, ne samo za onoga ko je platio prvi put.
+ *
+ * Pozivalac je dužan da ovo pita samo kad keš NIJE svež — nad svežim kešom je
+ * završen scan uredna, očekivana stvar.
+ */
+export async function scanBezRegistra(args: {
+  countryCode: string;
+  city: string;
+  niche: string;
+}): Promise<number | null> {
+  const od = new Date(Date.now() - BEZ_REGISTRA_MINUTA * 60_000).toISOString();
+
+  const { data, error } = await adminSupabase()
+    .from("job_queue")
+    .select("id")
+    .eq("type", "scan")
+    .eq("dedupe_key", scanKey(args.countryCode, args.city, args.niche))
+    .eq("status", "done")
+    .gte("finished_at", od)
+    .order("id", { ascending: false })
+    .limit(1)
+    .returns<{ id: number }[]>();
+
+  // Pad ove provere ne sme da obori pretragu — ona je zaštita, ne funkcija.
+  if (error) {
+    console.error(`[jobs] provera neregistrovanog scana: ${error.message}`);
+    return null;
+  }
+
+  const jobId = (data ?? [])[0]?.id;
+  if (jobId === undefined) return null;
+
+  // Završen scan nad nesvežim kešom NE mora da znači pad registracije. Kad scan
+  // ne nađe nijednu firmu, `record_scan` upisuje `last_scanned_at` iz najstarije
+  // poznate firme, pa red postoji a kombinacija je i dalje „istekla" — i to je
+  // ispravno ponašanje (kredit je tada već vraćen kroz `refund_scan`).
+  //
+  // Razliku pravi `last_job_id`: `record_scan` uvek upiše ID posla koji ga je
+  // pozvao. Ako u registru stoji baš ovaj posao, registracija je prošla.
+  const { data: red, error: rErr } = await adminSupabase()
+    .from("search_cache")
+    .select("last_job_id")
+    .eq("country_code", args.countryCode)
+    .eq("city_slug", args.city)
+    .eq("niche_slug", args.niche)
+    .maybeSingle<{ last_job_id: number | null }>();
+
+  if (rErr) {
+    console.error(`[jobs] čitanje registra za neregistrovan scan: ${rErr.message}`);
+    return null;
+  }
+
+  return red?.last_job_id === jobId ? null : jobId;
+}
+
+/**
  * Skup enrichment posle otključavanja (F4 §1). Handler je prazan do F5 — ovde
  * se posao svejedno upisuje, da red poslova od početka ima stvaran zapis o tome
  * šta je naručeno.

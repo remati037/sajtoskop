@@ -139,7 +139,7 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
   // Registar keša se upisuje pre svakog izlaza iz ove funkcije, i za prazan
   // rezultat (F9 §1). Prazno koje se ne zapamti naplaćuje se svakom sledećem
   // radoznalom korisniku redom, a svaki taj pokušaj su nova 3 Places poziva.
-  await recordScan({
+  const registrovan = await recordScan({
     countryCode: payload.countryCode,
     citySlug: city.slug,
     nicheSlug: niche.slug,
@@ -150,6 +150,19 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     // izgleda kao lažno svež rezultat (B5).
     partial,
   });
+
+  // Skenirano, ali neregistrovano. Za korisnika je to najgori mogući ishod:
+  // posao je „done", pa nema ni pada ni povraćaja, a kombinacija i dalje nije u
+  // kešu — ekran se isprazni i sledeći pokušaj se opet naplati. Posao se ne
+  // obara (ponavljanje = novi Places pozivi), nego se kredit vraća odmah.
+  let vracenoBezRegistra = 0;
+  if (!registrovan) {
+    vracenoBezRegistra = await refundScan(ctx.job.id);
+    ctx.log(
+      `registar keša NIJE upisan — kombinacija ostaje van keša, ` +
+        `vraćeno ${vracenoBezRegistra} kredita`,
+    );
+  }
 
   if (inCity.length === 0) {
     // [Faza 3, 3.2] Napredak i za prazan rezultat — klijent vidi „0 nađeno"
@@ -191,7 +204,8 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
   return {
     note:
       `${city.label} · ${niche.label}: ${inCity.length} biznisa, ` +
-      `${created} za analizu, ${apiCalls} API poziva${partial ? " (parcijalno)" : ""}`,
+      `${created} za analizu, ${apiCalls} API poziva${partial ? " (parcijalno)" : ""}` +
+      (registrovan ? "" : ` — BEZ REGISTRA KEŠA, vraćeno ${vracenoBezRegistra} kredita`),
     ...(partial && { partial }),
   };
 }

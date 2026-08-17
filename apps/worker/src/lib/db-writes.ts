@@ -16,6 +16,7 @@ import type {
   Signal,
   SiteStatus,
 } from "@sajtoskop/shared";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { SiteFetch } from "./fetch-site";
 import { supabaseAdmin } from "./supabase";
 
@@ -95,10 +96,20 @@ export async function upsertBusinesses(input: UpsertBusinessesInput): Promise<nu
  * odgovor se pamti 30 dana, pa sledeći korisnik ne plati isto nulto skeniranje.
  * Bez ovog upisa kombinacija ostaje „nikad skenirana" i naplaćuje se u nedogled.
  *
- * Neuspeh upisa NE ruši posao: podaci su već u `businesses`, a jedina šteta je
- * da će neko platiti skeniranje koje nije moralo. Rušenje posla bi značilo
- * ponovni pokušaj, dakle nove Places pozive — skuplja greška od one koju leči.
+ * Neuspeh upisa NE ruši posao: podaci su već u `businesses`, a rušenje bi
+ * značilo ponovni pokušaj, dakle nove Places pozive — skuplja greška od one
+ * koju leči.
+ *
+ * Ali ne prolazi ni u tišini, i to je izmena iz avgusta 2026. Sve dok je
+ * neuspeh bio samo `console.error`, scan bez registra je za korisnika izgledao
+ * ovako: posao „done", ekran se isprazni bez ijedne poruke, a svaki sledeći
+ * pokušaj iste kombinacije se naplati ispočetka — jer kombinacija i dalje nije
+ * u kešu. Zato se sada pokušava više puta, a ishod se vraća pozivaocu: `false`
+ * znači „skenirano ali neregistrovano" i `runScan` na to vraća kredit.
  */
+const RECORD_SCAN_POKUSAJA = 3;
+const RECORD_SCAN_PAUZA_MS = 500;
+
 export async function recordScan(args: {
   countryCode: string;
   citySlug: string;
@@ -107,17 +118,34 @@ export async function recordScan(args: {
   jobId: number | null;
   /** [Faza 6, 6.4] Budžet je stao usred scana — kombinacija se pamti kao parcijalna. */
   partial?: boolean;
-}): Promise<void> {
-  const { error } = await supabaseAdmin().rpc("record_scan", {
-    p_country: args.countryCode,
-    p_city: args.citySlug,
-    p_niche: args.nicheSlug,
-    p_count: args.count,
-    p_job_id: args.jobId,
-    p_partial: args.partial ?? false,
-  });
+}): Promise<boolean> {
+  let poslednja = "";
 
-  if (error) console.error(`[db] record_scan nije uspeo: ${error.message}`);
+  for (let pokusaj = 1; pokusaj <= RECORD_SCAN_POKUSAJA; pokusaj++) {
+    const { error } = await supabaseAdmin().rpc("record_scan", {
+      p_country: args.countryCode,
+      p_city: args.citySlug,
+      p_niche: args.nicheSlug,
+      p_count: args.count,
+      p_job_id: args.jobId,
+      p_partial: args.partial ?? false,
+    });
+
+    if (!error) return true;
+
+    poslednja = error.message;
+    console.error(
+      `[db] record_scan (pokušaj ${pokusaj}/${RECORD_SCAN_POKUSAJA}) nije uspeo: ${poslednja}`,
+    );
+
+    if (pokusaj < RECORD_SCAN_POKUSAJA) await sleep(RECORD_SCAN_PAUZA_MS * pokusaj);
+  }
+
+  console.error(
+    `[db] record_scan konačno pao za ${args.countryCode}:${args.citySlug}:${args.nicheSlug} ` +
+      `(posao ${args.jobId ?? "—"}): ${poslednja}`,
+  );
+  return false;
 }
 
 /**

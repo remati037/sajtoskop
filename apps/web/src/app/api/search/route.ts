@@ -22,7 +22,13 @@ import { NextResponse } from "next/server";
 import { DEFAULT_PLAN, SCAN_CREDIT_COST } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
 import { budzetZaScan } from "@/lib/budzet";
-import { claimCacheMiss, releaseCacheMiss, spendCreditAndScan, zivPlacenPosao } from "@/lib/jobs";
+import {
+  claimCacheMiss,
+  releaseCacheMiss,
+  scanBezRegistra,
+  spendCreditAndScan,
+  zivPlacenPosao,
+} from "@/lib/jobs";
 import { getOwnProfile } from "@/lib/profile";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import { searchCachedLeads } from "@/lib/search";
@@ -112,6 +118,28 @@ export async function POST(req: Request): Promise<Response> {
       };
 
       return NextResponse.json(body, { headers: HEADERS });
+    }
+
+    // ── scan koji je završio a nije se registrovao ───────────
+    // Ovde se stiže samo kad keš NIJE svež. Ako je za istu kombinaciju maločas
+    // završio `scan` posao, ugovor `runScan`-a je pao: podaci su možda upisani,
+    // ali ih registar ne zna, pa bi svaki sledeći klik bio nova naplata za isti
+    // posao. Zaustavlja se PRE cene i pre naplate — i za `pay` i bez njega, jer
+    // je poslednji korak pollovanja upravo zahtev bez `pay` i on je taj koji je
+    // do sada ekran ostavljao prazan, bez rezultata i bez ijedne reči.
+    const neregistrovan = await scanBezRegistra({ countryCode: COUNTRY, city, niche });
+
+    if (neregistrovan !== null) {
+      console.error(
+        `[api/search] scan #${neregistrovan} završen bez upisa u registar keša ` +
+          `(${COUNTRY}:${city}:${niche}) — naplata zaustavljena`,
+      );
+
+      return greska(
+        "Skeniranje je završeno, ali rezultat nije upisan u keš — greška je na mojoj strani. " +
+          "Kredit NIJE skinut. Ne pokreći isto skeniranje ponovo, javi mi i sređujem ga.",
+        503,
+      );
     }
 
     // ── nije besplatno: koliko košta ────────────────────────

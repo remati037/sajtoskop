@@ -416,8 +416,25 @@ export function PretragaEkran({
 
     /** Poslednje osvežavanje liste, pa skidanje trake i osvežavanje registra. */
     async function zavrsi(osveziPrvo: boolean) {
-      if (osveziPrvo) await trazi({ ...z, pay: false, force: false }, token);
-      if (token === pollToken.current) setPosao(null);
+      const konacno = osveziPrvo ? await trazi({ ...z, pay: false, force: false }, token) : null;
+
+      if (token === pollToken.current) {
+        setPosao(null);
+
+        // Posao je završio, a server na isto pitanje i dalje odgovara „ovo
+        // košta" — dakle kombinacija nije završila u kešu. Bez ove poruke ekran
+        // se prosto isprazni: bez tabele, bez greške i bez ijednog traga da je
+        // kredit potrošen. Server ovo hvata i sam (`scanBezRegistra`), ali samo
+        // sat vremena unazad; ovo je poslednja brana da ćutanje ne prođe.
+        if (konacno?.status === "needs_scan") {
+          setGreska(
+            `Skeniranje je završeno, ali lista nije dostupna — kombinacija nije upisana u keš. ` +
+              `Kredit je potrošen. Javi mi broj posla ${jobId} i vraćam ti ga; ` +
+              `ne pokreći isto skeniranje ponovo, opet bi se naplatilo.`,
+          );
+          setPaoPosao(jobId);
+        }
+      }
       // Kombinacija je od sada u kešu i besplatna — registar i balans (moguć
       // povraćaj) se osvežavaju tek ovde, kad ima šta da se promeni.
       await osveziKes();
