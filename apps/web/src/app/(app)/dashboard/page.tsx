@@ -4,6 +4,7 @@ import { Coins, Gauge, KanbanSquare, ListChecks, Newspaper, Radar, Search } from
 import { planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
 import { getOwnProfile } from "@/lib/profile";
+import { userSupabase } from "@/lib/supabase";
 import { citajDnevnik } from "@/lib/dnevnik";
 import { VezaGreska } from "@/components/veza-greska";
 import { Card } from "@/components/ui/card";
@@ -64,6 +65,18 @@ export default async function Page() {
   ]);
   const plan = planFor(profile?.plan);
 
+  // [Faza 4, 4.7] „Prvi koraci" stoji dok nema nijednog otključanog prospekta.
+  // Broj se čita kroz RLS „own unlocks" — isti put kao svuda u aplikaciji.
+  let otkljucano = 0;
+  try {
+    const { count, error } = await userSupabase()
+      .from("unlocks")
+      .select("place_id", { count: "exact", head: true });
+    if (!error) otkljucano = count ?? 0;
+  } catch {
+    // Bez broja se onboarding jednostavno ne prikazuje — statistika ostaje.
+  }
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
@@ -91,6 +104,46 @@ export default async function Page() {
         </dl>
       ) : (
         <VezaGreska sta="Podaci naloga" />
+      )}
+
+      {/* [Faza 4, 4.7] Onboarding: tri koraka do prve poruke, dok korisnik nema
+          nijedan otključan prospekt (F8 §2, preliminarna verzija). */}
+      {otkljucano === 0 && (
+        <section className="mt-6 rounded-2xl border border-border bg-bg-elev p-5 shadow-sm">
+          <h2 className="text-sm font-semibold">Prvi koraci</h2>
+          <ol className="mt-3 grid gap-3 sm:grid-cols-3">
+            {[
+              {
+                korak: "1",
+                naslov: "Izaberi grad i nišu",
+                opis: "Prva pretraga kombinacije koja nije u kešu košta 1 kredit — posle toga je besplatna svima 30 dana.",
+                href: "/pretraga",
+              },
+              {
+                korak: "2",
+                naslov: "Otključaj prvi prospekt",
+                opis: "Kredit po prospektu. Tada vidiš telefon, mejl, sajt i analizu — i screenshot sajta.",
+                href: "/pretraga",
+              },
+              {
+                korak: "3",
+                naslov: "Napiši prvu poruku",
+                opis: "Generisana poruka za vlasnika, pa je status u kanbanu odvede do potpisa.",
+                href: "/pipeline",
+              },
+            ].map((k) => (
+              <li key={k.korak}>
+                <Link href={k.href} className="group block h-full rounded-xl border border-border bg-bg-subtle/60 p-3.5 transition-colors hover:border-accent/40 hover:bg-bg-subtle">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-accent-ink num">
+                    {k.korak}
+                  </span>
+                  <p className="mt-2.5 text-sm font-semibold">{k.naslov}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">{k.opis}</p>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </section>
       )}
 
       {/* Beta dnevnik (F11.4 §6.5): poslednjih 5 stavki ispod statistike.

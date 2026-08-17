@@ -18,7 +18,7 @@
 // reč; ovo je samo da korisnik unapred vidi cenu.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -132,6 +132,14 @@ export function PretragaEkran({
   pocetniKrediti,
 }: Props) {
   const router = useRouter();
+
+  // [Faza 4, 4.3] Stanje pretrage živi u URL-u (?grad=&nisa=&bezSajta=&strana=):
+  // link se deli i vraća isti rezultat, a Back prolazi kroz istoriju pretraga
+  // (I3). Pri montiranju se stanje čita iz URL-a; svaka promena grada/niše/
+  // filtera/strane se upisuje nazad.
+  const searchParams = useSearchParams();
+  const urlInicijalizovan = useRef(false);
+
   // Motor pitanja (F11). Ekran mu javlja SAMO da je okidač pukao — hoće li se
   // pitanje pojaviti odlučuje motor, i najčešći ishod je da neće.
   const utisci = useUtisci();
@@ -149,9 +157,66 @@ export function PretragaEkran({
   useEffect(() => setKes(pocetniKes), [pocetniKes]);
   useEffect(() => setKrediti(pocetniKrediti), [pocetniKrediti]);
 
+  // [Faza 4, 4.3] Deljiv link: na puno učitavanje stanje se čita iz URL-a i
+  // pretraga se pokreće bez modalnih prozora (plaćena kombinacija samo pokaže
+  // cenu — korisnik sam klikne „Pretraži" da plati).
+  useEffect(() => {
+    const grad = searchParams.get("grad");
+    const nisa = searchParams.get("nisa");
+    if (!grad || !nisa) {
+      urlInicijalizovan.current = true;
+      return;
+    }
+    const filteri: SearchFilters = {
+      onlyNoSite: searchParams.get("bezSajta") === "1",
+      onlySocial: false,
+      onlyDead: false,
+    };
+    const stranica = Math.max(1, Number(searchParams.get("strana")) || 1);
+    setCity(grad);
+    setNiche(nisa);
+    setFilters(filteri);
+    urlInicijalizovan.current = true;
+    void pretrazi({ city: grad, niche: nisa, f: filteri, page: stranica }, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // [Faza 4, 4.3] Upis stanja u URL. `push` pravi istoriju — Back se vraća na
+  // prethodnu pretragu. `scroll: false` da se pogled ne pomera.
+  const strana = data?.page ?? 1;
+  useEffect(() => {
+    if (!urlInicijalizovan.current) return;
+    const p = new URLSearchParams();
+    if (city) p.set("grad", city);
+    if (niche) p.set("nisa", niche);
+    if (filters.onlyNoSite) p.set("bezSajta", "1");
+    if (strana > 1) p.set("strana", String(strana));
+    const qs = p.toString();
+    router.push(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+  }, [city, niche, filters.onlyNoSite, strana, router]);
+
   // Poslednji zahtev, da listanje strana i promena filtera ne moraju da ga
   // sastavljaju iz stanja koje se u međuvremenu promenilo.
   const [poslednji, setPoslednji] = useState<Zahtev | null>(null);
+
+  /**
+   * [Faza 4, 4.4] Promena grada/niše resetuje izvršenu pretragu (I2).
+   * `poslednji` nosi STARU kombinaciju — ponavljanje bez reset-a bi tražilo
+   * stari grad dok forma prikazuje novi, i forma i rezultati bi se vidljivo
+   * razdesinhronizovali.
+   */
+  function promeniGrad(g: string | null) {
+    setCity(g);
+    setPoslednji(null);
+    setData(null);
+    setGreska(null);
+  }
+  function promeniNisu(n: string | null) {
+    setNiche(n);
+    setPoslednji(null);
+    setData(null);
+    setGreska(null);
+  }
 
   // Stanje čekanja na worker.
   const [posao, setPosao] = useState<JobStatusResponse | null>(null);
@@ -176,6 +241,9 @@ export function PretragaEkran({
   // Otključavanje: `place_id` reda u toku, i poruka posle uspeha.
   const [otkljucavam, setOtkljucavam] = useState<string | null>(null);
   const [otkljucano, setOtkljucano] = useState<string | null>(null);
+  // [Faza 4, 4.6] Neuspeh otključavanja se prikazuje UZ tabelu — poruka na vrhu
+  // strane stoji daleko od reda koji je korisnik kliknuo (nalaz 7.1.2).
+  const [greskaOtkljuc, setGreskaOtkljuc] = useState<string | null>(null);
 
   /**
    * Koliko je prospekata otključano OTKAD je strana učitana.
@@ -357,6 +425,13 @@ export function PretragaEkran({
     }
 
     while (token === pollToken.current && Date.now() < kraj) {
+      // [Faza 4, 4.11] Skriven tab ne troši zahteve (P5): dok korisnik gleda
+      // drugi tab, čeka se u tihim krugovima i ništa se ne fetchuje.
+      while (token === pollToken.current && document.hidden) {
+        await pauza(1000);
+      }
+      if (token !== pollToken.current) return;
+
       // [Faza 3, 3.2] Backoff: kasniji krugovi su sve ređi (3 s → 10 s), jer
       // sve ređe menjaju stanje; rani ostaju česti da traka krene brzo.
       const odziv = Math.min(POLL_MS * Math.pow(1.3, krug), POLL_MAX_MS);
@@ -430,7 +505,21 @@ export function PretragaEkran({
       // „Polling istekao" je za F11 isto što i pad: korisnik je ostao bez
       // rezultata koji je tražio (§2.2). Posao se u pozadini možda i završi.
       setPaoPosao(jobId);
+      // [Faza 4, 4.5] Registar keša se osvežava ODMAH: ako je scan u pozadini
+      // završio, kombinacija je sada besplatna i traka cene to mora da kaže
+      // (nalaz 7.1.3). Bez ovoga korisnik misli da i dalje košta.
+      await osveziKes();
     }
+  }
+
+  /** [Faza 4, 4.5] „Proveri ponovo" — posao se ponovo prati bez plaćanja. */
+  function proveriPonovo() {
+    if (!poslednji) return;
+    setPredugo(false);
+    setGreska(null);
+    // Keš je možda sada svež (besplatno), ili se posao još obrađuje — u oba
+    // slučaja `pretrazi` bez `pay` vraća tačno ono što ekran treba.
+    void pretrazi({ ...poslednji, pay: false, force: false });
   }
 
   // ── ulazne tačke iz UI-ja ────────────────────────────────
@@ -509,6 +598,7 @@ export function PretragaEkran({
 
     setOtkljucavam(placeId);
     setGreska(null);
+    setGreskaOtkljuc(null);
     setOtkljucano(null);
 
     try {
@@ -521,7 +611,7 @@ export function PretragaEkran({
       const json: UnlockResponse | ApiError = await res.json();
 
       if (!res.ok) {
-        setGreska("greska" in json ? json.greska : "Otključavanje nije uspelo.");
+        setGreskaOtkljuc("greska" in json ? json.greska : "Otključavanje nije uspelo.");
         return;
       }
 
@@ -550,7 +640,7 @@ export function PretragaEkran({
       // Balans u bočnoj traci crta serverski layout, pa ga osvežava samo ovo.
       router.refresh();
     } catch {
-      setGreska("Nema veze sa serverom. Prospekt nije otključan i kredit nije skinut.");
+      setGreskaOtkljuc("Nema veze sa serverom. Prospekt nije otključan i kredit nije skinut.");
     } finally {
       setOtkljucavam(null);
     }
@@ -567,7 +657,6 @@ export function PretragaEkran({
     if (poslednji) void pretrazi({ ...poslednji, page, pay: false, force: false });
   }
 
-  const strana = data?.page ?? 1;
   const strana_ukupno = data ? Math.min(Math.ceil(data.total / data.pageSize) || 1, MAX_PAGE) : 1;
   const ceka = posao !== null && !predugo;
   const imaRezultat = data !== null && data.status !== "needs_scan";
@@ -653,14 +742,14 @@ export function PretragaEkran({
             placeholder="npr. Šabac"
             groups={cities}
             value={city}
-            onChange={setCity}
+            onChange={promeniGrad}
           />
           <Combobox
             label="Niša"
             placeholder="npr. PVC stolarija"
             groups={niches}
             value={niche}
-            onChange={setNiche}
+            onChange={promeniNisu}
           />
           <Button
             type="submit"
@@ -709,6 +798,18 @@ export function PretragaEkran({
             Skeniranje se nastavlja u pozadini i kredit je već plaćen. Rezultat će biti ovde kad
             se vratiš — ta pretraga tada ide iz keša, besplatno i bez čekanja.
           </p>
+          {/* [Faza 4, 4.5] Dugme koje ponovo proverava bez nove pretrage. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            disabled={ucitava || ceka}
+            onClick={proveriPonovo}
+          >
+            <RefreshCw className="h-3 w-3" />
+            Proveri ponovo
+          </Button>
         </Alert>
       )}
 
@@ -783,6 +884,8 @@ export function PretragaEkran({
               {/* Traka iznad tabele (F11 §6.1). Pojavljuje se 3 s pošto tabela
                   sedne i ne pomera je više nego jednom. */}
               <UtisakMikro kljuc="prva-lista" />
+
+              {greskaOtkljuc && <Alert variant="danger">{greskaOtkljuc}</Alert>}
 
               <LeadTabela
                 leads={data.results}

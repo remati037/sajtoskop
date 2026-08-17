@@ -87,6 +87,9 @@ export function KesLista({
       <button
         type="button"
         onClick={() => setOtvorena(true)}
+        // [Faza 4, 4.8] Čitač ekrana čuje da li je lista sklopljena ili
+        // raširena (nalaz 7.3.3).
+        aria-expanded={otvorena}
         className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-bg-elev px-4 py-3 text-left shadow-sm transition-colors hover:border-border-strong hover:bg-bg-hover"
       >
         <span className="flex items-center gap-2 text-sm font-medium">

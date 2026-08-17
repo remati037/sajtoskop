@@ -29,6 +29,18 @@ export function PrekidacTeme({ className }: { className?: string }) {
     <div
       role="radiogroup"
       aria-label="Tema"
+      // [Faza 4, 4.8] Roving tabindex: Tab ulazi u celu grupu, a strelice
+      // pomeraju izbor (nalaz 7.3.4). Tastatura menja temu isto kao klik.
+      onKeyDown={(e) => {
+        if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+        e.preventDefault();
+        const trenutni = Math.max(TEME.indexOf(tema), 0);
+        const sledeci =
+          e.key === "ArrowRight"
+            ? (trenutni + 1) % TEME.length
+            : (trenutni - 1 + TEME.length) % TEME.length;
+        postaviTemu(TEME[sledeci] ?? TEME[0]);
+      }}
       className={cn(
         // Segmentni prekidač je kontrola: i staza i klizač idu `--border-strong`
         // (§3.2.1). Podloga `--bg-inset/60` je 1.1:1 prema strani, pa oblik nosi
@@ -56,6 +68,8 @@ export function PrekidacTeme({ className }: { className?: string }) {
             type="button"
             role="radio"
             aria-checked={aktivna}
+            // [Faza 4, 4.8] Roving tabindex: samo aktivno polje je u Tab redu.
+            tabIndex={aktivna ? 0 : -1}
             title={naziv}
             onClick={() => postaviTemu(vrednost)}
             className={cn(

@@ -143,9 +143,20 @@ function NemaSnimka({ lead }: { lead: Otkljucan }) {
     );
   }
 
+  // [Faza 4, 4.10] „Snimak se pravi" nije isto što i „nije dostupan" (nalaz
+  // 7.1.4): ako je skup enrichment prošao (PSI/AI podaci postoje) a snimaka
+  // nema, nešto je pošlo naopako i osvežavanje neće pomoći. Samo dok nema
+  // nikakvog enrichment podatka snimak stvarno može da bude u izradi.
+  const enrichmentProsao =
+    lead.psiMobileScore !== null || lead.psiLcpMs !== null || lead.aiVerdict !== null;
+
   return (
     <span
-      title="Snimak se pravi. Osveži stranicu za koji trenutak."
+      title={
+        enrichmentProsao
+          ? "Snimak nije dostupan — analiza je gotova, ali screenshot nije sačuvan."
+          : "Snimak se pravi. Osveži stranicu za koji trenutak."
+      }
       className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-border text-fg-muted/70"
     >
       <ImageOff className="h-3.5 w-3.5" />

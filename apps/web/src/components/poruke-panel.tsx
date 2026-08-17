@@ -321,6 +321,11 @@ async function sacekajPosao(jobId: number): Promise<boolean> {
   const DO_KADA = Date.now() + 45_000;
 
   while (Date.now() < DO_KADA) {
+    // [Faza 4, 4.11] Skriven tab ne troši zahteve (P5) — čeka se dok se vrati.
+    while (document.hidden) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
     await new Promise((r) => setTimeout(r, 1200));
 
     const res = await fetch(`/api/job/${jobId}`);

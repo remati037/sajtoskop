@@ -25,6 +25,7 @@ sledeću sesiju.
 | S9 | Faza 1 — bezbednost: P1 lista | `PLAN-IZMENA.md` | `0018` | 0,5–1 dan | ☑ |
 | S10 | Faza 2 — ispravnost: uvoz, pretraga, web | `PLAN-IZMENA.md` | `0019` | 1–2 dana | ☑ |
 | S11 | Faza 3 — performanse | `PLAN-IZMENA.md` | `0020` | 1–2 dana | ☑ |
+| S12 | Faza 4 — UX | `PLAN-IZMENA.md` | — | 2–3 dana | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1591,7 +1592,113 @@ Stavke Faze 4:
 Gotovo kad: sve stavke iz §7 REVIZIJA zatvorene; obe teme i telefon
 (≤ 390 px) vizuelno provereni. typecheck, check:sql, test prolaze.
 
+```
+
+---
+
+## S12 — Faza 4: UX ☑ isporučeno
+
+Rad iz `docs/PLAN-IZMENA.md`, Faza 4. Zatvara nalaze I1–I8 i §7 revizije. Nijedna
+migracija — sve je komponentno.
+
+### Šta je isporučeno
+
+- **4.1 — „Premesti u…" u kanban kartici:** select sa pet kolona ispod svake
+  kartice — ista `pomeri` funkcija kao prevlačenje (i „prvi potpisan" se javlja
+  isto). Touch i tastatura menjaju status bez miša (nalaz 7.1.1).
+- **4.2 — sinhronizacija `redovi` ← `kartice`:** `useEffect(() => setRedovi(kartice),
+  [kartice])` — uvezeni prospekti se pojavljuju odmah, bez punog reloada (I1).
+  Lokalne izmene ostaju (prop je izvor na svakom serverskom osvežavanju).
+- **4.3 — stanje pretrage u URL-u:** `?grad=&nisa=&bezSajta=&strana=` — link se
+  deli i vraća isti rezultat, Back prolazi kroz istoriju pretraga (I3). Pri
+  montiranju se stanje čita iz URL-a i pretraga se pokreće bez modalnog prozora
+  (plaćena kombinacija samo pokaže cenu).
+- **4.4 — reset pri promeni comboboxa:** `promeniGrad`/`promeniNisu` brišu
+  `poslednji` i `data` — forma i rezultati se ne razdesinhronizuju (I2).
+- **4.5 — polling timeout:** na isteku se poziva `osveziKes()` (traka cene
+  odražava stvarnost — kombinacija je možda sada besplatna) i `predugo` poruka
+  dobija dugme „Proveri ponovo" koje ponovo prati posao bez plaćanja (nalaz
+  7.1.3).
+- **4.6 — neuspeh otključavanja uz tabelu:** posebno stanje `greskaOtkljuc`
+  prikazuje poruku odmah iznad tabele, tamo gde je pogled korisnika (nalaz
+  7.1.2).
+- **4.7 — onboarding „Prvi koraci":** tri kartice na dashboard-u (izaberi grad i
+  nišu → otključaj prvi prospekt → napiši prvu poruku), dok korisnik nema
+  nijedan otključan prospekt (broj kroz RLS „own unlocks").
+- **4.8 — A11y:** `Alert` danger → `role="alert"`, ostalo `role="status"`;
+  combobox → `aria-activedescendant` + `id` na opcijama + izabrana vrednost
+  vidljiva dok je query prazan; kes-lista sklopljeni red → `aria-expanded`;
+  prekidač teme → roving tabindex (Tab u grupu, strelice menjaju temu).
+- **4.9 — Esc otkazuje belešku u kanbanu:** tekst se vraća na staro i unos se
+  zatvara bez upisa (nalaz 7.1.5).
+- **4.10 — „Snimak se pravi" ≠ „nije dostupan":** ako je skup enrichment prošao
+  (PSI/AI podaci postoje) a snimaka nema, oznaka kaže da nije dostupan — samo
+  dok nema nikakvog enrichment podatka snimak stvarno može da bude u izradi
+  (nalaz 7.1.4).
+- **4.11 — polling pauza na skriveni tab:** `pratiPosao` i `sacekajPosao`
+  (poruke) čekaju u tihim krugovima dok je `document.hidden` (P5).
+
+### Šta se razišlo sa planom
+
+1. **4.5 — „Proveri ponovo" ponovo poziva `pretrazi` (bez `pay`), ne
+   `pratiPosao` sa čuvanim jobId.** Sa svežim kešom ili živim poslom isti
+   rezultat, a bez dodatnog stanja u komponenti — `poslednji` zahtev je već tu.
+2. **4.3 — upis u URL je `push`, ne `replace`.** `push` pravi istoriju pa Back
+   radi kako treba (vraća se na prethodnu pretragu); svaka promena filtera je
+   jedan unos u istoriju — prihvatljivo za ovu skalu.
+3. **4.10 — „nije dostupan" se zaključuje iz PSI/AI polja**, kojih u
+   `website_audits` nema signala o uspehu screenshot koraka posebno. PSI i AI se
+   upisuju tek POSLE screenshotova (saveScreenshots → savePsi → saveAiAnalysis),
+   pa njihovo prisustvo dokazano znači da je enrichment prošao do kraja.
+4. **Vizuelna provera obe teme i telefona (≤ 390 px) ostaje na meni** — nije je
+   moguće obaviti iz sesije bez pregledača.
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql`, `pnpm test`, `pnpm build` prolaze. Nijedna
+migracija, nijedan nov Places poziv. **Ručne provere ostaju na meni:**
+
+1. na telefonu (≤ 390 px): „Premesti u…" menja status bez prevlačenja; u pregledaču
+   Esc otkazuje belešku;
+2. uvezi CSV pa otvori pipeline — novi prospekti su tu bez reloada;
+3. pretraži grad+nišu, promeni filter, klikni nazad — vraća se prethodna pretraga;
+   kopiraj URL i otvori ga u drugom tabu — ista pretraga, ista strana;
+4. promeni grad dok su rezultati prikazani — tabela se prazni, ne prikazuje stari
+   grad;
+5. prekini internet dok je scan u toku, pa vrati — po isteku čekanja „Proveri
+   ponovo" vraća traku; traka cene je sveža (osveziKes);
+6. otključaj lead bez kredita — poruka je iznad tabele, ne na vrhu strane;
+7. nov nalog: dashboard pokazuje „Prvi koraci" do prvog otključavanja;
+8. čitač ekrana (VoiceOver/NVDA): greška se najavljuje kao alert, combobox čita
+   aktivnu opciju, tema se menja strelicama.
+
+### Prompt (za sledeću sesiju — Faza 5, dizajn sistem)
+
+```
+Radimo Fazu 5 iz docs/PLAN-IZMENA.md (dizajn sistem). Pročitaj prvo CLAUDE.md,
+docs/DIZAJN-SISTEM.md, docs/PLAN-IZMENA.md, docs/REVIZIJA.md (odeljak 8) i
+odeljak „S12 — Faza 4" u docs/SESIJE.md. Ne diraj Fazu 6 (baza) ni Fazu 7
+(testovi).
+
+Zatečeno stanje: S1–S12 gotovi (F11/F12, Faze 0–4). Nijedna migracija ne
+sledi za ovu fazu osim ako se ne pokaže potreba.
+
+Stavke Faze 5:
+5.1 shadow-accent samo na primarnom dugmetu — pretraga-ekran.tsx:1021,
+    lead-tabela.tsx:116, moja-lista-ekran.tsx:162.
+5.2 Jedno primarno „Kopiraj" po dijalogu — poruke-panel.tsx:422-441.
+5.3 .num na datumima i URL-ovima — krediti, moja-lista-ekran, pipeline-tabla,
+    lead-tabela, snimak.
+5.4 text-accent-text umesto text-accent na ikonicama — snimak.tsx:308,
+    poruke-panel.tsx:430.
+5.5 StatKartica opciona `num` — ui/stat.tsx, dashboard.
+5.6 Kes-lista bez ugnježđenog okvira — kes-lista.tsx:203.
+5.7 Dokumentovati radijus odstupanje u CLAUDE.md — CLAUDE.md + globals.css.
+
+Gotovo kad: dizajn sistem bez odstupanja (osim dokumentovanih); grep provera
+nema hex u JSX-u. typecheck, check:sql, test prolaze.
+
 Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md
-(S12 — Faza 4) i napiši mi prompt za Fazu 5.
+(S13 — Faza 5) i napiši mi prompt za Fazu 6.
 ```
 

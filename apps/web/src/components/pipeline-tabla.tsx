@@ -13,7 +13,7 @@
 // izgleda pokvareno. Ako server odbije, kartica se vraća i pojavi se poruka —
 // tada je greška stvarna i vredna prekida.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MessageSquareText, Search, StickyNote } from "lucide-react";
 import { foldForSearch } from "@sajtoskop/shared";
 import type { LeadChannel, LeadStatusValue } from "@sajtoskop/shared";
@@ -52,6 +52,14 @@ const BOJA: Record<LeadStatusValue, { tacka: string; ivica: string }> = {
 
 export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
   const [redovi, setRedovi] = useState(kartice);
+
+  // [Faza 4, 4.2] `kartice` prop se menja posle uvoza (router.refresh()) dok je
+  // komponenta montirana — bez sinhronizacije uvezeni prospekti ne bi izašli do
+  // punog reloada (I1). Lokalne izmene (premeštanje, beleška) ostaju: prop je
+  // izvor istine na svakom serverskom osvežavanju, a `pomeri`/`sacuvajBelesku`
+  // ih i dalje pišu kroz fetch.
+  useEffect(() => setRedovi(kartice), [kartice]);
+
   const [grad, setGrad] = useState("");
   const [nisa, setNisa] = useState("");
   const [upit, setUpit] = useState("");
@@ -254,6 +262,7 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
                     zavrsiVucu={() => setVucem(null)}
                     otvoriPoruke={() => setOtvoren(r)}
                     sacuvajBelesku={(t) => void sacuvajBelesku(r.placeId, t)}
+                    pomeriKarticu={(status) => void pomeri(r.placeId, status)}
                   />
                 ))}
 
@@ -288,6 +297,7 @@ function Kartica({
   zavrsiVucu,
   otvoriPoruke,
   sacuvajBelesku,
+  pomeriKarticu,
 }: {
   r: PipelineKartica;
   cityLabels: Record<string, string>;
@@ -296,6 +306,7 @@ function Kartica({
   zavrsiVucu: () => void;
   otvoriPoruke: () => void;
   sacuvajBelesku: (t: string) => void;
+  pomeriKarticu: (status: LeadStatusValue) => void;
 }) {
   const [pisem, setPisem] = useState(false);
   const [tekst, setTekst] = useState(r.note ?? "");
@@ -361,6 +372,15 @@ function Kartica({
             setPisem(false);
             if (tekst !== (r.note ?? "")) sacuvajBelesku(tekst);
           }}
+          // [Faza 4, 4.9] Esc otkazuje bez upisa — slučajan blur (klik pored) ne
+          // sme da ostavi polovičan tekst (nalaz 7.1.5).
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setTekst(r.note ?? "");
+              setPisem(false);
+            }
+          }}
           rows={3}
           placeholder="beleška"
           className="mt-2.5 resize-none bg-bg-subtle text-xs"
@@ -375,6 +395,28 @@ function Kartica({
           <span className="truncate">{r.note || "dodaj belešku"}</span>
         </button>
       )}
+
+      {/* [Faza 4, 4.1] „Premesti u…" — rezerva za touch i tastaturu: native
+          drag&drop nema ni jedno ni drugo (nalaz 7.1.1). Isti `pomeri` kao
+          prevlačenje, pa se i „prvi potpisan" javlja isto. */}
+      <select
+        aria-label="Premesti u kolonu"
+        value=""
+        onChange={(e) => {
+          const status = e.target.value as LeadStatusValue;
+          if (status) pomeriKarticu(status);
+        }}
+        className="mt-2.5 w-full cursor-pointer rounded-lg border border-border-strong bg-bg-subtle px-2 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:border-accent focus:border-accent focus:outline-none"
+      >
+        <option value="" disabled>
+          Premesti u…
+        </option>
+        {KOLONE.map((k) => (
+          <option key={k} value={k}>
+            {KOLONA_LABEL[k]}
+          </option>
+        ))}
+      </select>
 
       <button
         type="button"

@@ -43,7 +43,14 @@ export function Alert({ className, variant, bezIkonice, children, ...props }: Al
   const Ikona = IKONA[variant ?? "info"];
 
   return (
-    <div role="status" className={cn(alertVarijante({ variant }), className)} {...props}>
+    // [Faza 4, 4.8] Danger se najavljuje ODMah (`role="alert"`), sve ostalo
+    // „uljudno" (`role="status"`) — čitač ekrana ne sme da pročita grešku
+    // kao obaveštenje (nalaz 7.3.1).
+    <div
+      role={variant === "danger" ? "alert" : "status"}
+      className={cn(alertVarijante({ variant }), className)}
+      {...props}
+    >
       {!bezIkonice && <Ikona className="mt-0.5 h-4 w-4 shrink-0" />}
       <div className="min-w-0 flex-1">{children}</div>
     </div>

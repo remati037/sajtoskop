@@ -100,6 +100,8 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
           role="combobox"
           aria-expanded={open}
           aria-controls={`${id}-list`}
+          // [Faza 4, 4.8] Čitač ekrana čuje KOJA je opcija označena (nalaz 7.3.2).
+          aria-activedescendant={open && flat[active] ? `${id}-op-${active}` : undefined}
           autoComplete="off"
           className={cn(
             // Kontrola → `--border-strong` (§3.2.1); lista ispod je površina.
@@ -108,7 +110,9 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
             open && "border-accent ring-2 ring-accent/25",
           )}
           placeholder={selected ? selected.label : placeholder}
-          value={open ? query : (selected?.label ?? "")}
+          // [Faza 4, 4.8] Otvaranje ne sme da sakrije izabranu vrednost — dok je
+          // query prazan, prikazuje se izabrano (nalaz 7.3.2).
+          value={open ? (query || (selected?.label ?? "")) : (selected?.label ?? "")}
           onChange={(e) => {
             setQuery(e.target.value);
             setOpen(true);
@@ -153,6 +157,7 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
                       <button
                         type="button"
                         role="option"
+                        id={`${id}-op-${index}`}
                         aria-selected={izabrana}
                         data-active={index === active}
                         onMouseEnter={() => setActive(index)}
