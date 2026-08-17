@@ -15,7 +15,3 @@ minimumReleaseAgeExclude:
   - '@clerk/nextjs@7.6.5'
   - '@clerk/react@6.12.11'
   - '@clerk/shared@4.26.0'
-
-configDependencies:
-  '@eslint/eslintrc': 3.3.6
-  eslint: ^9
