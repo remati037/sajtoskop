@@ -42,9 +42,18 @@ async function fetchContactPage(origin: string, path: string): Promise<string | 
 export async function runEnrichBasic(raw: unknown, ctx: JobContext): Promise<JobResult> {
   const { placeId, scanJobId } = enrichBasicPayloadSchema.parse(raw);
 
+  // [Faza 3, 3.2] `analyzed` znači „obrađeno", ne „ima audit". Izlazi bez audita
+  // ispod su legitimni završeci posla, pa i oni pomeraju brojač — bez toga
+  // `analizirano` nikad ne stigne `nađeno`, traka napretka visi nad gotovom
+  // listom do isteka strpljenja klijenta (MIRNIH_KRUGOVA_DO_KRAJA).
+  const obradjeno = async () => {
+    if (scanJobId) await inkrementirajAnalizu(scanJobId);
+  };
+
   const business = await getBusinessSite(placeId);
   if (!business) {
     // Biznis je u međuvremenu obrisan. Ovo nije greška — nema šta da se ponavlja.
+    await obradjeno();
     return { note: `${placeId}: biznisa više nema u bazi, preskačem` };
   }
 
@@ -54,6 +63,7 @@ export async function runEnrichBasic(raw: unknown, ctx: JobContext): Promise<Job
     // Bez audita. Sajt kome nam robots.txt zabranjuje pristup nije ni mrtav ni
     // ružan — o njemu nemamo pravo da tvrdimo ništa (pravilo 12).
     ctx.log(`${business.name}: ${site.error}`);
+    await obradjeno();
     return { note: `${business.name}: preskočen zbog robots.txt` };
   }
 
@@ -97,9 +107,9 @@ export async function runEnrichBasic(raw: unknown, ctx: JobContext): Promise<Job
 
   await upsertAudit({ placeId, site, score, emails: emails.slice(0, 3) });
 
-  // [Faza 3, 3.2] Audit je upisan — diži `analyzed` roditeljskog scan posla
-  // (kad ga ima; CLI i ručno pokretanje nemaju). Neuspeh se loguje unutra.
-  if (scanJobId) await inkrementirajAnalizu(scanJobId);
+  // [Faza 3, 3.2] Diži `analyzed` roditeljskog scan posla (kad ga ima; CLI i
+  // ručno pokretanje nemaju). Neuspeh se loguje unutra.
+  await obradjeno();
 
   const skorText = score ? `skor ${score.score} (${score.band})` : site.status;
   return {

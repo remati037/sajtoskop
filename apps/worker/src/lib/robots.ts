@@ -103,21 +103,59 @@ export function parseRobots(text: string): Omit<Rules, "fetchedAt"> {
   };
 }
 
-/** Da li pravila dozvoljavaju ovu putanju. Duži poklopljen prefiks pobeđuje. */
+/**
+ * Robots šablon → regularni izraz. `*` je bilo koji niz znakova, `$` na kraju
+ * sidri kraj putanje; sve ostalo je doslovno, uz prefiks poklapanje.
+ *
+ * Ovo je zamenilo ranije svođenje na prefiks (`p.split("*")[0]`), koje je bilo
+ * pogrešno na tihi način. WooCommerce u svaki `robots.txt` upisuje red:
+ *
+ *     Disallow: /*?add-to-cart=
+ *
+ * Svedeno na prefiks, to postaje `Disallow: /` — dakle CEO sajt zabranjen.
+ * Svaki WordPress sa WooCommerceom je time ispadao iz analize kao „blokiran
+ * robots.txt-om", bez audita i bez Ugly Score-a, a to je tačno onaj sajt zbog
+ * koga ovaj proizvod postoji. Šablon inače traži upitnik u putanji i naslovnu
+ * ne dodiruje.
+ */
+const regexKes = new Map<string, RegExp>();
+
+function robotsRegex(pattern: string): RegExp {
+  const kesiran = regexKes.get(pattern);
+  if (kesiran) return kesiran;
+
+  const sidro = pattern.endsWith("$");
+  const telo = sidro ? pattern.slice(0, -1) : pattern;
+
+  let izraz = "";
+  for (const znak of telo) {
+    izraz += znak === "*" ? ".*" : znak.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  const re = new RegExp(`^${izraz}${sidro ? "$" : ""}`);
+  regexKes.set(pattern, re);
+  return re;
+}
+
+/**
+ * Da li pravila dozvoljavaju ovu putanju.
+ *
+ * Specifičnost se meri dužinom ŠABLONA, ne dužinom poklopljenog dela — tako
+ * piše u Googleovoj specifikaciji, i tako `Allow: /wp-admin/admin-ajax.php`
+ * nadjača `Disallow: /wp-admin/`. Nerešeno ide u korist `Allow`.
+ */
 export function isPathAllowed(rules: Omit<Rules, "fetchedAt">, pathname: string): boolean {
-  const match = (patterns: string[]): number => {
+  const najduzi = (patterns: string[]): number => {
     let best = -1;
     for (const p of patterns) {
-      // Jedini wildcard koji se u praksi sreće je `*` u sredini; svodimo ga na prefiks.
-      const prefix = p.split("*")[0] ?? p;
-      if (pathname.startsWith(prefix) && prefix.length > best) best = prefix.length;
+      if (p.length > best && robotsRegex(p).test(pathname)) best = p.length;
     }
     return best;
   };
 
-  const deny = match(rules.disallow);
+  const deny = najduzi(rules.disallow);
   if (deny === -1) return true;
-  return match(rules.allow) >= deny;
+  return najduzi(rules.allow) >= deny;
 }
 
 // ── mreža ──────────────────────────────────────────────────
@@ -182,7 +220,11 @@ export async function mayCrawl(url: string, userAgent: string): Promise<CrawlDec
 
   const rules = await loadRobots(u.origin, userAgent);
 
-  if (!isPathAllowed(rules, u.pathname)) {
+  // Putanja SA upitnikom: šabloni kao `/*?add-to-cart=` se po specifikaciji
+  // porede sa putanjom i query stringom zajedno. Sa golim `pathname` takav red
+  // ne bi mogao da se poklopi ni sa čim, pa bi ili bio mrtvo slovo ili — kao
+  // ranije — morao da se svede na nešto grublje.
+  if (!isPathAllowed(rules, u.pathname + u.search)) {
     return { allowed: false, reason: "robots.txt zabranjuje ovu putanju" };
   }
 
