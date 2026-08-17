@@ -442,10 +442,18 @@ export function PretragaEkran({
       let stanje: JobStatusResponse;
       try {
         const res = await fetch(`/api/job/${jobId}`, { cache: "no-store" });
-        // 404 (posao obrisan) ni 400 (ID bez smisla) nisu razlog za crvenu poruku,
-        // ali jesu razlog da se prestane sa čekanjem — status više neće stići.
+        // [Faza 4, 4.5] Neuspeh čitanja statusa NE sme da završi TIHO: posao se
+        // možda i dalje obrađuje (privremena greška status rute, pao server),
+        // a korisnik bi ostao bez rezultata i bez ijedne reči. Čekanje se
+        // prekida, registar keša se osvežava (scan je možda završio) i
+        // prikazuje se „Proveri ponovo".
         if (!res.ok) {
-          await zavrsi(poslednjeAnalizirano >= 0);
+          await osveziKes();
+          if (token === pollToken.current) {
+            setPosao(null);
+            setPredugo(true);
+            setPaoPosao(jobId);
+          }
           return;
         }
         stanje = (await res.json()) as JobStatusResponse;
