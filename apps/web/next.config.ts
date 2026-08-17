@@ -64,6 +64,9 @@ const clerkWss = clerkDomains().map((d) => `wss://${d}`).join(" ");
 const CSP = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' ${clerk}`,
+  // Clerk pravi Web Worker iz blob: URL-a (pollovanje tokena) — bez eksplicitnog
+  // worker-src-a bi palo na script-src i bilo blokirano.
+  "worker-src 'self' blob:",
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev ${clerk}`,
   "font-src 'self' data:",
