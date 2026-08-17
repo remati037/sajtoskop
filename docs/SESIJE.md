@@ -28,6 +28,7 @@ sledeću sesiju.
 | S12 | Faza 4 — UX | `PLAN-IZMENA.md` | — | 2–3 dana | ☑ |
 | S13 | Faza 5 — dizajn sistem | `PLAN-IZMENA.md` | — | 0,5–1 dan | ☑ |
 | S14 | Faza 6 — baza, zadržavanje, higijena | `PLAN-IZMENA.md` | `0021` | 1 dan | ☑ |
+| S15 | Faza 7 — testovi i kvalitet | `PLAN-IZMENA.md` | — | 1 dan | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1866,8 +1867,71 @@ Stavke Faze 7:
 Gotovo kad: pnpm test pokriva novčane trke; pnpm lint prolazi; CI dokazuje da
 težine nisu u bundle-u. typecheck, check:sql, test prolaze.
 
-Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md
-(S15 — Faza 7), prepiši „Pregled po fazama" u PLAN-IZMENA.md kao završen i
-napiši mi kratak pregled celog plana.
+```
+
+---
+
+## S15 — Faza 7: testovi i kvalitet ☑ isporučeno
+
+Rad iz `docs/PLAN-IZMENA.md`, Faza 7 — poslednja faza plana. Zatvara nalaze
+SH1–SH3 i 11.8 iz revizije.
+
+### Šta je isporučeno
+
+- **7.1 — trke nad novcem:** blok „Faza 7 — trke nad novcem" u `check:sql`:
+  dupli prvi scan (`spend_credit_and_scan` → `already_paid`, isti job, jedan
+  kredit), `enqueue_job` isti ključ → isti job + joined, `admin_adjust_credits`
+  isti ref_id → jedna stavka u knjizi. PGlite ima jednu konekciju, pa pravi
+  paralelizam pokriva `pnpm check:f4` nad pravom bazom (postojeći skript).
+- **7.2 — `ideOdmah` test:** novi `apps/web/test/ide-odmah.ts` (pokreće se kroz
+  `pnpm --filter web test`) — bug, ocena 1 i incident idu odmah; pohvala i
+  ideja čekaju digest. Učitava PRAVU funkciju iz `lib/feedback.ts` kroz resolve
+  hook koji zamenjuje Next module (isti mehanizam kao route-harness).
+- **7.3 — ESLint:** `eslint@^9` + `eslint-config-next@^15` + `@eslint/eslintrc`
+  (FlatCompat) u `apps/web`; flat config `eslint.config.mjs`. `pnpm --filter web
+  lint` prolazi sa 0 grešaka i 0 upozorenja. Isključeno pravilo
+  `react/no-unescaped-entities` (pisano za engleski apostrof; srpski kopi koristi
+  „…" navodnike — svesno, komentar u config-u). Lint korak je u CI. Usput
+  uklonjen mrtav kod koji je lint otkrio (`isSubscribed`, neiskorišćeni importi).
+- **7.4 — težine van bundle-a:** CI korak `grep -rq "scoreSite\|no_viewport"
+  apps/web/.next/static` posle build-a — tree-shaking više nije garancija nego
+  provera (SH1).
+- **7.5 — `.clerk/` u `.gitignore`** (`apps/web/.clerk/`).
+
+### Šta se razišlo sa planom
+
+1. **ESLint 10 i eslint-config-next 16 su preskočeni.** `pnpm add` bez verzije
+   dovlači najnovije — ESLint 10 puca na `eslint-plugin-react` (Next 15 radi sa
+   ESLint 9), a config-next 16 je za Next 16. Zakucano je `eslint@^9` +
+   `eslint-config-next@^15`.
+2. **`verify-deps-before-run=false` je u korenom `.npmrc`.** pnpm 11 proverava
+   sinhronizaciju node_modules pre svake komande i sam pokreće `pnpm install`;
+   u headless okruženju taj automatski install puca na TTY pitanju o brisanju
+   modules dir-a. U ovoj sesiji (sandbox) pnpm nije čitao `.npmrc`, pa su
+   komande morale sa `pnpm_config_verify_deps_before_run=false` — na normalnoj
+   mašini `.npmrc` radi sam.
+3. **Nijedna migracija** — sve je config, CI i testovi.
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql`, `pnpm test` (sada 6 paketa sa ide-odmah
+testom), `pnpm --filter web lint` (0/0) i `pnpm build` prolaze. CI: lint + grep
+nad bundle-om + sve postojeće provere. **Ostaje na meni:** prvi `pnpm install`
+na normalnoj mašini posle ovog commita (novi devDeps u `apps/web`), pa prvi
+`pnpm lint` da potvrdi da flat config radi van sandbox-a.
+
+---
+
+## PLAN-IZMENA.md — kompletno ☑
+
+Svih osam faza iz `docs/PLAN-IZMENA.md` je isporučeno: Faza 0 (worker novac i
+pouzdanost), Faza 1 (bezbednost), Faza 2 (ispravnost), Faza 3 (performanse),
+Faza 4 (UX), Faza 5 (dizajn sistem), Faza 6 (baza i higijena), Faza 7 (testovi i
+kvalitet). Migracije 0017–0021; svaka faza je proverena (typecheck, check:sql,
+test, build) i push-ovana posebnim commit-om.
+
+Sledeći koraci više nisu u planu izmena — to su `docs/ROADMAP.md` (F8 landing,
+naplata, region) i otvorene stavke koje su faze svesno ostavile (backup na
+pravom serveru, vizuelne provere, pravni tekstovi).
 ```
 

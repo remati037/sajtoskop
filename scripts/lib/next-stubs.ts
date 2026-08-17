@@ -29,3 +29,8 @@ export async function auth(): Promise<{
 export function redirect(url: string): never {
   throw new Error(`redirect(${url}) u API ruti — ruta bi trebalo da vrati status kod.`);
 }
+
+/** Zamena za `currentUser()` — testovi bez Clerk profila. */
+export async function currentUser(): Promise<null> {
+  return null;
+}

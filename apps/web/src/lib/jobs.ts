@@ -11,7 +11,7 @@
 import "server-only";
 import { planFor } from "@sajtoskop/shared";
 import type { JobStatus, JobType, ScanSpendReason, ScanSpendResult } from "@sajtoskop/shared";
-import { adminSupabase, userSupabase } from "./supabase";
+import { adminSupabase } from "./supabase";
 
 // ── dnevni cache-miss limit ────────────────────────────────
 
@@ -275,24 +275,6 @@ export type JobView = {
   error: string | null;
   progress: JobProgress | null;
 };
-
-/**
- * Da li ulogovani korisnik sme da vidi ovaj posao.
- *
- * Namerno kroz `userSupabase()`: politika „own subscriptions" je stvarna brava.
- * Sa admin klijentom bi jedina odbrana bio `where user_id = ...` koji se
- * zaboravi u prvoj izmeni ove funkcije.
- */
-async function isSubscribed(jobId: number): Promise<boolean> {
-  const { data, error } = await userSupabase()
-    .from("job_subscribers")
-    .select("job_id")
-    .eq("job_id", jobId)
-    .maybeSingle<{ job_id: number }>();
-
-  if (error) throw new Error(`Provera pretplate nije uspela: ${error.message}`);
-  return data !== null;
-}
 
 /**
  * [Faza 3, 3.2] `null` znači „ne postoji ili nije tvoj" — namerno se ne razlikuje.

@@ -18,7 +18,6 @@
 
 import "server-only";
 import {
-  medijanaCene,
   opisOdgovora,
   pitanjeZaKljuc,
   PRAG_CENE_RSD,

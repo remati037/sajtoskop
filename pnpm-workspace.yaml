@@ -7,9 +7,15 @@ allowBuilds:
   esbuild: true
   # Next.js koristi sharp za optimizaciju slika; postinstall raspakuje binarni fajl.
   sharp: true
+  # eslint koristi unrs-resolver (native); build je bezbedan.
+  unrs-resolver: true
 
 minimumReleaseAgeExclude:
   - '@clerk/backend@3.15.1'
   - '@clerk/nextjs@7.6.5'
   - '@clerk/react@6.12.11'
   - '@clerk/shared@4.26.0'
+
+configDependencies:
+  '@eslint/eslintrc': 3.3.6
+  eslint: ^9

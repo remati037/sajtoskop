@@ -1270,6 +1270,40 @@ async function main(): Promise<void> {
     "pun scan vraća partial na false",
   );
 
+  // ── Faza 7: trke nad novcem (7.1) ────────────────────────
+  // PGlite ima jednu konekciju, pa se pravi paralelizam ne može izvesti — ali
+  // ishodi koje trke moraju da imaju mogu. Prave trke (20 paralelnih poziva,
+  // stvarni `for update`) pokriva `pnpm check:f4` nad pravom bazom.
+  console.log("\nFaza 7 — trke nad novcem (7.1)");
+
+  // spend_credit_and_scan: dupli prvi scan iste kombinacije.
+  const t1 = await scan("s1", "kraljevo", "frizer");
+  const t2 = await scan("s1", "kraljevo", "frizer");
+  check(
+    t1?.reason === "charged" && t2?.reason === "already_paid" &&
+      t2?.charged === false && t1?.job_id === t2?.job_id,
+    "dupli prvi scan: jedan kredit, isti posao, nijedan 500",
+  );
+  check(
+    (await one<{ b: number }>(`select credits_balance as b from profiles where id = 's1'`))?.b === 2,
+    "balans s1 skinut tačno jednom",
+  );
+
+  // enqueue_job: isti ključ dok posao živi → isti job, joined (N1 iz 2.3).
+  const t3 = await one<Enq>(
+    `select * from enqueue_job('scan', '{"citySlug":"trka2"}'::jsonb, 'RS:trka2:x', 'u1')`);
+  const t4 = await one<Enq>(
+    `select * from enqueue_job('scan', '{"citySlug":"trka2"}'::jsonb, 'RS:trka2:x', 'u2')`);
+  check(t3?.joined === false && t4?.joined === true && t3?.job_id === t4?.job_id,
+    "enqueue_job: isti ključ → isti job, joined");
+
+  // admin_adjust_credits: isti ref_id dvaput → jedna stavka u knjizi (F12.2).
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from credit_ledger where user_id='meta' and ref_id='adm:r1'`))?.n === 1,
+    "admin_adjust_credits: isti ref_id jednom u knjizi",
+  );
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",

@@ -66,6 +66,19 @@ jobs:
       - name: Build weba
         run: pnpm --filter @sajtoskop/web build
 
+      # [Faza 7, 7.4] Garancija da Ugly Score heuristike ne procure u klijentski
+      # bundle (SH1). Tree-shaking je dobar ali nije dokaz — grep nad buildanim
+      # statikom jeste. `scoreSite` je najveći simbol te heuristike.
+      - name: Težine van bundle-a
+        run: |
+          if grep -rq "scoreSite\|no_viewport" apps/web/.next/static; then
+            echo "Ugly Score heuristike su u klijentskom bundle-u!" && exit 1
+          fi
+          echo "bundle čist — heuristike nisu u static-u"
+
+      - name: Lint
+        run: pnpm --filter @sajtoskop/web lint
+
       - name: Tajne u bundle-u
         run: pnpm check:secrets
 

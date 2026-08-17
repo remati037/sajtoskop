@@ -19,7 +19,6 @@ import { adminSupabase, userSupabase } from "./supabase";
 import {
   LEAD_AUDIT_COLUMNS,
   LEAD_BUSINESS_COLUMNS,
-  toPublicLead,
   type LeadAudit,
   type LeadBusiness,
 } from "./public-lead";

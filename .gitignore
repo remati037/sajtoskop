@@ -20,3 +20,9 @@ supabase/.branches/
 .cache/
 # izlaz CLI scanova i harvesta
 out/
+
+# Clerk keyless (apps/web/.clerk/.tmp/keyless.json) — nikad u repo (Faza 7, 7.5)
+apps/web/.clerk/
+
+# lokalni pnpm store (nastao u sesiji 2026-08; nikad u repo)
+.pnpm-store/

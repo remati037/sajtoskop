@@ -7,7 +7,9 @@
     "dev": "NODE_OPTIONS=--max-http-header-size=65536 next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx test/ide-odmah.ts",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@clerk/localizations": "^4.13.10",
@@ -36,6 +38,9 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "tailwindcss": "^4.3.3"
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.0.0",
+    "tailwindcss": "^4.3.3",
+    "@eslint/eslintrc": "^3.0.0"
   }
 }

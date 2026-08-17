@@ -8,7 +8,7 @@
 // dugme kao ghost sa `--danger` (dizajn sistem §7.1).
 
 import { useRouter } from "next/navigation";
-import { useEffect, useTransition, useState } from "react";
+import { useTransition, useState } from "react";
 import { Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import type { ChangelogRow } from "@sajtoskop/shared";
 import { cn } from "@/lib/cn";
