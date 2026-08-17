@@ -21,6 +21,7 @@ sledeću sesiju.
 | S5 | F12.3 — pozivnice i pregled | `F12-admin.md` | `0013`, `0014` | 0,5–1 dan | ☑ |
 | S6 | F11.3 — utisci u konzoli | `F11-utisci-v2.md` | `0015` | 0,75 dan | ☑ |
 | S7 | F11.4 — zatvaranje petlje | `F11-utisci-v2.md` | `0016` | 0,75 dan | ☑ |
+| S8 | Faza 0 — worker: novac i pouzdanost | `PLAN-IZMENA.md` | `0017` | 0,5–1 dan | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1148,4 +1149,122 @@ petlja) i F12 (admin konzola) su kompletni. Preostali dug nije u ovim fazama:
 
 Naredne sesije više ne rade iz F11/F12 PRD-a; sledeći korak je `docs/PLAN-IZMENA.md`
 ili `docs/ROADMAP.md`.
+
+---
+
+## S8 — Faza 0: worker — novac i pouzdanost ☑ isporučeno
+
+Rad iz `docs/PLAN-IZMENA.md`, Faza 0. Zatvara nalaze K1, V1, V2, V5, V7 i N5
+iz `docs/REVIZIJA.md`.
+
+### Šta je isporučeno
+
+- **0.1 — `retryAfter` u oba `BudgetError` mesta (K1):**
+  - `apps/worker/src/lib/api-budget.ts` — nova čista funkcija `nextDayReset()` (ponoć
+    sledećeg LA dana) i `nextMonthReset()` (prvi sledećeg LA meseca). Obe vraćaju TAČNO
+    ponoć po LA (koračanje od celog UTC sata, pa DST ne pomera rezultat), ne „sutra u ovo
+    doba".
+  - `assertAvailable()` (pre-flight) sada baca `BudgetError` sa `retryAfter` za sve tri
+    vrste odbijanja: `exhausted` i `daily` → `nextDayReset()`, `monthly` → `nextMonthReset()`.
+  - 429 handler u `places.ts` baca sa `retryAfter` = `nextDayReset()` (i `scope:
+    "exhausted"`, koji je ranije bio `undefined`).
+  - Posledica u `index.ts`: scan koji udari u iscrpljen budžet ide kroz `defer_job` u
+    `pending` sa `run_after` = reset kvote, umesto da potroši sva tri pokušaja, padne i
+    refunduje kredit.
+- **0.2 — statusna zaštita završetka posla (V1):**
+  - `supabase/migrations/0017_f0_worker.sql` — `complete_job`, `fail_job` i `defer_job`
+    menjaju stanje samo nad poslovima sa `status = 'running'`. Gotov posao ostaje `done`,
+    kasno stigao `fail_job`/`defer_job` je no-op, ponovljen `complete_job` ne pomera
+    `finished_at`. Granice se ne menjaju, pa `create or replace` čuva privilegije iz 0003.
+  - `apps/worker/src/index.ts` — `completeJob(job.id)` izvučen IZVAN try-ja: greška u
+    završetku ne ulazi u catch, pa ne poziva `fail_job` (koji bi vratio gotov posao u red
+    ili refundovao uspešan scan). Pad `complete_job` se loguje, a posao koji je stvarno
+    ostao `running` vraća u red prva žetva — isto kao kad proces pogine.
+  - **`defer_job` je dobio istu zaštitu iako plan pominje samo `complete_job`/`fail_job`**
+    — ista klasa greške: kasno stiglo odlaganje ne sme da produži `run_after` gotovog posla.
+- **0.3 — timeout na sve Supabase pozive workera (V2):** `apps/worker/src/lib/supabase.ts`
+  — `global.fetch` omotač sa `AbortSignal.timeout(30_000)` na oba klijenta (`supabaseAdmin`
+  i `supabaseAnon`). Zakačen RPC se završi greškom za 30 s, posao ide na retry kroz
+  `fail_job`/backoff, slot se oslobađa — žetva ne stigne da duplira posao.
+- **0.4 — `maxRetries: 0` na Anthropic klijentu (V5):** `rewrite-message.ts` — SDK po
+  podrazumevanoj vrednosti sam ponavlja mrežne greške do 2 puta; sa 3 pokušaja posla kroz
+  red to je do 9 plaćenih poziva za jedan zahtev. Retry već radi red poslova, pa se ne
+  duplira: dva uzastopna pada = tačno 2 plaćena poziva. (`ai-audit.ts` ima svoj
+  `maxRetries: 1` i nije u opsegu Faze 0.)
+- **0.5 — `unhandledRejection`/`uncaughtException` handleri (V7):** `index.ts` — greška se
+  loguje i proces nastavlja; posao ne umire usred rada zbog neuhvaćenog odbijanja promise-a.
+- **0.6 — odluka o više niša po biznisu (N5):** **ODLUKA: „poslednji scan pobeđuje"** —
+  dokumentovana u komentaru `upsertBusinesses` (db-writes.ts) i u ovoj sesiji. Razlog je
+  u odstupanjima ispod.
+- **Provere:** `scripts/validate-migrations.ts` — blok „reset kvote — TS i SQL se slažu
+  (Faza 0, 0.1)" poredi `nextDayReset`/`nextMonthReset` sa `budget_next_day_reset`/
+  `budget_next_month_reset` (uključujući prelazak dana pre LA ponoći i DST 8. mart 2026);
+  blokovi 0.2 proveravaju no-op ponašanje `fail_job`/`defer_job` na ne-running poslovima i
+  ceo scenarij „complete → kasno stigla greška". `apps/worker/test/api-budget.ts` — test
+  reset helpera (tačna ponoć, DST granice, redosled dnevnog i mesečnog reseta).
+
+### Šta se razišlo sa planom
+
+1. **0.6 — izabrano je dokumentovano prihvatanje, ne konfliktni ključ.** Plan nudi oba:
+   „biznis u dve niše ostaje u obe (ili je odluka zapisana u SESIJE)". Konfliktni ključ
+   `(place_id, country_code, city_slug, niche_slug)` kao PK bi oborio tri strana ključa
+   koja gledaju u `businesses(place_id)` (`website_audits`, `unlocks`, `outreach_messages`
+   — svi `on delete cascade`) i zahtevao bi prepravku pretrage i otključavanja. Prava
+   podrška za više niša je zasebna tabela članstva + prepravka `search.ts` — to je izmena
+   šeme i upita (veličina Faze 2/3), ne popravka, i ne staje u Fazu 0. Posledica je svesna:
+   biznis koji Google vrati u dve niše vidljiv je samo u poslednje skeniranoj. Ako odluka
+   zatreba da se promeni, ide kao zasebna faza.
+2. **0.2 — zaštita je dodata i na `defer_job`**, koji plan ne pominje (v. isporučeno).
+3. **0.1 — 429 handler sada nosi i `scope: "exhausted"`**, koji je ranije bio `undefined`
+   (BudgetError se pravio sa dva argumenta). Ishod se ne menja — `index.ts` gleda samo
+   `retryAfter` — ali je greška sada i tipski tačna.
+4. **`nextDayReset`/`nextMonthReset` su nove čiste funkcije u `api-budget.ts`**, kako bi se
+   mogle porediti sa SQL funkcijama u `pnpm check:sql` — isti obrazac kao `budgetDay()`.
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql`, `pnpm test` prolaze (uključujući novi
+`apps/worker/test/api-budget.ts`). Nijedan nov Places poziv; migracija 0017 ne dira nijedan
+postojeći podatak. **Ručne provere ostaju na meni** (nijedna ne traži pravi Google poziv):
+
+1. postavi `GOOGLE_DAILY_LIMIT=0` (ili isprazni `api_budget` dnevni brojač) i pokreni scan —
+   posao mora da ode u `pending` sa `run_after` sutra u 09:00 po Beogradu, ne u `failed`;
+   `attempts` se vraća unazad;
+2. `kill -9` radnika usred scana — posao se pojavi kao `running` do žetve (15 min), pa
+   `pending` sa `attempts+1`; posle tri puta → `failed` + povraćaj kredita;
+3. zaustavi Supabase (ili ga učini nedostupnim) — worker RPC mora da padne za ≤ 30 s i
+   posao ode na retry, a slot da se odmah oslobodi (ne posle 15 min preko žetve);
+4. dvaput pokreni `rewrite_message` sa mrtvim ANTHROPIC_API_KEY — u logu tačno 2 plaćena
+   pokušaja (2 poziva), ne 6–9;
+5. sa iscrpljenim budžetom pokreni scan — u logu „odloženo do …" umesto „PAO konačno".
+
+### Prompt (za sledeću sesiju — Faza 1, bezbednost)
+
+```
+Radimo Fazu 1 iz docs/PLAN-IZMENA.md (bezbednost: zatvaranje P1 liste). Pročitaj prvo
+CLAUDE.md, docs/bezbednost-i-zastita.md, docs/PLAN-IZMENA.md i odeljak „S8 — Faza 0" u
+docs/SESIJE.md. Ne diraj Fazu 2 (ispravnost) ni Fazu 3 (performanse) — idu redom.
+
+Zatečeno stanje: S1–S7 (F11/F12) i S8 (Faza 0) su gotovi. Migracije idu do 0017; sledeća
+je 0018.
+
+Stavke Faze 1:
+1.1 Bezbednosni headeri (CSP, HSTS, X-Frame-Options, Referrer-Policy) u next.config.ts
+    headers() — CSP ne sme da lomi app u obe teme.
+1.2 IP rate limit na novčane rute (/api/unlock, /api/search, /api/feedback*) — nova tabela
+    ili Upstash, 100/min po IP, 429 preko.
+1.3 webhook_events(provider, event_id) — insert pre obrade u webhooks/clerk/route.ts,
+    dupla isporuka preskočena. (Migracija 0018.)
+1.4 Env šema: CLERK_SECRET_KEY format (sk_…) + NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY u
+    lib/env.ts.
+1.5 kind/source za utiske van pitanja izvoditi na serveru (bez lažnog incident/bug) —
+    api/feedback/route.ts + feedback-schema.ts.
+1.6 Dnevni plafon utisaka i dopuniUtisak u RPC sa for update — lib/feedback.ts + migracija.
+
+Gotovo kad: P1 lista iz docs/bezbednost-i-zastita.md nema otvorenih stavki osim backup-a
+(Faza 6) i kanarinaca/deljenja naloga (ROADMAP). typecheck, check:sql, test prolaze.
+
+Kad završiš: prođi kroz listu „Kraj svake sesije" iz docs/SESIJE.md, ažuriraj taj fajl
+(S9 — Faza 1) i napiši mi prompt za Fazu 2.
+```
 

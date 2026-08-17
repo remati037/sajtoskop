@@ -213,7 +213,11 @@ async function pitajModel(
   ];
 
   try {
-    const client = new Anthropic({ timeout: TIMEOUT_MS });
+    // [Faza 0, 0.4] `maxRetries: 0` (V5): SDK po podrazumevanoj vrednosti sam
+    // ponavlja mrežne greške do 2 puta, a posao kroz red ima sopstvena 3
+    // pokušaja sa backoff-om — ukupno do 9 plaćenih poziva za jedan zahtev.
+    // Retry već radi red poslova; ovde mu se ne duplira.
+    const client = new Anthropic({ timeout: TIMEOUT_MS, maxRetries: 0 });
 
     for (let pokusaj = 1; pokusaj <= MAX_POKUSAJA; pokusaj++) {
       const res = await client.messages.create({

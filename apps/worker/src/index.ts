@@ -19,7 +19,7 @@ import { claimJob, completeJob, deferJob, enqueueJob, failJob, reapStuckJobs } f
 import { closeBrowser } from "./lib/screenshot";
 import { supabaseAdmin } from "./lib/supabase";
 import { HANDLERS } from "./jobs";
-import type { JobContext } from "./jobs";
+import type { JobContext, JobResult } from "./jobs";
 
 loadRootEnv();
 
@@ -69,16 +69,12 @@ async function runOne(slot: number): Promise<boolean> {
   const started = Date.now();
   log(`[${slot}] ${label} start (pokušaj ${job.attempts}/${job.max_attempts})`);
 
+  let result: JobResult;
   try {
     const handler = HANDLERS[job.type];
     if (!handler) throw new Error(`Nepoznat tip posla: ${job.type}`);
 
-    const result = await handler(job.payload, ctx);
-    await completeJob(job.id);
-
-    const secs = ((Date.now() - started) / 1000).toFixed(1);
-    log(`[${slot}] ${label} gotovo za ${secs}s — ${result.note}`);
-    return true;
+    result = await handler(job.payload, ctx);
   } catch (err) {
     // Budžet nije greška nego čekanje. `defer_job` vraća `attempts` unazad, pa
     // mesečni cap ne pojede sva tri pokušaja pre nego što kvota uopšte stigne.
@@ -108,6 +104,28 @@ async function runOne(slot: number): Promise<boolean> {
     }
     return true;
   }
+
+  // [Faza 0, 0.2] Završetak je VAN try-ja: kad je posao gotov, greška u
+  // `complete_job` ne sme da uđe u catch iznad. Inače bi mrežna greška posle
+  // uspešnog rada pozvala `fail_job` — posao bi se ponovio (novi
+  // Places/Playwright pozivi) ili pao i refundovao uspešan scan. Baza je sada i
+  // sama zaštićena (migracija 0017): `complete_job` diže status na `done` samo
+  // nad `running`, a `fail_job`/`defer_job` ne diraju ništa što nije `running` —
+  // pa ni dvostruki poziv ne menja ishod.
+  try {
+    await completeJob(job.id);
+  } catch (err) {
+    // Ako je zahtev stvarno izgubljen (nije samo odgovor), posao ostaje
+    // `running` i prva sledeća žetva ga vraća u red — isto kao kad proces
+    // pogine usred posla.
+    log(
+      `[${slot}] ${label} complete_job nije uspeo: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const secs = ((Date.now() - started) / 1000).toFixed(1);
+  log(`[${slot}] ${label} gotovo za ${secs}s — ${result.note}`);
+  return true;
 }
 
 /**
@@ -263,6 +281,21 @@ function shutdown(signal: string): void {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+
+// [Faza 0, 0.5] Neuhvaćena greška ne sme da ubije proces usred posla (V7).
+// Node po podrazumevanoj vrednosti gasi proces na neuhvaćeno odbijanje promise-a;
+// ovde se greška loguje i petlja nastavlja. Svaki posao je ionako u svom
+// try/catch-u, a `main()` na vrhu hvata greške starta — ovde stižu samo one
+// koje niko nije predvideo, i za njih je bolje da ostanu u logu nego da
+// Docker restartuje kontejner dok scan radi.
+process.on("unhandledRejection", (reason: unknown) => {
+  log(
+    `neuhvaćeno odbijanje: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`,
+  );
+});
+process.on("uncaughtException", (err: Error) => {
+  log(`neuhvaćen izuzetak: ${err.stack ?? err.message}`);
+});
 
 // ── start ──────────────────────────────────────────────────
 

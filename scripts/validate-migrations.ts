@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 // Prava implementacija, ne kopija: cela poenta provere je da se TS i SQL slažu
 // oko LA dana. Uvoz ne dodiruje bazu — `supabaseAdmin()` je lenj.
-import { budgetDay } from "../apps/worker/src/lib/api-budget";
+import { budgetDay, nextDayReset, nextMonthReset } from "../apps/worker/src/lib/api-budget";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(root, "supabase", "migrations");
@@ -159,6 +159,47 @@ async function main(): Promise<void> {
     `select budget_day('2026-12-09T07:30:00Z'::timestamptz)::text as sql_day`);
   check(winter?.sql_day === "2026-12-08", `zimi 07:30Z → ${winter?.sql_day} (PST, još juče)`);
 
+  // ── Faza 0 (0.1): retryAfter na pre-flight odbijanju ────
+  // `BudgetError` iz `assertAvailable` nosi `retryAfter` koji računa TS
+  // (`nextDayReset`/`nextMonthReset`). Baza ima istu funkciju; ovde se poredi
+  // da se dve implementacije ne raziđu — pogrešan `run_after` znači scan koji
+  // se budi pre reseta kvote i troši pokušaje (K1).
+
+  console.log("\nreset kvote — TS i SQL se slažu (Faza 0, 0.1)");
+  type Reset = { ms: number };
+  const sqlResetMs = (expr: string) =>
+    one<Reset>(`select (extract(epoch from ${expr}) * 1000)::bigint as ms`);
+
+  const dayMs = await sqlResetMs("budget_next_day_reset(budget_day())");
+  check(
+    dayMs?.ms === nextDayReset().getTime(),
+    `nextDayReset TS = SQL (${new Date(dayMs?.ms ?? 0).toISOString()})`,
+  );
+
+  const monthMs = await sqlResetMs("budget_next_month_reset(budget_day())");
+  check(
+    monthMs?.ms === nextMonthReset().getTime(),
+    `nextMonthReset TS = SQL (${new Date(monthMs?.ms ?? 0).toISOString()})`,
+  );
+
+  // Prelazak dana po LA, ne po UTC: 06:30Z je još juče u LA, pa reset pada na
+  // ponoć SUTRAŠNJEG LA dana.
+  const beforeMidnightReset = await sqlResetMs(
+    `budget_next_day_reset(budget_day('2026-08-09T06:30:00Z'::timestamptz))`);
+  check(
+    beforeMidnightReset?.ms === nextDayReset(new Date("2026-08-09T06:30:00Z")).getTime(),
+    "nextDayReset pre LA ponoći → sledeći LA dan",
+  );
+
+  // Prelazak na letnje vreme (8. mart 2026, 02:00 → 03:00): sat koračanja
+  // preleće promenu bez pomeranja rezultata.
+  const spring = await sqlResetMs(
+    `budget_next_day_reset(budget_day('2026-03-07T12:00:00Z'::timestamptz))`);
+  check(
+    spring?.ms === nextDayReset(new Date("2026-03-07T12:00:00Z")).getTime(),
+    "nextDayReset preleće DST promenu (mart 2026)",
+  );
+
   console.log("\nconsume_api_call");
   type Consume = {
     ok: boolean; reason: string; day_calls: number; month_calls: number;
@@ -288,6 +329,21 @@ async function main(): Promise<void> {
   const f1 = await one<Fail>(`select * from fail_job($1, 'pukao')`, [j1?.job_id]);
   check(f1?.final === false && f1.next_run !== null, "prvi pad → pending sa backoff-om");
 
+  // [Faza 0, 0.2] Statusna zaštita: fail_job viđa samo `running` poslove.
+  // Posao koji je već pao (pending sa backoff-om) se ne dira — bez toga bi
+  // mrežna greška posle `complete_job` vratila gotov posao u red.
+  const f1b = await one<Fail>(`select * from fail_job($1, 'posle pada')`, [j1?.job_id]);
+  const f1Row = await one<{ status: string; last_error: string }>(
+    `select status, last_error from job_queue where id = $1`, [j1?.job_id]);
+  check(
+    f1b?.final === true && f1Row?.status === "pending" && f1Row.last_error === "pukao",
+    "fail na već palom poslu je no-op (0.2)",
+  );
+
+  // Stari test: running posao koji iscrpi pokušaje → failed. Posao se prvo
+  // vrati u `running` (run_after u prošlost, pa ga claim_job preuzme).
+  await db.exec(`update job_queue set run_after = now() where id = ${j1?.job_id}`);
+  await db.exec(`select claim_job()`);
   await db.exec(`update job_queue set attempts = max_attempts where id = ${j1?.job_id}`);
   const f2 = await one<Fail>(`select * from fail_job($1, 'opet')`, [j1?.job_id]);
   check(f2?.final === true, "posle max_attempts → failed");
@@ -309,6 +365,46 @@ async function main(): Promise<void> {
   check(
     afterDefer?.attempts === (beforeDefer?.attempts ?? 1) - 1 && afterDefer?.status === "pending",
     `odloženi posao vraća attempts ${beforeDefer?.attempts} → ${afterDefer?.attempts}`,
+  );
+
+  // [Faza 0, 0.2] defer_job takođe viđa samo `running` poslove. Posao koji je
+  // već odložen (pending) se ne dira — kasno stiglo odlaganje ne sme da
+  // produži run_after gotovog posla.
+  const beforeDeferNoop = await one<{ attempts: number; status: string }>(
+    `select attempts, status from job_queue where id = $1`, [afterFail?.job_id]);
+  await db.exec(`select defer_job(${afterFail?.job_id}, now() + interval '2 days', 'ne treba')`);
+  const afterDeferNoop = await one<{ attempts: number; status: string }>(
+    `select attempts, status from job_queue where id = $1`, [afterFail?.job_id]);
+  check(
+    afterDeferNoop?.attempts === beforeDeferNoop?.attempts && afterDeferNoop?.status === "pending",
+    "defer na poslu koji nije running je no-op (0.2)",
+  );
+
+  console.log("\ncomplete_job — statusna zaštita (0.2)");
+  // Ceo scenarij „mrežna greška posle uspeha": posao se preuzme, kompletira,
+  // pa fail_job i defer_job stignu KASNO. Sve troje mora da ostavi posao `done`.
+  const jc = await enq("RS:sabac:complete-test", null);
+  await db.exec(`select claim_job()`);
+  await db.exec(`select complete_job(${jc?.job_id})`);
+  const doneRow = await one<{ status: string; finished_at: string }>(
+    `select status, finished_at from job_queue where id = $1`, [jc?.job_id]);
+  check(doneRow?.status === "done" && doneRow.finished_at !== null, "running posao → done");
+
+  await db.exec(`select fail_job(${jc?.job_id}, 'kasno stigla greška')`);
+  await db.exec(`select defer_job(${jc?.job_id}, now() + interval '1 day', 'kasno odlaganje')`);
+  const afterLate = await one<{ status: string }>(
+    `select status from job_queue where id = $1`, [jc?.job_id]);
+  check(afterLate?.status === "done", "fail/defer posle done su no-op — posao ostaje done (0.2)");
+
+  // Ponovljen complete_job ne pomera finished_at — posao se ne „restartuje".
+  const atMs = (v: string | Date | null | undefined): number =>
+    v ? new Date(v).getTime() : 0;
+  await db.exec(`select complete_job(${jc?.job_id})`);
+  const finishedAgain = await one<{ finished_at: string }>(
+    `select finished_at from job_queue where id = $1`, [jc?.job_id]);
+  check(
+    atMs(finishedAgain?.finished_at) === atMs(doneRow?.finished_at),
+    "ponovljen complete_job ne menja finished_at (0.2)",
   );
 
   console.log("\nreap_stuck_jobs");

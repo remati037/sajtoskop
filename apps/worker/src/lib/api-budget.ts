@@ -104,6 +104,45 @@ export function daysLeftInMonth(d: Date = new Date()): number {
   return daysInMonth - day + 1;
 }
 
+/**
+ * Tačan trenutak kad Google resetuje dnevnu kvotu — ponoć sledećeg LA dana.
+ *
+ * LA ponoć je uvek na ceo UTC sat (07:00Z leti, 08:00Z zimi), pa se kreće od
+ * celog sata i korača po satu — rezultat je TAČNO ponoć, ne „sutra u ovo
+ * doba". Baza ima istu funkciju (`budget_next_day_reset`); `pnpm check:sql`
+ * poredi izlaze.
+ *
+ * [Faza 0, 0.1] `BudgetError` mora da nosi `retryAfter` (K1): bez njega worker
+ * umesto odlaganja na reset kvote troši pokušaje i scan konačno padne — iako
+ * budžet nije greška nego čekanje.
+ */
+export function nextDayReset(d: Date = new Date()): Date {
+  const start = new Date(d.getTime() - (d.getTime() % 3_600_000));
+  const today = budgetDay(start);
+  for (let i = 1; i <= 48; i++) {
+    const t = new Date(start.getTime() + i * 3_600_000);
+    if (budgetDay(t) !== today) return t;
+  }
+  // Nepoznat kalendar — samo zaštita od beskonačne petlje.
+  return new Date(start.getTime() + 48 * 3_600_000);
+}
+
+/**
+ * Tačan trenutak kad Google vraća mesečni besplatni prag — prvi sledećeg LA
+ * meseca, tačno u LA ponoć. Baza ima istu funkciju (`budget_next_month_reset`).
+ */
+export function nextMonthReset(d: Date = new Date()): Date {
+  const start = new Date(d.getTime() - (d.getTime() % 3_600_000));
+  const thisMonth = budgetMonth(start);
+  // Najviše 32 dana do kraja meseca, a dan ume da traje 25 sati (DST) —
+  // 800 sati je sigurna gornja granica.
+  for (let i = 1; i <= 800; i++) {
+    const t = new Date(start.getTime() + i * 3_600_000);
+    if (budgetMonth(t) !== thisMonth) return t;
+  }
+  return new Date(start.getTime() + 800 * 3_600_000);
+}
+
 // ─────────────────────────────────────────────────────────────
 // Stanje
 // ─────────────────────────────────────────────────────────────
@@ -267,6 +306,9 @@ export async function assertAvailable(n: number, what = "operacija"): Promise<vo
       `Google kvota iscrpljena (429). Reset za ~${hoursUntilReset()}h.`,
       s,
       "exhausted",
+      // [Faza 0, 0.1] bez retryAfter-a ovde scan gubi sva tri pokušaja i
+      // konačno padne iako kvota samo čeka reset (K1).
+      nextDayReset(),
     );
   }
   if (s.monthRemaining < n) {
@@ -275,6 +317,7 @@ export async function assertAvailable(n: number, what = "operacija"): Promise<vo
         `${what} traži ${n}. Reset prvog u mesecu.`,
       s,
       "monthly",
+      nextMonthReset(),
     );
   }
   if (s.limit - s.calls < n) {
@@ -284,6 +327,7 @@ export async function assertAvailable(n: number, what = "operacija"): Promise<vo
         `Ako ti stvarno treba danas: GOOGLE_DAILY_LIMIT=${s.calls + n + 10} pnpm scan ...`,
       s,
       "daily",
+      nextDayReset(),
     );
   }
 }

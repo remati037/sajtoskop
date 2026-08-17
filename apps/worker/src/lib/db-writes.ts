@@ -46,6 +46,15 @@ export type UpsertBusinessesInput = {
  * `first_seen_at` se namerno ne šalje: PostgREST na konfliktu menja samo kolone
  * koje su u telu, pa datum prvog viđenja preživi svaki naredni scan. To je
  * jedini podatak u ovoj tabeli koji nije Googleov.
+ *
+ * [Faza 0, 0.6 — ODLUKA o više niša po biznisu] `place_id` je primarni ključ i
+ * svaki biznis ima TAČNO jedan red, pa scan druge niše prepiše
+ * `city_slug`/`niche_slug` — biznis nestaje iz prve niše (nalaz N5).
+ * Namerno prihvaćeno: „poslednji scan pobeđuje", zapisano u docs/SESIJE.md
+ * (S8). Prava podrška za biznis u više niša bi tražila zasebnu tabelu
+ * članstva i prepravku pretrage — to je izmena šeme i upita, ne popravka,
+ * i ne staje u Fazu 0. Posledica je svesna: biznis koji Google vrati u dve
+ * niše vidljiv je samo u poslednje skeniranoj.
  */
 export async function upsertBusinesses(input: UpsertBusinessesInput): Promise<number> {
   if (input.businesses.length === 0) return 0;

@@ -11,6 +11,25 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let cached: SupabaseClient | null = null;
 
+/**
+ * [Faza 0, 0.3] Mrtav Supabase ne sme zauvek da blokira slot (V2).
+ *
+ * Bez timeouta zakačen RPC drži radnika u nedogled, a žetva posle 15 minuta
+ * proglasi posao zaglavljenim i duplira ga — dupla Google kvota, dupli novac.
+ * Sa timeoutom se RPC završi greškom, posao ide na retry kroz `fail_job` i
+ * backoff, a slot se odmah oslobađa.
+ */
+const SUPABASE_TIMEOUT_MS = 30_000;
+
+function fetchWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+): ReturnType<typeof fetch> {
+  // `signal` se svesno pregazi: ovaj klijent ne koristi otkazivanje po zahtevu,
+  // a bez toga bi poziv koji visi prošao pored timeouta.
+  return fetch(input, { ...init, signal: AbortSignal.timeout(SUPABASE_TIMEOUT_MS) });
+}
+
 function required(name: string): string {
   const value = process.env[name];
   if (!value || value.trim() === "") {
@@ -33,7 +52,10 @@ export function supabaseAdmin(): SupabaseClient {
   cached = createClient(
     required("NEXT_PUBLIC_SUPABASE_URL"),
     required("SUPABASE_SERVICE_ROLE_KEY"),
-    { auth: { persistSession: false, autoRefreshToken: false } },
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: fetchWithTimeout },
+    },
   );
   return cached;
 }
@@ -47,6 +69,9 @@ export function supabaseAnon(): SupabaseClient {
   return createClient(
     required("NEXT_PUBLIC_SUPABASE_URL"),
     required("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-    { auth: { persistSession: false, autoRefreshToken: false } },
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: fetchWithTimeout },
+    },
   );
 }

@@ -13,6 +13,7 @@ import {
   BudgetError,
   consume,
   markExhausted,
+  nextDayReset,
 } from "./api-budget";
 
 // ── Googleov žični oblik ───────────────────────────────────
@@ -149,10 +150,14 @@ async function fetchPage(
     // Google je rekao da je kvota gotova. Zaključaj dan da sledeći scan
     // ne troši vreme na pozive koji sigurno padaju.
     const state = await markExhausted();
+    // [Faza 0, 0.1] `retryAfter` = ponoć sledećeg LA dana. Bez njega worker
+    // ne zna kad da pokuša ponovo i scan izgubi sva tri pokušaja (K1).
     throw new BudgetError(
       "Places API 429 RESOURCE_EXHAUSTED — Googleova kvota je potrošena. " +
         "Reset je u 09:00 po lokalnom vremenu.",
       state,
+      "exhausted",
+      nextDayReset(),
     );
   }
 
