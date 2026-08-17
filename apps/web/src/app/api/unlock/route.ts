@@ -12,6 +12,7 @@
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
+import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError, UnlockResponse } from "@/lib/search-types";
 import { unlockLead } from "@/lib/unlock";
 import { unlockBodySchema } from "@/lib/unlock-schema";
@@ -28,6 +29,11 @@ function greska(poruka: string, status: number, detalji?: string[]): Response {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2): brana za skript sa mnogo naloga stoji
+  // ispred i sesije i tela — neprijavljen spam ne sme da troši bazu.
+  const ogranicen = await proveriIpTempo(req, "unlock");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();

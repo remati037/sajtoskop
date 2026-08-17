@@ -22,6 +22,7 @@ import {
   porukaZasluzujeNagradu,
 } from "@/lib/feedback";
 import { dopunaBodySchema, type DopunaOdgovor } from "@/lib/feedback-schema";
+import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError } from "@/lib/search-types";
 import { mojaPutanja } from "@/lib/slika";
 
@@ -39,6 +40,10 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2).
+  const ogranicen = await proveriIpTempo(req, "feedback-dopuna");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();

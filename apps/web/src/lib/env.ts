@@ -12,7 +12,15 @@ const serverSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.url({ message: "mora biti pun URL, npr. https://xxx.supabase.co" }),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(20),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
-  CLERK_SECRET_KEY: z.string().min(1),
+  // [Faza 1, 1.4] Format se proverava da tipfeler padne ODMAH sa jasnom
+  // porukom, a ne kasnije kroz nerazumljivu Clerk grešku (S4 iz revizije).
+  // `NEXT_PUBLIC_*` je javan ključ — bezbedan je i u serverskoj šemi.
+  CLERK_SECRET_KEY: z
+    .string()
+    .regex(/^sk_(test|live)_/, { message: "mora počinjati sa sk_test_ ili sk_live_" }),
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z
+    .string()
+    .regex(/^pk_(test|live)_/, { message: "mora počinjati sa pk_test_ ili pk_live_" }),
 });
 
 const webhookSchema = z.object({

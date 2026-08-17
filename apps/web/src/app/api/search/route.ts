@@ -24,6 +24,7 @@ import { requireUserId } from "@/lib/auth";
 import { budzetZaScan } from "@/lib/budzet";
 import { claimCacheMiss, releaseCacheMiss, spendCreditAndScan, zivPlacenPosao } from "@/lib/jobs";
 import { getOwnProfile } from "@/lib/profile";
+import { proveriIpTempo } from "@/lib/rate-limit";
 import { searchCachedLeads } from "@/lib/search";
 import { COUNTRY, stanjeKesa } from "@/lib/search-cache";
 import { searchBodySchema } from "@/lib/search-schema";
@@ -46,6 +47,10 @@ function greska(poruka: string, status: number, detalji?: string[]): Response {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2) — ista brana kao na /api/unlock.
+  const ogranicen = await proveriIpTempo(req, "search");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();

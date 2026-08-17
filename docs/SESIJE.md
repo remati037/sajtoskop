@@ -22,6 +22,7 @@ sledeću sesiju.
 | S6 | F11.3 — utisci u konzoli | `F11-utisci-v2.md` | `0015` | 0,75 dan | ☑ |
 | S7 | F11.4 — zatvaranje petlje | `F11-utisci-v2.md` | `0016` | 0,75 dan | ☑ |
 | S8 | Faza 0 — worker: novac i pouzdanost | `PLAN-IZMENA.md` | `0017` | 0,5–1 dan | ☑ |
+| S9 | Faza 1 — bezbednost: P1 lista | `PLAN-IZMENA.md` | `0018` | 0,5–1 dan | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1266,5 +1267,115 @@ Gotovo kad: P1 lista iz docs/bezbednost-i-zastita.md nema otvorenih stavki osim 
 
 Kad završiš: prođi kroz listu „Kraj svake sesije" iz docs/SESIJE.md, ažuriraj taj fajl
 (S9 — Faza 1) i napiši mi prompt za Fazu 2.
+```
+
+---
+
+## S9 — Faza 1: bezbednost — zatvaranje P1 liste ☑ isporučeno
+
+Rad iz `docs/PLAN-IZMENA.md`, Faza 1. Zatvara nalaze S1–S4 iz revizije i P1 stavke
+iz `docs/bezbednost-i-zastita.md` koje su bile otvorene.
+
+### Šta je isporučeno
+
+- **1.1 — Bezbednosni headeri:** `next.config.ts` `headers()` na svim rutama — CSP
+  (sastavljen oko onoga što app stvarno koristi: Clerk connect/img, Supabase connect/img,
+  `blob:`/`data:` za snimke i avatare, `'unsafe-inline'` u script-src zbog temne skripte u
+  `<head>`-u), HSTS (1 godina + poddomeni), `X-Frame-Options: DENY`, `Referrer-Policy:
+  strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, `Permissions-Policy`
+  (camera/mic/geo isključeni). Provereno `curl -I` nad buildanim app-om — svi headeri
+  izlaze.
+- **1.2 — IP rate limit:** `request_limits` tabela + `claim_request` RPC (fiksni prozor od
+  minuta, 100 zahteva po IP+ruta, čišćenje starih redova na prvom zahtevu svakog minuta).
+  `lib/rate-limit.ts` — `proveriIpTempo(req, ruta)`; ubačen na 8 mesta: `/api/unlock`,
+  `/api/search`, `/api/feedback` (POST), `/api/feedback/[id]` (PATCH), `/api/feedback/slika`,
+  `/api/feedback/pitanje/[kljuc]/prikazano` + `/odbaceno`, `/api/feedback/podsetnik-vidjen`.
+  Pad brojača NE ruši rutu (log + nastavi) — za razliku od admin tempa, ovde je brojač
+  čista odbrana, ne deo ispravnosti.
+- **1.3 — Webhook idempotencija:** `webhook_events(provider, event_id)` u migraciji 0018;
+  ruta upisuje marker PRE obrade (na konflikt preskoči → `{duplicate: true}`), a na padu
+  obrade BRIŠE marker da Svix retry može ponovo. Clerkov tip događaja ne nosi `id`, pa se
+  event_id čita iz sirovog tela pre verifikacije (zahtev se rekonstruiše za Svix potpis).
+- **1.4 — Env šema:** `CLERK_SECRET_KEY` se validira na `sk_(test|live)_`, a
+  `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` na `pk_(test|live)_` — tipfeler pada odmah sa jasnom
+  porukom.
+- **1.5 — `kind`/`source` van pitanja na serveru:** POST `/api/feedback` bez `prompt_key`
+  odbija `source ∉ {dugme, podsetnik}` i `kind ∉ {ideja, pohvala, drugo}` sa 400 —
+  `{rating:3, kind:'bug', source:'incident'}` bez pitanja ne može da izazove instant mejl
+  ni da zagadi metriku bugova. Klijent (panel) ne šalje `kind` pri nastanku — ništa se ne
+  lomi.
+- **1.6 — Utisci u RPC-u:** migracija 0018 donosi `zabelezi_utisak` (dnevni plafon u ISTOJ
+  transakciji sa upisom, `for update` nad profilom — dva paralelna POST-a se serijalizuju,
+  plafon se ne probija; `ctx` gradi RPC) i `dopuni_utisak` (CAS upis sa `for update` nad
+  redom: TS spoji+validira Zod-om, RPC upisuje samo ako se `answers` nije promenio od
+  čitanja; 'stale' → TS ponavlja sa svežim stanjem, najviše 3 puta). Oba vraćaju ceo red
+  kao jsonb.
+- **Provere:** `check:sql` — blokovi „Faza 1": claim_request (100 ok → 101. odbijen, nova
+  ruta svoj brojač, nov minut reset), webhook dedup (on conflict preskoči), zabelezi_utisak
+  (plafon 2 → treći je plafon, no_user, ctx oblik), dopuni_utisak (CAS stale, nema);
+  `request_limits` i `webhook_events` u RLS listi; tri nove funkcije u listi prava.
+
+### Šta se razišlo sa planom
+
+1. **`dopuni_utisak` je CAS upis, ne „jedan RPC koji validira".** Validaciju odgovora radi
+   Zod iz kataloga (pravilo 16) — SQL nema katalog, pa spajanje+validacija ostaju u TS-u,
+   a RPC je jedina tačka upisa: zaključa red, poredi `answers` sa očekivanim, upisuje
+   očišćeni spoj. To je isto „u RPC sa `for update`" kako plan traži, sa CAS retry petljom
+   kao nužnim dodatkom (maksimalno 3 pokušaja, pa 500).
+2. **`zabelezi_utisak` je uzeo i građenje `ctx`-a iz TS-a.** Stara verzija je čitala profil
+   + broj otključanih + broj utisaka u tri paralelna upita pa upisivala; RPC radi sve pod
+   istom bravom i vraća gotov `ctx` — manje upita i jedna transakcija manje. Oblik `ctx`-a
+   je isti (plan, credits, unlocks, ua, viewport, errors uz bug) i pokriven u check:sql.
+3. **`podsetnik-vidjen` ruta je dobila `req` parametar** (ranije `POST()` bez argumenta) —
+   da bi limiter uopšte imao odakle da čita IP.
+4. **`X-Content-Type-Options` i `Permissions-Policy` su dodati uz četiri planirana
+   headera** — oba su jedna linija i bez njih lista ne bi bila kompletna.
+5. **P1 stavka „Zavisnosti" (Dependabot + `npm audit` u CI) ostaje za Fazu 6.9**, kako je i
+   planirano u PLAN-IZMENA.md — „Gotovo kad" Faze 1 pominje samo backup, ali plan eksplicitno
+   drži zavisnosti u Fazi 6. Pravni tekstovi (P0, ZZPL) su F8/ROADMAP.
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql`, `pnpm test`, `pnpm build` prolaze; `curl -I` nad
+buildanim app-om pokazuje svih šest headera. Nijedan nov Places poziv. **Ručne provere
+ostaju na meni**:
+
+1. otvori app u obe teme (tamna i svetla) i prođi ceo tok — CSP ne sme da lomi ništa
+   (najrizičnije: Clerk prijava, slika uz utisak, snimci u `/lista`);
+2. 101 brzih POST-ova na `/api/unlock` (npr. `for i in $(seq 101); do curl -X POST …; done`)
+   — 101. mora da vrati 429; sledeći minut ponovo radi;
+3. pošalji isti Clerk webhook dvaput (Svix retry ili `curl` sa istim telom i potpisom) —
+   drugi put `{ok:true, duplicate:true}`, bez duplog profila ni kredita;
+4. pošalji `POST /api/feedback` sa `{rating:3, kind:"bug", source:"incident"}` bez
+   `prompt_key` — 400; sa `{rating:3}` — prolazi;
+5. dva brza `POST /api/feedback` iste sekunde na plafonu 50/24h — najviše jedan preko.
+
+### Prompt (za sledeću sesiju — Faza 2, ispravnost)
+
+```
+Radimo Fazu 2 iz docs/PLAN-IZMENA.md (ispravnost: uvoz, pretraga, web bugovi). Pročitaj
+prvo CLAUDE.md, docs/PLAN-IZMENA.md, docs/REVIZIJA.md (odeljci 4 i 5.4) i odeljak „S9 —
+Faza 1" u docs/SESIJE.md. Ne diraj Fazu 3 (performanse) ni Fazu 4 (UX).
+
+Zatečeno stanje: S1–S9 gotovi (F11/F12, Faza 0, Faza 1). Migracije idu do 0018; sledeća
+je 0019. IP rate limit već stoji na /api/unlock, /api/search i /api/feedback* — nove rute
+u ovoj fazi (npr. /api/uvoz) dobijaju isti limiter.
+
+Stavke Faze 2:
+2.1 CSV uvoz: batch RPC (petlja u SQL-u) ili paralelizovane grupe + dedupeKey/transakcija —
+    lib/uvoz.ts, api/uvoz/route.ts, migracija. 2000 redova < 60 s; retry ne duplira.
+2.2 .in() u grupama ~100–200 — search.ts, moja-lista.ts, krediti.ts, admin-korisnici.ts.
+2.3 spend_credit_and_scan/enqueue_job: unique_violation → re-select (joined) — migracija.
+2.4 poruke/ai: provera payload.placeId === placeId pre čitanja.
+2.5 Dedup insert outreach_messages.
+2.6 job: { id: charge.jobId ?? 0 } → interna greška ako nema jobId.
+2.7 Posle naplate uvek status: "queued" i sa pao keš-read.
+2.8 Seed: ne pregaziti sveže audite (audit_level > 1).
+
+Gotovo kad: svi W1–W7 i N1–N6 nalazi zatvoreni ili svesno odloženi uz zapis u SESIJE.
+typecheck, check:sql, test prolaze.
+
+Kad završiš: prođi kroz listu „Kraj svake sesije", ažuriraj docs/SESIJE.md (S10 — Faza 2)
+i napiši mi prompt za Fazu 3.
 ```
 

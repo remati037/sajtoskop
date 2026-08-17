@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { pitanjeZaKljuc, vaziPitanje } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
+import { proveriIpTempo } from "@/lib/rate-limit";
 import { zabeleziPrikaz } from "@/lib/utisci";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +23,13 @@ export const runtime = "nodejs";
 const HEADERS = { "Cache-Control": "private, no-store" };
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ kljuc: string }> },
 ): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2).
+  const ogranicen = await proveriIpTempo(req, "feedback-prikazano");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();

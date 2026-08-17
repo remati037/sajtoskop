@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import type { SlikaOdgovor } from "@/lib/feedback-schema";
+import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError } from "@/lib/search-types";
 import { otpremiSliku, prepoznajSliku, SLIKA_MAX_BAJTOVA } from "@/lib/slika";
 
@@ -28,6 +29,10 @@ function greska(poruka: string, status: number): Response {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2) — slika je i novac (Storage) i disk.
+  const ogranicen = await proveriIpTempo(req, "feedback-slika");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();

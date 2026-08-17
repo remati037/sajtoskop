@@ -11,13 +11,18 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { oznaciPodsetnikVidjen } from "@/lib/feedback";
+import { proveriIpTempo } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const HEADERS = { "Cache-Control": "private, no-store" };
 
-export async function POST(): Promise<Response> {
+export async function POST(req: Request): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2).
+  const ogranicen = await proveriIpTempo(req, "feedback-podsetnik");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();

@@ -12,7 +12,6 @@ import "server-only";
 import { currentUser } from "@clerk/nextjs/server";
 import type {
   CreditLedgerRow,
-  FeedbackCtx,
   FeedbackGrantResult,
   FeedbackKind,
   FeedbackRow,
@@ -42,9 +41,6 @@ export const UPIS_DNEVNI_PLAFON = 50;
 const DOPUNA_ROK_MS = 60 * 60 * 1000;
 
 const DAN_MS = 24 * 60 * 60 * 1000;
-
-/** Gornja granica dužine UA stringa u `ctx`. Zaštita, ne validacija. */
-const UA_MAX = 400;
 
 // ── nagrada za utisak sa porukom (F11 §6.7) ─────────────────
 // Podela odgovornosti iz F11 §4: mesečni plafon od 20 kredita i idempotencija su
@@ -136,71 +132,47 @@ export type UtisakIshod =
  *
  * Kontekst skuplja server (odluka 5): plan, krediti i broj otključanih se čitaju
  * iz baze, UA iz headera. Iz tela dolazi samo ono što server ne zna.
+ *
+ * [Faza 1, 1.6] Celo čitanje + upis je u JEDNOM RPC-u (`zabelezi_utisak`,
+ * migracija 0018): `for update` nad profilom serijalizuje paralelne POST-ove,
+ * pa dnevni plafon (N3) ne može da se probije — stara verzija je brojala pa
+ * upisivala, i dva paralelna zahteva su mogla oba da prođu.
  */
 export async function zabeleziUtisak(userId: string, ulaz: UtisakUlaz): Promise<UtisakIshod> {
   const db = adminSupabase();
-  const od = new Date(Date.now() - DAN_MS).toISOString();
 
-  const [profil, otkljucani, skoro] = await Promise.all([
-    db
-      .from("profiles")
-      .select("plan, credits_balance")
-      .eq("id", userId)
-      .maybeSingle<Pick<ProfileRow, "plan" | "credits_balance">>(),
-    db.from("unlocks").select("place_id", { count: "exact", head: true }).eq("user_id", userId),
-    db
-      .from("feedback")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .gte("created_at", od),
-  ]);
+  // Dnevnik grešaka ide samo uz bug (F11 odluka 10). RPC istu proveru ponavlja
+  // nad `p_kind` — ovo je samo da ne šaljemo šta se ionako neće upisati.
+  const dnevnik = ulaz.kind === "bug" ? (ulaz.errors ?? null) : null;
 
-  if (profil.error) throw new Error(`Čitanje profila nije uspelo: ${profil.error.message}`);
-  if (!profil.data) return { ishod: "no_user" };
-  if (skoro.error) throw new Error(`Brojanje utisaka nije uspelo: ${skoro.error.message}`);
-
-  const dosad = skoro.count ?? 0;
-  if (dosad >= UPIS_DNEVNI_PLAFON) return { ishod: "plafon" };
-
-  // Broj otključanih je ukras u mejlu; ako baš on padne, utisak svejedno ide.
-  if (otkljucani.error) console.error("[feedback] broj otključanih:", otkljucani.error.message);
-
-  // Dnevnik grešaka ide u zapis samo kad je zapis prijava kvara (F11 odluka 10).
-  // Provera je ovde, a ne u šemi tela: `kind` server IZVODI iz kataloga, pa se
-  // tek na ovom mestu zna da li je ovo bug ili pohvala.
-  const dnevnik = ulaz.kind === "bug" ? (ulaz.errors ?? []) : [];
-
-  const ctx: FeedbackCtx = {
-    plan: profil.data.plan,
-    credits: profil.data.credits_balance,
-    unlocks: otkljucani.count ?? 0,
-    ua: ulaz.ua.slice(0, UA_MAX),
-    viewport: ulaz.viewport ?? "",
-    ...(dnevnik.length > 0 ? { errors: dnevnik } : {}),
-  };
-
-  const { data, error } = await db
-    .from("feedback")
-    .insert({
-      user_id: userId,
-      rating: ulaz.rating,
-      source: ulaz.source,
-      route: ulaz.route,
-      // Jedan izvor istine za naziv ekrana — isti onaj koji stoji u gornjoj traci.
-      route_label: ulaz.route ? naslovZaPutanju(ulaz.route) : null,
-      ctx,
-      ...(ulaz.promptKey ? { prompt_key: ulaz.promptKey } : {}),
-      ...(ulaz.answers ? { answers: ulaz.answers } : {}),
-      ...(ulaz.kind ? { kind: ulaz.kind } : {}),
-      ...(ulaz.severity ? { severity: ulaz.severity } : {}),
-      ...(ulaz.screenshotPath ? { screenshot_path: ulaz.screenshotPath } : {}),
-    })
-    .select()
-    .single<FeedbackRow>();
+  const { data, error } = await db.rpc("zabelezi_utisak", {
+    p_user: userId,
+    p_rating: ulaz.rating,
+    p_source: ulaz.source,
+    p_route: ulaz.route,
+    // Jedan izvor istine za naziv ekrana — isti onaj koji stoji u gornjoj traci.
+    p_route_label: ulaz.route ? naslovZaPutanju(ulaz.route) : null,
+    p_ua: ulaz.ua,
+    p_viewport: ulaz.viewport,
+    p_prompt_key: ulaz.promptKey ?? null,
+    p_answers: ulaz.answers ?? null,
+    p_kind: ulaz.kind ?? null,
+    p_severity: ulaz.severity ?? null,
+    p_errors: dnevnik,
+    p_screenshot: ulaz.screenshotPath ?? null,
+    p_dnevni_plafon: UPIS_DNEVNI_PLAFON,
+    p_mejl_limit: MEJL_DNEVNI_LIMIT,
+  });
 
   if (error) throw new Error(`Upis utiska nije uspeo: ${error.message}`);
 
-  return { ishod: "upisan", red: data, posaljiMejl: dosad < MEJL_DNEVNI_LIMIT };
+  const ishod = ((data ?? []) as { ishod: string; posalji_mejl: boolean; red: unknown }[])[0];
+  if (!ishod) throw new Error("zabelezi_utisak nije vratio red.");
+
+  if (ishod.ishod === "no_user") return { ishod: "no_user" };
+  if (ishod.ishod === "plafon") return { ishod: "plafon" };
+
+  return { ishod: "upisan", red: ishod.red as FeedbackRow, posaljiMejl: ishod.posalji_mejl };
 }
 
 export type DopunaIshod =
@@ -223,6 +195,12 @@ export type DopunaIshod =
  * preporučio kolegi", čipovi „šta nije štimalo"). Spajaju se sa već upisanim
  * odgovorom i PONOVO prolaze kroz šemu iz kataloga: drugi korak ne sme da bude
  * rupa kroz koju u `answers` uđe ono što prvi korak ne bi propustio.
+ *
+ * [Faza 1, 1.6] Upis je jedan RPC (`dopuni_utisak`, migracija 0018) sa
+ * `for update` nad redom i CAS poređenjem `answers`: dva paralelna PATCH-a se
+ * serijalizuju na bravi, a onaj koji je spoj zasnovao na starom stanju dobija
+ * 'stale' i ponavlja sa svežim (N4). Validaciju i dalje radi Zod — SQL nema
+ * katalog — pa je CAS jedina tačka koja čuva red od izgubljenog upisa.
  */
 export async function dopuniUtisak(
   userId: string,
@@ -232,8 +210,10 @@ export async function dopuniUtisak(
   const db = adminSupabase();
   const odRoka = new Date(Date.now() - DOPUNA_ROK_MS).toISOString();
 
-  // Spajanje odgovora traži postojeći zapis, pa se on prvo pročita. Bez
-  // `answers` u telu ovaj upit se preskače — najčešći put ostaje jedan `update`.
+  // Prvo čitanje je samo ulaz u spajanje odgovora; sam upis je RPC ispod, pa
+  // se „nema"/„kasno" razlikuju na jednom mestu. Bez `answers` u telu se ovo
+  // preskače — najčešći put ostaje jedan poziv.
+  let ocekivani: Record<string, unknown> | null = null;
   let spojeni: Record<string, unknown> | null = null;
 
   if (dopuna.answers !== undefined) {
@@ -247,8 +227,6 @@ export async function dopuniUtisak(
 
     if (greskaCitanja) throw new Error(`Čitanje utiska nije uspelo: ${greskaCitanja.message}`);
 
-    // Zapisa nema, tuđ je ili je prošao rok — te tri stvari razlikuje `update`
-    // ispod, na jednom mestu za sve oblike dopune. Ovde se ne prejudicira.
     if (stari) {
       // Bez pitanja nema ni odgovora: `answers` uz utisak sa dugmeta nema šemu po
       // kojoj bi se proverio, a jsonb bez šeme je tačno ono što pravilo 16 brani.
@@ -265,57 +243,76 @@ export async function dopuniUtisak(
       const ishod = proveriOdgovor(stari.prompt_key, spoj);
       if (!ishod.ok) return { ok: false, razlog: "odgovor", detalji: ishod.detalji };
 
+      ocekivani = stari.answers;
       spojeni = ishod.answers;
     }
   }
 
-  const { data, error } = await db
-    .from("feedback")
-    .update({
-      ...(dopuna.kind !== undefined ? { kind: dopuna.kind } : {}),
-      ...(dopuna.message !== undefined ? { message: dopuna.message } : {}),
-      ...(spojeni ? { answers: spojeni } : {}),
-      ...(dopuna.screenshot_path ? { screenshot_path: dopuna.screenshot_path } : {}),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("user_id", userId)
-    .gte("created_at", odRoka)
-    .select()
-    .maybeSingle<FeedbackRow>();
+  // CAS petlja: najviše 3 pokušaja. 'stale' se javlja samo kad neko drugi
+  // upiše između našeg čitanja i brave — tada se ponavlja sa svežim stanjem.
+  for (let pokusaj = 1; pokusaj <= 3; pokusaj++) {
+    const { data, error } = await db.rpc("dopuni_utisak", {
+      p_id: id,
+      p_user: userId,
+      p_expected: ocekivani,
+      p_answers: spojeni,
+      p_kind: dopuna.kind ?? null,
+      p_message: dopuna.message ?? null,
+      p_screenshot: dopuna.screenshot_path ?? null,
+      p_errors: dopuna.errors ?? null,
+    });
 
-  if (error) throw new Error(`Dopuna utiska nije uspela: ${error.message}`);
+    if (error) throw new Error(`Dopuna utiska nije uspela: ${error.message}`);
 
-  if (data) {
-    // Dnevnik grešaka ide uz zapis tek kad je zapis proglašen bugom — a tip se
-    // bira baš u ovom koraku (F11 odluka 10). Zato se `ctx` dopunjuje ovde, a ne
-    // pri nastanku: pri nastanku se još ne zna da li je ovo bug.
-    if (dopuna.errors?.length && data.kind === "bug" && !data.ctx.errors) {
-      const { error: greskaCtx } = await db
+    const ishod = ((data ?? []) as { ok: boolean; reason: string; red: unknown }[])[0];
+    if (!ishod) throw new Error("dopuni_utisak nije vratio red.");
+
+    if (!ishod.ok && ishod.reason === "stale" && dopuna.answers !== undefined) {
+      // Sveže stanje: ponovo pročitaj, spoji, validiraj, pa pokušaj ponovo.
+      const { data: sveze, error: greskaCitanja } = await db
         .from("feedback")
-        .update({ ctx: { ...data.ctx, errors: dopuna.errors } })
+        .select("prompt_key, answers")
         .eq("id", id)
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .gte("created_at", odRoka)
+        .maybeSingle<Pick<FeedbackRow, "prompt_key" | "answers">>();
 
-      // Utisak je dopunjen i to je ono što se ne sme izgubiti. Bez dnevnika
-      // prijava i dalje nosi poruku, ekran i uređaj.
-      if (greskaCtx) console.error("[feedback] upis dnevnika grešaka:", greskaCtx.message);
-      else data.ctx = { ...data.ctx, errors: dopuna.errors };
+      if (greskaCitanja) throw new Error(`Čitanje utiska nije uspelo: ${greskaCitanja.message}`);
+
+      if (!sveze) return { ok: false, razlog: "nema" };
+      if (!sveze.prompt_key) return { ok: false, razlog: "odgovor" };
+
+      const ulaz = dopuna.answers;
+      const spoj =
+        typeof ulaz === "object" && ulaz !== null && !Array.isArray(ulaz)
+          ? { ...sveze.answers, ...(ulaz as Record<string, unknown>) }
+          : null;
+      if (!spoj) return { ok: false, razlog: "odgovor" };
+
+      const ishodSveze = proveriOdgovor(sveze.prompt_key, spoj);
+      if (!ishodSveze.ok) return { ok: false, razlog: "odgovor", detalji: ishodSveze.detalji };
+
+      ocekivani = sveze.answers;
+      spojeni = ishodSveze.answers;
+      continue;
     }
 
-    return { ok: true, red: data };
+    if (!ishod.ok) {
+      // 'nema' | 'kasno' (i 'odgovor' ako ikad stigne iz baze) — isti odgovor
+      // kao pre RPC-a, sada iz jednog poziva.
+      return ishod.reason === "kasno"
+        ? { ok: false, razlog: "kasno" }
+        : ishod.reason === "odgovor"
+          ? { ok: false, razlog: "odgovor" }
+          : { ok: false, razlog: "nema" };
+    }
+
+    return { ok: true, red: ishod.red as FeedbackRow };
   }
 
-  // Nijedan red nije pogođen. Razlika između „nema ga" i „prošao je rok" je
-  // jedina koju korisnik može da razume, pa se traži drugim upitom.
-  const { data: postoji } = await db
-    .from("feedback")
-    .select("id")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .maybeSingle<{ id: number }>();
-
-  return { ok: false, razlog: postoji ? "kasno" : "nema" };
+  // Tri 'stale' pokušaja — neko aktivno piše u isti red. Ovo je greška rada,
+  // ne stanje koje korisnik razume: ruta vraća 500 i ništa se ne gubi.
+  throw new Error(`dopuni_utisak: previše konkurentnih izmena (${id})`);
 }
 
 // ── nagrada: +1 kredit za utisak sa porukom ─────────────────

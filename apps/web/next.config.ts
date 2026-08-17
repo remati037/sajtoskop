@@ -26,6 +26,36 @@ function loadRootEnv(): void {
 
 loadRootEnv();
 
+// ── bezbednosni headeri (Faza 1, 1.1; P1 iz docs/bezbednost-i-zastita.md) ──
+// CSP je sastavljen oko onoga što app STVARNO koristi: Clerk (connect/img),
+// Supabase (connect/img — potpisani URL-ovi slika), blob/data za snimke i
+// avatare, i inline temna skripta u <head>-u (zato 'unsafe-inline' u
+// script-src — nonce bi tražio middleware i menjao ceo layout).
+// `frame-ancestors 'none'` je CSP ekvivalent `X-Frame-Options: DENY`; stoje oba.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev wss://*.clerk.accounts.dev https://*.clerk.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: CSP },
+  // HSTS: godinu dana + poddomeni. `preload` je bezopasan i ako domen nije
+  // prijavljen u preload listu — header se poštuje od prve posete.
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
@@ -36,6 +66,17 @@ const nextConfig: NextConfig = {
   // Vercel build ne sme da prođe sa tipskom greškom. Ako ovo ikad postane
   // `ignoreBuildErrors: true`, prestala je da važi cela `strict` politika.
   typescript: { ignoreBuildErrors: false },
+
+  async headers() {
+    return [
+      {
+        // Sve rute, uključujući API. Static asseti imaju svoje cache headere;
+        // ovde se dodaje samo bezbednosni sloj.
+        source: "/:path*",
+        headers: SECURITY_HEADERS,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

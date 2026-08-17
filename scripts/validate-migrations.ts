@@ -80,7 +80,8 @@ async function main(): Promise<void> {
   for (const t of ["profiles", "businesses", "website_audits", "unlocks",
                    "credit_ledger", "searches", "job_queue", "api_budget",
                    "job_subscribers", "search_cache", "feedback",
-                   "feedback_prompts", "changelog", "admin_audit"]) {
+                   "feedback_prompts", "changelog", "admin_audit",
+                   "request_limits", "webhook_events"]) {
     const r = await one<{ relrowsecurity: boolean }>(
       `select relrowsecurity from pg_class where relname = $1`, [t]);
     check(r?.relrowsecurity === true, `uključen na ${t}`);
@@ -1074,6 +1075,71 @@ async function main(): Promise<void> {
     "notify_attempts ne sme da bude negativan",
   );
 
+  // ── Faza 1: rate limit, webhook dedup, utisci u RPC-u ──
+  console.log("\nFaza 1 — claim_request (IP rate limit)");
+  type Claim = { ok: boolean; remaining: number };
+  const claim = (ip: string, route: string, lim: number) =>
+    one<Claim>(`select * from claim_request($1,$2,$3)`, [ip, route, lim]);
+
+  check((await claim("1.2.3.4", "unlock", 100))?.ok === true, "prvi zahtev → ok");
+  let poslednjiClaim: Claim | undefined;
+  for (let i = 2; i <= 100; i++) poslednjiClaim = await claim("1.2.3.4", "unlock", 100);
+  check(poslednjiClaim?.ok === true, "100. zahtev → ok");
+  check((await claim("1.2.3.4", "unlock", 100))?.ok === false, "101. zahtev → ok=false (429)");
+  check((await claim("1.2.3.4", "search", 100))?.ok === true, "druga ruta ima svoj brojač");
+
+  // Nov minut resetuje brojač — fiksni prozor, ne kumulativan.
+  await db.exec(`update request_limits set minute = minute - interval '1 minute' where ip = '1.2.3.4'`);
+  check((await claim("1.2.3.4", "unlock", 100))?.ok === true, "nov minut resetuje brojač");
+
+  console.log("\nFaza 1 — webhook_events (idempotencija)");
+  await db.exec(`
+    insert into webhook_events (provider, event_id) values ('clerk', 'evt_1') on conflict do nothing;
+    insert into webhook_events (provider, event_id) values ('clerk', 'evt_1') on conflict do nothing;
+  `);
+  const wh = await one<{ n: number }>(
+    `select count(*)::int as n from webhook_events where provider = 'clerk' and event_id = 'evt_1'`);
+  check(wh?.n === 1, "isti event_id drugi put → preskočen (on conflict do nothing)");
+
+  console.log("\nFaza 1 — zabelezi_utisak (plafon u transakciji)");
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('fz1', 'fz1@x.rs', 30)`);
+  type ZU = { ishod: string; posalji_mejl: boolean; red: { id: number; ctx: { credits: number; unlocks: number; ua: string } } };
+  const zu = (rating: number | null) =>
+    one<ZU>(`select * from zabelezi_utisak('fz1', $1, 'dugme', '/pretraga', 'Pretraga', 'test-ua', '1440×900', null, null, null, null, null, null, 2, 10)`, [rating]);
+
+  const z1 = await zu(3);
+  check(z1?.ishod === "upisan" && z1.posalji_mejl === true, "prvi utisak → upisan");
+  check(z1?.red.ctx.credits === 30 && z1.red.ctx.ua === "test-ua", "ctx gradi RPC (credits, ua)");
+  check((await zu(2))?.ishod === "upisan", "drugi uz plafon 2 → upisan");
+  check((await zu(1))?.ishod === "plafon", "treći uz plafon 2 → plafon — ništa nije upisano");
+  check(
+    (await one<ZU>(`select * from zabelezi_utisak('nema_ga', 1, 'dugme', null, null, null, null, null, null, null, null, null, null, 50, 10)`))?.ishod === "no_user",
+    "nepostojeći profil → no_user",
+  );
+
+  console.log("\nFaza 1 — dopuni_utisak (CAS sa for update)");
+  type DU = { ok: boolean; reason: string };
+  const fz1Id = z1?.red.id;
+  const du = (expected: string | null, answers: string | null, kind: string | null) =>
+    one<DU>(`select * from dopuni_utisak($1, 'fz1', $2::jsonb, $3::jsonb, $4, 'poruka', null, null)`,
+            [fz1Id, expected, answers, kind]);
+
+  check((await du(null, null, "ideja"))?.ok === true, "dopuna bez answers → ok");
+  check(
+    (await du('{}', '{"preporuka":"da"}', null))?.ok === true,
+    "dopuna sa answers (expected = zatečeni '{}') → ok",
+  );
+  check(
+    (await du('{"stari":"x"}', '{"preporuka":"ne"}', null))?.ok === false,
+    "pogrešan expected → ok=false",
+  );
+  const stale = await one<DU>(`select * from dopuni_utisak($1, 'fz1', '{"stari":"x"}'::jsonb, '{"preporuka":"ne"}'::jsonb, null, null, null, null)`, [fz1Id]);
+  check(stale?.reason === "stale", "pogrešan expected → reason=stale (CAS, 1.6)");
+  check(
+    (await one<DU>(`select * from dopuni_utisak(999999, 'fz1', null, null, null, null, null, null)`))?.reason === "nema",
+    "nepostojeći red → nema",
+  );
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
@@ -1084,7 +1150,8 @@ async function main(): Promise<void> {
                     "search_cache_state", "search_cache_overview",
                     "grant_feedback_credits",
                     "admin_adjust_credits", "admin_users_page",
-                    "admin_set_role", "admin_overview"]) {
+                    "admin_set_role", "admin_overview",
+                    "claim_request", "zabelezi_utisak", "dopuni_utisak"]) {
     const r = await one<{ anon: boolean; svc: boolean }>(
       `select has_function_privilege('anon', p.oid, 'execute') as anon,
               has_function_privilege('service_role', p.oid, 'execute') as svc

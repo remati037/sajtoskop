@@ -27,6 +27,7 @@ import {
   MEJL_DNEVNI_LIMIT,
 } from "@/lib/feedback";
 import { utisakBodySchema, type UtisakOdgovor } from "@/lib/feedback-schema";
+import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError } from "@/lib/search-types";
 import { mojaPutanja } from "@/lib/slika";
 import { zabeleziOdgovor } from "@/lib/utisci";
@@ -48,7 +49,18 @@ const IZVOR_ZA_SLOJ: Record<Pitanje["sloj"], FeedbackSource> = {
   incident: "incident",
 };
 
+// [Faza 1, 1.5] Za utiske VAN pitanja `kind` i `source` se izvode na serveru
+// (nalaz N2). `bug` i `incident` postoje samo u katalogu — klijent koji pošalje
+// `{rating:3, kind:'bug', source:'incident'}` bez `prompt_key` ne sme da
+// izazove instant mejl ni da zagadi metriku bugova.
+const IZVOR_BEZ_PITANJA: readonly FeedbackSource[] = ["dugme", "podsetnik"];
+const TIP_BEZ_PITANJA: readonly string[] = ["ideja", "pohvala", "drugo"];
+
 export async function POST(req: Request): Promise<Response> {
+  // IP tempo pre svega (Faza 1, 1.2) — ista brana kao na /api/unlock.
+  const ogranicen = await proveriIpTempo(req, "feedback");
+  if (ogranicen) return ogranicen;
+
   let userId: string;
   try {
     userId = await requireUserId();
@@ -97,6 +109,14 @@ export async function POST(req: Request): Promise<Response> {
 
     pitanje = ishod.pitanje;
     cistiOdgovor = ishod.answers;
+  } else {
+    // [Faza 1, 1.5] Bez pitanja nema ni `bug`-a ni `incident`-a (v. gore).
+    if (!IZVOR_BEZ_PITANJA.includes(source)) {
+      return greska("Neispravan izvor utiska.", 400);
+    }
+    if (kind !== undefined && !TIP_BEZ_PITANJA.includes(kind)) {
+      return greska("Neispravan tip utiska.", 400);
+    }
   }
 
   // Prijava kvara je svojstvo pitanja i odgovora, ne tela zahteva: „Pošalji mi
