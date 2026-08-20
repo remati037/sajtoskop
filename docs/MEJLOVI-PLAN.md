@@ -115,7 +115,7 @@ ne zna: stanje kredita i plana u aplikaciji.
 | 6.3 | **Problem sa naplatom** | neuspela obnova (dunning događaj) | [NAPLATA] | Polar pokušava ponovo sam — moj mejl objašnjava šta se dešava u aplikaciji u međuvremenu (grace period, kad se pristup gasi) i vodi u Polarov portal na promenu kartice. Na srpskom, jer Polarov verovatno nije. |
 | 6.4 | **Pretplata se ne obnavlja** | `subscription.canceled` | [NAPLATA] | Potvrda + tačan datum do kog sve radi + **šta ostaje zauvek** (otključani prospekti i pipeline — odluka iz pitanja 15 `LANSIRANJE-PITANJA.md`). Jasnoća ovde direktno smanjuje chargebackove. |
 | 6.5 | **Pretplata istekla** | `subscription.revoked` | [NAPLATA] | Šta se ugasilo, šta je ostalo, dugme za povratak. Bez dramatike i bez „žao nam je što odlaziš" patetike. |
-| 6.6 | **Povraćaj obrađen** | `refund.created` | [NAPLATA] | Potvrda povraćaja + stanje kredita posle korekcije (može i negativan balans — `naplata-polar.md` §6). Bolje da korisnik pročita od mene nego da se iznenadi brojkom u aplikaciji. |
+| 6.6 | **Povraćaj obrađen** | `refund.created` | [NAPLATA] | Potvrda povraćaja + stanje kredita posle korekcije (može i negativan balans — `naplata-paddle.md` §6). Bolje da korisnik pročita od mene nego da se iznenadi brojkom u aplikaciji. |
 
 ---
 

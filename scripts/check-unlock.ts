@@ -57,6 +57,16 @@ async function balance(db: SupabaseClient, id: string): Promise<number> {
   return data?.credits_balance ?? -1;
 }
 
+/** Obe kase odjednom — od S16 je stanje kredita ZBIR, ne jedna kolona. */
+async function kase(db: SupabaseClient, id: string): Promise<{ b: number; t: number }> {
+  const { data } = await db
+    .from("profiles")
+    .select("credits_balance, credits_topup")
+    .eq("id", id)
+    .maybeSingle<{ credits_balance: number; credits_topup: number }>();
+  return { b: data?.credits_balance ?? -1, t: data?.credits_topup ?? -1 };
+}
+
 async function countRows(db: SupabaseClient, table: string, userId: string): Promise<number> {
   const { count } = await db
     .from(table)
@@ -83,6 +93,88 @@ async function checkNoSession(POST: RouteHandler, place: string): Promise<void> 
 }
 
 // ── 2. trka: 20 paralelnih otključavanja sa 1 kreditom ─────
+
+/**
+ * Ista trka, ali sa jedinim kreditom u DRUGOJ kasi (S16, migracija 0022).
+ *
+ * Zašto zaseban test, kad `checkRace` već dokazuje `for update`: ta trka drži
+ * kredit u `credits_balance`, pa pogađa granu u kojoj je `v_iz_balansa = 1` —
+ * dakle skoro isti kod kao pre S16. Grana koja skida iz `credits_topup` je nova
+ * i pod konkurencijom nije bila pokrivena nigde, a greška u njoj se ne vidi kao
+ * pad nego kao dvadeset besplatnih otključavanja.
+ *
+ * Tri stvari koje samo ovaj test može da uhvati:
+ *   1. da provera „ima li dovoljno" gleda ZBIR obe kase, ne samo balans
+ *   2. da se skine tačno jedan kredit, i to iz kase u kojoj stvarno jeste
+ *   3. da nova invarijanta `sum(delta) = balans + dopuna` drži i pod trkom
+ */
+async function checkRaceTopup(
+  db: SupabaseClient,
+  POST: RouteHandler,
+  ids: string[],
+): Promise<string> {
+  naslov(`Trka — ${ids.length} paralelnih otključavanja sa 1 kreditom U DOPUNI`);
+
+  const user = `user_f4topup_${Date.now()}`;
+  // Profil bez ijednog kredita, pa se jedini kredit stavlja u drugu kasu kroz
+  // `grant_credits('credit_pack')` — RAZLOG bira kasu, pa je i to usput
+  // provereno nad pravom bazom, ne samo u PGlite-u.
+  await makeProfile(db, user, 0);
+  const { error: packErr } = await db.rpc("grant_credits", {
+    p_user: user,
+    p_amount: 1,
+    p_reason: "credit_pack",
+    p_ref_id: `txn_test_${user}`,
+  });
+  if (packErr) throw new Error(`Punjenje dopune nije uspelo: ${packErr.message}`);
+
+  const pre = await kase(db, user);
+  check(
+    pre.b === 0 && pre.t === 1,
+    `kredit je u dopuni, balans prazan  (balans ${pre.b}, dopuna ${pre.t})`,
+  );
+
+  setSessionUser(user);
+  const started = Date.now();
+  const responses = await Promise.all(
+    ids.map((placeId) => postJson(POST, "/api/unlock", { placeId })),
+  );
+  const trajanje = Date.now() - started;
+
+  const uspesni = responses.filter((r) => r.status === 200);
+  const bezKredita = responses.filter((r) => r.status === 402);
+  console.log(`   ${uspesni.length}× 200, ${bezKredita.length}× 402   (${trajanje} ms)`);
+
+  check(uspesni.length === 1, `tačno jedan 200  (dobijeno: ${uspesni.length})`);
+  check(
+    bezKredita.length === ids.length - 1,
+    `ostali 402 „nemaš kredita"  (dobijeno: ${bezKredita.length}/${ids.length - 1})`,
+  );
+
+  const posle = await kase(db, user);
+  check(posle.t === 0, `dopuna ispražnjena  (dobijeno: ${posle.t})`);
+  check(
+    posle.b === 0,
+    `balans NIJE otišao u minus dok je dopuna imala kredit  (dobijeno: ${posle.b})`,
+  );
+
+  const unlocks = await countRows(db, "unlocks", user);
+  check(unlocks === 1, `tačno jedan red u unlocks  (dobijeno: ${unlocks})`);
+
+  // Invarijanta iz F4 §8, proširena na dve kase (S16).
+  const { data: rows } = await db
+    .from("credit_ledger")
+    .select("delta")
+    .eq("user_id", user)
+    .returns<{ delta: number }[]>();
+  const zbir = (rows ?? []).reduce((s, r) => s + r.delta, 0);
+  check(
+    zbir === posle.b + posle.t,
+    `sum(delta) = balans + dopuna  (${zbir} = ${posle.b + posle.t})`,
+  );
+
+  return user;
+}
 
 async function checkRace(db: SupabaseClient, POST: RouteHandler, ids: string[]): Promise<string> {
   naslov(`Trka — ${ids.length} paralelnih POST /api/unlock sa 1 kreditom`);
@@ -408,6 +500,8 @@ async function main(): Promise<void> {
     profili.push(raceUser);
 
     await checkAlreadyUnlocked(db, POST, raceUser);
+
+    profili.push(await checkRaceTopup(db, POST, ids));
 
     const idorUsers = await checkBodyUserIdIgnored(db, POST, ids[0]!);
     profili.push(...idorUsers);

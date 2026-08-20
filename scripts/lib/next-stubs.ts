@@ -30,6 +30,23 @@ export function redirect(url: string): never {
   throw new Error(`redirect(${url}) u API ruti — ruta bi trebalo da vrati status kod.`);
 }
 
+/**
+ * Zamena za `notFound()` iz `next/navigation`.
+ *
+ * Zašto je ovde iako otključavanje nema veze sa adminom: `api/unlock/route.ts`
+ * uvozi `lib/rate-limit.ts` (P0 zaštita od navale), koji uzima `ipZahteva` iz
+ * `lib/admin.ts`, a `lib/admin.ts` uvozi `notFound` — pravilo 13 iz CLAUDE.md
+ * traži da onaj ko nije admin dobije 404, ne 403. Statički ESM uvoz se izvršava
+ * i kad se funkcija nikad ne pozove, pa bez ovog stuba ceo `pnpm check:f4`
+ * pukne pri učitavanju rute, pre nego što ijedan test krene.
+ *
+ * Baca, kao i `redirect`: API ruta koja bi ovo pozvala treba da vrati 404 status
+ * kod, a ne da diže Next-ov izuzetak koji van Next runtime-a niko ne hvata.
+ */
+export function notFound(): never {
+  throw new Error("notFound() u API ruti — ruta bi trebalo da vrati 404 status kod.");
+}
+
 /** Zamena za `currentUser()` — testovi bez Clerk profila. */
 export async function currentUser(): Promise<null> {
   return null;

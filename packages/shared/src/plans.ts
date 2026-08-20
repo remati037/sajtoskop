@@ -1,47 +1,259 @@
 // packages/shared/src/plans.ts
-// Konfiguracija planova i globalnih kapova. Čist podatak, bez zavisnosti.
+// Konfiguracija planova, paketa kredita i globalnih kapova.
 //
-// Jedan plan sada je namerno (docs/00-kontekst.md, sekcija 2). Ostali planovi se
-// dodaju tek kad postoji naplata — do tada bi bili mrtav kod koji se raziđe sa stvarnošću.
+// Ovo je JEDAN IZVOR ISTINE za tri stvari koje se inače raziđu:
+//   1. šta koji plan daje (krediti, dnevni limiti)
+//   2. koji Paddle `pri_` ID je koji plan / koliko kredita
+//   3. koliko Places poziva sme da se potroši globalno
+//
+// Tabela planova je prepis docs/LANSIRANJE.md §1.3; paketi su §1.4. Kad se
+// ponuda menja, menja se OVDE, pa se ekran cena (`apps/web/src/lib/cenovnik.ts`)
+// prilagodi — ne obrnuto.
 
-export type PlanId = "beta";
+/** Kako se plaća pretplata. Isti ključ koristi i prekidač na ekranu cena. */
+export type Ciklus = "month" | "year";
+
+/**
+ * Pet stanja plana. Samo tri se KUPUJU — v. `PaidPlanId`.
+ *
+ * `beta`    — postavlja ISKLJUČIVO admin, kroz konzolu (LANSIRANJE §1.1).
+ *             Nikad iz registracije, nikad iz kupona, nikad iz webhooka. Rok
+ *             trajanja je `profiles.beta_expires_at`; `NULL` je neograničeno.
+ * `dopuna`  — nije plan koji se kupuje, nego stanje korisnika BEZ pretplate
+ *             koji ima kredite iz paketa (`credits_topup > 0`). Nikad ne dobija
+ *             mesečnu dodelu; dnevne limite deli sa Starterom.
+ */
+export type PlanId = "beta" | "dopuna" | "starter" | "pro" | "advanced";
+
+/** Planovi koji postoje kao proizvod u Paddle-u. */
+export type PaidPlanId = "starter" | "pro" | "advanced";
 
 export type Plan = {
-  /** Krediti koji se dodeljuju na registraciju i svakog meseca. Bez rollovera. */
+  /**
+   * Krediti koji se POSTAVLJAJU svakog meseca, bez rollovera. Pune
+   * `profiles.credits_balance` — kasu koja ističe. Krediti iz paketa žive u
+   * `profiles.credits_topup` i ovaj broj ih ne dodiruje (migracija 0022).
+   */
   monthlyCredits: number;
-  /** Koliko pretraga koje NISU u kešu korisnik sme dnevno. Keš je neograničen. */
+  /**
+   * Dnevni OSIGURAČ za skeniranja — zaštita od odbeglog skripta, ne cenovnik.
+   *
+   * Mesečnog capa na skeniranja nema i neće ga biti: od S17 je cena 1 kredit po
+   * stranici rezultata, dakle 1 kredit = 1 Places poziv, pa je novčanik sam po
+   * sebi ograničenje (LANSIRANJE §1.2). Drugi cap preko njega bi bio samo drugi
+   * broj koji može da se raziđe sa prvim.
+   *
+   * Ime je istorijsko (`cache_miss_day` / `cache_miss_count` u bazi): pretraga
+   * po kešu je besplatna i neograničena, pa se broje samo promašaji.
+   */
   cacheMissPerDay: number;
   /** Koliko redova dnevno sme da izveze u CSV. */
   exportPerDay: number;
+  /**
+   * Koliko „Napiši drugačije" varijanti poruke sme dnevno (LANSIRANJE §1.3).
+   *
+   * Ovo je Pro razlika umesto ranije obećanih „AI poruka po kanalu": kod daje
+   * sve kanale svima i nema razloga da ih uzima Starteru, a varijanta poruke je
+   * jedini AI poziv koji korisnik ponavlja iz radoznalosti — dakle jedini koji
+   * stvarno košta po kliku.
+   *
+   * Brojač je `profiles.ai_rewrite_day` / `ai_rewrite_count`, kapija je
+   * `claim_ai_rewrite` (migracija 0022).
+   */
+  aiRewritePerDay: number;
 };
 
 export const PLANS: Record<PlanId, Plan> = {
-  beta: { monthlyCredits: 30, cacheMissPerDay: 10, exportPerDay: 100 },
+  beta:     { monthlyCredits:  50, cacheMissPerDay:  15, exportPerDay:   500, aiRewritePerDay:  5 },
+  dopuna:   { monthlyCredits:   0, cacheMissPerDay:  30, exportPerDay:   500, aiRewritePerDay:  5 },
+  starter:  { monthlyCredits: 100, cacheMissPerDay:  30, exportPerDay:   500, aiRewritePerDay:  5 },
+  pro:      { monthlyCredits: 300, cacheMissPerDay:  60, exportPerDay:  2000, aiRewritePerDay: 20 },
+  advanced: { monthlyCredits: 800, cacheMissPerDay: 120, exportPerDay: 10000, aiRewritePerDay: 60 },
 };
 
+/**
+ * Podrazumevan plan. Poklapa se sa `profiles.plan default 'beta'` iz 0001 i
+ * ostaje `beta` dok kapija pristupa (S19) ne odluči šta dobija nov nalog.
+ */
 export const DEFAULT_PLAN: PlanId = "beta";
 
-/** Nepoznat plan iz baze ne sme da sruši rutu — padni na beta. */
+/** Nepoznat plan iz baze ne sme da sruši rutu — padni na podrazumevani. */
 export function planFor(id: string | null | undefined): Plan {
-  return PLANS[(id ?? DEFAULT_PLAN) as PlanId] ?? PLANS.beta;
+  return PLANS[(id ?? DEFAULT_PLAN) as PlanId] ?? PLANS[DEFAULT_PLAN];
 }
 
-// ── globalni kapovi, nezavisni od korisnika ────────────────
-// Ovo je tvrdi stop u kodu, ne preporuka. Places daje 1.000 poziva mesečno
-// besplatno; sve preko toga je stvaran novac (CLAUDE.md, sekcija Budžet).
+/**
+ * Koliko dana posle isteka korisnik i dalje SME DA ČITA svoje (LANSIRANJE §1.5).
+ *
+ * U `grace` stanju rade postojeći prospekti, pipeline i oba izvoza; pretraga,
+ * skeniranje i otključavanje ne rade. Trideset dana je namerno velikodušno:
+ * otključani prospekti su plaćeni, pipeline je korisnikov rad, a oduzeti mu ih
+ * istog dana je najbrži put do chargebacka.
+ *
+ * Kapija koja ovo koristi je S19; ovde stoji da broj ne bi bio upisan u tri
+ * komponente.
+ */
+export const GRACE_DAYS = 30;
 
-// Dnevni cap je MEKA granica — zaštita od odbeglog skripta, ne budžet. Googleu
-// je nebitna dnevna raspodela, bitan mu je zbir za mesec.
+// ═══════════════════════════════════════════════════════════
+// PADDLE KATALOG
+// ═══════════════════════════════════════════════════════════
+// ‼️ ID-jevi su iz SANDBOX naloga. Sandbox i produkcija su odvojeni katalozi —
+//    `pri_` iz jednog ne postoji u drugom i Paddle.js na njemu vrati „price not
+//    found". Pri prelasku na produkciju menjaju se ovaj spisak,
+//    NEXT_PUBLIC_PADDLE_CLIENT_TOKEN i NEXT_PUBLIC_PADDLE_ENV — sve troje zajedno.
 //
-// 75 nije proizvoljno: scan povlači do 3 stranice paginacije, dakle do 3 poziva,
-// pa 75 znači 25 scanova dnevno. Na 25 (koliko je stajalo do F3) jedan korisnik
-// sa beta limitom od 10 cache-miss pretraga dnevno pojede globalni cap pre svog
-// ličnog, i drugi korisnik istog dana dobija „limit dostignut".
-export const GLOBAL_DAILY_API_CAP = 75;
+// Zašto u `packages/shared`, a ne u `apps/web/src/lib/cenovnik.ts` gde su bili:
+// webhook (S18) mora da preslika `pri_` → plan, a webhook je serverski kod koji
+// ne sme da zavisi od fajla ekrana cena. Da su ID-jevi ostali na dva mesta,
+// razilaženje bi se videlo tek kad neko plati — i to kao „platio Pro, dobio
+// Starter". Ovako je ekran cena taj koji uvozi odavde, pa razilaženje ne može
+// ni da nastane: nema drugog spiska.
+//
+// Cene NAMERNO nisu ovde. Iznos ispisuje isključivo Paddle, kroz `PricePreview()`,
+// već formatiran i sa porezom po zemlji posetioca. Broj upisan u kod bio bi
+// četvrti izvor istine (Paddle, checkout, faktura, kod) i razišao bi se prvog
+// dana kad se cena promeni.
+//
+// Nema nijednog `unit_price_overrides` za `RS` (odluka P7): jedna EUR cena za
+// ceo svet. Paddle ne podržava RSD, pa je override bio sniženi evro za kupce iz
+// Srbije — ostatak napuštenog pokušaja da cena bude u dinarima. Vraća se, ako
+// ikad zatreba, JEDNIM poljem na ceni u Paddle panelu: bez migracije, bez
+// izmene koda, bez deploya.
 
-// TVRDA granica. Ispod Googleovog besplatnog praga od 1.000 poziva mesečno za
-// Enterprise SKU (Text Search sa kontakt poljima). Preko toga je stvaran novac.
-export const GLOBAL_MONTHLY_API_CAP = 900;
+export const PLAN_PRICE_IDS: Record<PaidPlanId, Record<Ciklus, string>> = {
+  starter: {
+    month: "pri_01m0d1ev6hhw8gkr8wep26ccwq",
+    year:  "pri_01m0d1evasz8q3cjr825r47875",
+  },
+  pro: {
+    month: "pri_01m0d1evmksy2njzrwh6hgcxf1",
+    year:  "pri_01m0d1evrkaph19esyfjkgvrq4",
+  },
+  advanced: {
+    month: "pri_01m0d1ew18pfyjwe4de9jc7tqw",
+    year:  "pri_01m0d1ew53ndkee89grn2dc1w3",
+  },
+};
+
+/**
+ * Paketi kredita (LANSIRANJE §1.4). Jednokratna kupovina, krediti NE ISTIČU.
+ *
+ * Cena po kreditu je namerno viša nego u pretplati (+31% i +13% naspram
+ * Startera): paket je dopuna, ne jeftinija zamena za plan. Trećeg, većeg paketa
+ * nema — da bi ostao iznad Startera morao bi da košta više od Advanced plana za
+ * manje kredita.
+ */
+export type PaketId = "dopuna-50" | "dopuna-150";
+
+export const CREDIT_PACKS: Record<PaketId, { credits: number; priceId: string }> = {
+  "dopuna-50":  { credits:  50, priceId: "pri_01m0ffx0j4pyxenvfxrjwz55pf" },
+  "dopuna-150": { credits: 150, priceId: "pri_01m0ffx0q683zv2z0d7dh0qm3v" },
+};
+
+/**
+ * `pri_` → plan. Gradi se IZ `PLAN_PRICE_IDS`, ne piše se ručno: ručno pisana
+ * obrnuta mapa je drugi spisak istih ID-jeva, dakle tačno ono što ovaj fajl
+ * postoji da spreči.
+ */
+const PLAN_BY_PRICE_ID: Readonly<Record<string, PaidPlanId>> = Object.fromEntries(
+  (Object.entries(PLAN_PRICE_IDS) as [PaidPlanId, Record<Ciklus, string>][]).flatMap(
+    ([plan, ids]) => [
+      [ids.month, plan],
+      [ids.year, plan],
+    ],
+  ),
+);
+
+const CREDITS_BY_PRICE_ID: Readonly<Record<string, number>> = Object.fromEntries(
+  Object.values(CREDIT_PACKS).map((p) => [p.priceId, p.credits]),
+);
+
+/** Koji plan je kupljen. `null` = `pri_` koji nije naš plan (paket ili tuđ katalog). */
+export function planForPriceId(priceId: string | null | undefined): PaidPlanId | null {
+  return priceId ? PLAN_BY_PRICE_ID[priceId] ?? null : null;
+}
+
+/** Koliko kredita nosi kupljen paket. `null` = `pri_` koji nije naš paket. */
+export function creditsForPriceId(priceId: string | null | undefined): number | null {
+  return priceId ? CREDITS_BY_PRICE_ID[priceId] ?? null : null;
+}
+
+/** Svi `pri_` iz kataloga — za jedan `PricePreview()` poziv umesto osam. */
+export const ALL_PRICE_IDS: readonly string[] = [
+  ...Object.values(PLAN_PRICE_IDS).flatMap((ids) => [ids.month, ids.year]),
+  ...Object.values(CREDIT_PACKS).map((p) => p.priceId),
+];
+
+// ═══════════════════════════════════════════════════════════
+// GLOBALNI KAPOVI — BUDŽET, NE PROIZVOLJAN BROJ
+// ═══════════════════════════════════════════════════════════
+// Ovo je tvrdi stop u kodu, ne preporuka (CLAUDE.md, sekcija Budžet).
+
+/**
+ * Cena jednog Places Text Search poziva, u evrima.
+ *
+ * ‼️ SKU je **Text Search ENTERPRISE** (`E967-44BC-B44D`), $35 na 1.000 poziva.
+ *    Ne Essentials. Razlog je `FIELD_MASK` u `apps/worker/src/lib/places.ts`:
+ *    traži `nationalPhoneNumber` i `websiteUri`, a kontakt polja podižu poziv u
+ *    Enterprise razred.
+ *
+ * ‼️ ZAMKA U GOOGLEOVOJ TABELI, i jedini razlog zbog kog ovaj komentar postoji:
+ *    Essentials SKU-ovi imaju **10.000** besplatnih poziva mesečno, Enterprise
+ *    ima **1.000**. Pogrešan red daje budžet deset puta veći nego što jeste, a
+ *    greška se ne vidi dok ne stigne račun.
+ */
+export const PLACES_EUR_PER_CALL = 0.032;
+
+/** Googleov besplatan prag za BAŠ TAJ SKU. Ne 10.000 — v. zamku iznad. */
+export const PLACES_FREE_CALLS_MONTH = 1000;
+
+/**
+ * Koliko sam mesečno spreman da platim preko besplatnog praga (odluka P2).
+ *
+ * ‼️ OVO JE SVESNO POVEĆANJE BROJA PLACES POZIVA, prijavljeno po pravilu iz
+ *    CLAUDE.md. Stari kapovi (75 dnevno / 900 mesečno) držali su potrošnju na
+ *    nuli po cenu toga da se skeniranje odbija plaćenom korisniku. Očekivan
+ *    račun na prvih 20 korisnika je **€5–15 mesečno**; tvrda granica je €60,
+ *    preko koje se skeniranje zaustavlja i vraća `partial: true`, kao i danas.
+ *
+ * ‼️ BUDŽET MORA DA RASTE SA BROJEM PRETPLATNIKA. Jedan Advanced korisnik ima
+ *    800 kredita mesečno, dakle u najgorem režimu sam troši skoro trećinu celog
+ *    kapa. Ovo ulazi u nedeljnu rutinu: uporedi tempo u `api_budget` sa brojem
+ *    aktivnih pretplata i podigni `PLACES_MONTHLY_BUDGET_EUR` PRE nego što cap
+ *    počne da odbija skeniranje plaćenom korisniku. Odbijeno skeniranje je
+ *    povraćaj i loša reč — skuplje od svakog Places računa.
+ *
+ * Čita se iz env-a jer se menja bez deploya. Ovo je jedino mesto u
+ * `packages/shared` koje dodiruje `process.env`, i čita se odbranjeno: paket
+ * ulazi i u klijentski bundle, gde `process` ume da ne postoji.
+ */
+export const PLACES_MONTHLY_BUDGET_EUR = ((): number => {
+  const sirovo =
+    typeof process !== "undefined" ? process.env?.PLACES_MONTHLY_BUDGET_EUR : undefined;
+  const n = Number(sirovo);
+  return sirovo !== undefined && sirovo !== "" && Number.isFinite(n) && n >= 0 ? n : 60;
+})();
+
+/**
+ * TVRDA mesečna granica: besplatan prag plus ono što je budžet kupio.
+ * Sa podrazumevanih €60 to je 1.000 + 1.875 = 2.875 poziva.
+ *
+ * Pošto je od S17 **1 kredit = 1 Places poziv**, ovo je ujedno i gornja granica
+ * kredita koji smeju otići na skeniranje — oko 28 Starter korisnika koji SVE
+ * kredite bace na skeniranje, ili realno 60–100 korisnika u normalnom režimu.
+ */
+export const GLOBAL_MONTHLY_API_CAP =
+  PLACES_FREE_CALLS_MONTH + Math.floor(PLACES_MONTHLY_BUDGET_EUR / PLACES_EUR_PER_CALL);
+
+/**
+ * Dnevni cap je MEKA granica — zaštita od odbeglog skripta, ne budžet. Googleu
+ * je nebitna dnevna raspodela, bitan mu je zbir za mesec.
+ *
+ * Deli se sa 20, ne sa 30: dozvoljava neravnomeran mesec (nedelja kad se javi
+ * pet korisnika odjednom) bez toga da jedan dan pojede sve.
+ */
+export const GLOBAL_DAILY_API_CAP = Math.floor(GLOBAL_MONTHLY_API_CAP / 20);
 
 // ── kapovi za ne-Google pozive (F6) ───────────────────────
 // Ovi brojači stoje u `api_budget.by_kind` i NE diraju `calls` — v. migraciju
@@ -68,7 +280,7 @@ export const PSI_DAILY_CAP = 120;
 export const AI_DAILY_CAP = 60;
 
 /**
- * „Napiši drugačije" — AI varijanta outreach poruke (F7 §2), dnevno.
+ * „Napiši drugačije" — AI varijanta outreach poruke (F7 §2), dnevno, GLOBALNO.
  *
  * Zaseban cap od `AI_DAILY_CAP`, i to je cela poenta: analiza otključanog leada
  * je jednokratna i korisnik je platio kreditom, a dugme „Napiši drugačije" se
@@ -76,8 +288,9 @@ export const AI_DAILY_CAP = 60;
  * Sa zajedničkim capom bi to pojelo budžet za analizu — a analiza je proizvod,
  * varijanta poruke je začin.
  *
- * 40 je red veličine desetak korisnika koji svaki dan probaju po nekoliko puta.
- * Poziv je tekstualan i bez slika, pa je i višestruko jeftiniji od `ai:audit`.
+ * Ovo je granica nad MOJIM računom kod Anthropica. Granica po korisniku je
+ * `Plan.aiRewritePerDay` i to su dva različita pitanja: ovaj cap štiti mene i
+ * kad se svi jave istog dana, onaj štiti ponudu (Starter nije Pro).
  */
 export const AI_OUTREACH_DAILY_CAP = 40;
 
@@ -87,9 +300,9 @@ export const BUDGET_TIMEZONE = "America/Los_Angeles";
 /**
  * Krediti se resetuju po domaćem kalendaru, ne po Googleovom.
  *
- * Dnevni brojači (`cache_miss_day`, `export_day`) namerno idu po LA danu — oni
- * štite moju kvotu. Mesečna dodela nema veze sa kvotom: korisniku u Šapcu
- * „prvog u mesecu" znači prvog po njegovom kalendaru.
+ * Dnevni brojači (`cache_miss_day`, `export_day`, `ai_rewrite_day`) namerno idu
+ * po LA danu — oni štite moju kvotu. Mesečna dodela nema veze sa kvotom:
+ * korisniku u Šapcu „prvog u mesecu" znači prvog po njegovom kalendaru.
  */
 export const CREDITS_TIMEZONE = "Europe/Belgrade";
 
@@ -114,12 +327,16 @@ export const GOOGLE_TTL_DAYS = 30;
 /**
  * Cena jednog skeniranja u kreditima (F9).
  *
- * Isti novčanik kao otključavanje — 1 kredit je 1 skeniranje ILI 1 prospekt.
- * Konstanta, a ne broj u kodu, jer ista cifra stoji na četiri mesta: u modalu
- * potvrde, u traci ispod forme, u poruci o nedostatku kredita i u proveri
- * balansa pre poziva. Da se raziđu, korisnik bi platio jedno a video drugo.
+ * ‼️ NE DIRAJ OVDE. Odluka iz LANSIRANJE §1.2 je da cena postane **1 kredit po
+ *    stranici rezultata** (1 / 2 / 3 za Brzo / Standardno / Duboko), ali se to
+ *    menja u S17 — i to zajedno sa svim UI stringovima.
  *
- * Cena je ista za Beograd i za Šabac, iako Beograd troši više Places poziva
- * (F9 §8) — cena po veličini grada je posao za fazu u kojoj postoji naplata.
+ *    Razlog: `components/pretraga-ekran.tsx` na desetak mesta tvrdo piše
+ *    „1 kredit" („Skeniraj za 1 kredit", „Osveži za 1 kredit", poruka posle
+ *    naplate…). Podizanje ove konstante bez izmene tih stringova pravi prozor u
+ *    kome se naplaćuje jedno a piše drugo — nad novcem.
+ *
+ * Cena je i dalje ista za Beograd i za Šabac, iako Beograd troši više Places
+ * poziva; upravo to rešava prelazak na cenu po stranici u S17.
  */
 export const SCAN_CREDIT_COST = 1;

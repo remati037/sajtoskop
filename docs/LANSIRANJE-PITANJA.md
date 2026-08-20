@@ -6,9 +6,17 @@ ako se ne donese svesno, donese sama od sebe i to obično loše.
 
 **Kako se čita:** svaka stavka ima oznaku trenutka do kog odgovor mora da postoji:
 
-- **[BETA]** — pre otvaranja besplatne bete (Faza B). Bez odgovora se ne otvara.
-- **[NAPLATA]** — pre prve naplaćene pretplate (Faza C). Beta može bez ovoga.
+- **[BETA]** — pre otvaranja bete.
+- **[NAPLATA]** — pre prve naplaćene pretplate.
 - **[POSLE]** — sme da sačeka prve korisnike, ali pitanje mora da postoji da se ne zaboravi.
+
+> ‼️ **Od 20. avgusta 2026. [BETA] i [NAPLATA] više nisu dva odvojena trenutka.** Odluka D1
+> je da naplata ide od prvog dana, a beta nalozi su ručni izuzetak koji ja otvaram iz admin
+> konzole. Oznake su ostavljene jer i dalje govore *zašto* je pitanje važno, ali rok je za
+> sve isti: dan lansiranja.
+>
+> **Plan rada i redosled su u `docs/LANSIRANJE.md`** — tamo su sesije S16–S25, ručni koraci
+> R1–R31 i go/no-go lista. Ovaj fajl je lista odluka, ne plan.
 
 Stavke označene ✅ su **već odlučene** u postojećim dokumentima — navedene su da se vidi
 cela slika i da se odluka potvrdi, ne da se ponovo otvara.
@@ -52,98 +60,132 @@ cela slika i da se odluka potvrdi, ne da se ponovo otvara.
 
 ---
 
-## 2. Cene, planovi i krediti
+## 2. Cene, planovi i krediti ✅ ZATVORENO 2026-08-20
 
-8. ✅ **[NAPLATA] Cena Starter plana.** Odlučeno: **3.400 RSD mesečno, 150 kredita, bez
-   rollovera** (`naplata-polar.md` §13). Potvrditi tek naspram medijane iz beta pitanja o
-   ceni — ako medijana ispadne 1.500 RSD, ovo se vraća na sto.
+> **Cela ova sekcija je zatvorena odlukama D1–D6.** Izvor istine je sada
+> **`docs/LANSIRANJE.md` §1** — tamo su brojevi, obrazloženja i računica troška.
+> Ovde ostaje samo sažetak i ono što je i dalje otvoreno.
+>
+> ‼️ Raniji sadržaj ove sekcije (3.400 RSD, 150 kredita, „samo Starter") **više ne važi** i
+> nikad nije bio usklađen sa Paddle katalogom. Paddle ne podržava RSD, pa su cene u EUR sa
+> `RS` override-om.
 
-9. ✅ **[NAPLATA] Cena akcija u kreditima.** Odlučeno: skeniranje 2, otključavanje 1, prva
-   poruka 0, „napiši drugačije" 0 uz max 3 varijante po leadu (`naplata-polar.md` §13).
+### Zatvoreno
 
-10. **[NAPLATA] Da li postoji više od jednog plaćenog plana na dan uvođenja naplate?**
-    `plans.ts` predviđa `starter | pro | agencija`. Predlog: lansirati **samo Starter**.
-    Jedan plan = jedna odluka za kupca i nula analize „koji mi treba". Pro/Agencija se
-    dodaju kad prvi korisnik udari u plafon od 150 kredita — to je signal, ne pretpostavka.
-    Ali odluka mora da padne, jer određuje ekran cena.
+8. ✅ **Cene i planovi.** Tri plana, mesečno i godišnje (10 mesečnih = 2 meseca gratis).
+   **Jedna cena za ceo svet — `RS` override je uklonjen** (v. #8a).
 
-11. **[NAPLATA] Godišnja pretplata od prvog dana ili kasnije?** Računica iz
-    `naplata-polar.md` §3.3 kaže da je godišnja jeftinija i za tebe (fiksnih 50¢ jednom
-    umesto 12×). Pitanja: koliki popust (standard je ~2 meseca gratis; 29.900 RSD je već
-    u tabeli kao ilustracija), i da li je smisleno nuditi godišnju obavezu proizvodu koji
-    kupac još nije koristio mesec dana.
+   | | Starter | Pro | Advanced |
+   |---|---|---|---|
+   | Mesečno | €29 | €59 | €119 |
+   | Godišnje | €290 | €590 | €1.190 |
+   | Krediti mesečno | 100 | 300 | 800 |
+   | Skeniranja dnevno *(osigurač)* | 30 | 60 | 120 |
+   | CSV redova dnevno | 500 | 2.000 | 10.000 |
+   | „Napiši drugačije" dnevno | 5 | 20 | 60 |
 
-12. **[NAPLATA] Paketi kredita (top-up) — postoje li i po kojoj ceni?** Tabela pominje
-    2.900 RSD paket. Odluke: koliko kredita u paketu, da li krediti iz paketa ističu
-    (predlog: ne ističu — plaćeni su jednokratno), i da li je cena po kreditu u paketu
-    **viša** nego u pretplati (treba da bude — inače paket kanibalizuje pretplatu).
+   Cena po kreditu: €0,290 / €0,197 / €0,149. Najgori slučaj troška: 11% / 16% / 22%.
 
-13. **[NAPLATA] Postoji li besplatan plan posle bete, ili samo probni period?** Tri opcije:
-    (a) trajni free tier sa malo kredita — stalna akvizicija, ali stalan trošak i magnet za
-    zloupotrebu multi-nalozima; (b) probni period 7–14 dana; (c) ništa besplatno, samo
-    demo/screenshotovi na landingu. Za proizvod gde svaka akcija ima realan trošak (Places,
-    Claude), (a) je najskuplja opcija — odluka mora da bude svesna, sa kapom troška po
-    besplatnom nalogu.
+8a. ✅ **`RS` override uklonjen.** Nikad nije bio dinarska cena — Paddle podržava 33 valute i
+   RSD nije među njima. Bio je **sniženi EUR iznos za kupce iz Srbije** (€14 umesto €29),
+   ostatak napuštenog pokušaja da cena bude u dinarima. Uklonjen jer je bio **jeftiniji od
+   ove sopstvene odluke #8** (3.400 RSD ≈ €29), jer prepolovljava maržu i jer udvostručuje
+   posao pri prelasku na produkciju. **Reverzibilno** — vraća se jednim poljem u Paddle
+   panelu, bez migracije i bez koda, ako beta pokaže da €29 ne prolazi u Srbiji.
 
-14. **[NAPLATA] Šta dobijaju beta korisnici kad počne naplata?** Oni su prvi evangelisti i
-    izvor svih podataka za odluku o ceni. Opcije: trajan popust („founding member" cena),
-    X meseci gratis, samo raniji pristup. Obećanje iz bete je „besplatno do kraja bete" —
-    šta tačno znači kraj bete za njih mora da se saopšti **pre** nego što počne naplata,
-    ne tim danom.
+9. ✅ **Cena akcija — po dubini skeniranja, ne fiksno.**
 
-15. **[NAPLATA] Šta se dešava sa nalogom koji prestane da plaća?** Krediti nestaju odmah ili
-    na kraju perioda (✅ odlučeno u `naplata-polar.md` §5.3: pristup do kraja plaćenog
-    perioda)? Ali dalje: da li zadržava **pristup već otključanim leadovima** i kanbanu?
-    Predlog: da, zauvek — otključano je kupljeno, pipeline je njegov rad; oduzimanje toga
-    je najbrži put do chargebacka. Pretraga i novi unlockovi se gase.
+   | Dubina | Prospekata | Stranica | Places poziva | Kredita |
+   |---|---|---|---|---|
+   | Brzo | do 20 | 1 | 1 | **1** |
+   | Standardno | do 40 | 2 | 2 | **2** |
+   | Duboko | do 60 | 3 | 3 | **3** |
 
-16. **[NAPLATA] Da li je 25 skeniranja + 50 otključavanja mesečno (150 kredita) stvarno
-    dovoljno za jednog aktivnog frilensera?** Proveriti na beta podacima: kolika je stvarna
-    mesečna potrošnja najaktivnijih? Plan mora da pokrije „ozbiljan korisnik radi ceo mesec",
-    inače churn zbog frustracije, a ne zbog cene.
+   Otključavanje **1 kredit**, prva poruka 0, „Napiši drugačije" 0 uz dnevni cap po planu.
+   Pretraga po kešu besplatna i neograničena. **1 kredit = 1 Places poziv**, pa se cena
+   poklapa sa troškom i novčanik sam ograničava izloženost. Radi se pre lansiranja
+   (sesija S17 u `docs/LANSIRANJE.md`). *Kod je imao `SCAN_CREDIT_COST = 1`; ranija odluka
+   „2 kredita" ostaje kao podrazumevana dubina.*
 
-17. **[POSLE] Politika popusta.** Studenti? Neprofitne? „Javi se za popust"? Predlog: nema
-    popusta osim founding-member — solo osnivač nema vreme za pregovaranje o 3.400 RSD.
+10. ✅ **Tri plana na dan lansiranja**, ne jedan. Raniji predlog „samo Starter" je pregažen.
+
+11. ✅ **Godišnja pretplata od prvog dana**, popust = 2 meseca gratis.
+
+12. ✅ **Dva paketa kredita.** „Dopuna 50" — €19. „Dopuna 150" — €49. Bez override-a.
+    Krediti iz paketa **ne ističu** i žive u odvojenoj kasi (`profiles.credits_topup`);
+    krediti iz pretplate se resetuju mesečno. Cena po kreditu je namerno **viša** nego u
+    pretplati (+31% i +13% naspram Startera). Trećeg, većeg paketa nema — bio bi skuplji
+    od Advanced plana za manje kredita.
+
+13. ✅ **Nema javnog besplatnog plana.** Naplata ide od prvog dana. Plan `beta` postoji, ali
+    ga dodeljujem **isključivo ja iz admin konzole** — 50 kredita i rok (30 dana
+    podrazumevano, ili neograničeno). Nijedan drugi put ne sme da ga dodeli: ni
+    registracija, ni kupon, ni webhook.
+
+14. ✅ **Beta korisnici dobijaju kupon:** jedan kod `BETA2026`, **33%**, **jednokratan**
+    (`recur: false`), ograničen na proizvode pretplata — ne na pakete, usage limit 50,
+    ističe **31.12.2026**. Daje Starter €19,43 i Pro €39,53. Jedan procenat umesto tri koda,
+    jer Paddle popust je jedan procenat na sve proizvode na koje je ograničen. Na godišnjem
+    planu pokriva **celu prvu godinu**, što gura beta korisnika ka godišnjoj pretplati.
+
+15. ✅ **Prestanak plaćanja.** Pristup do kraja plaćenog perioda, pa **30 dana samo za
+    čitanje** — postojeći prospekti, pipeline i izvoz oba rade; pretraga, skeniranje i
+    otključavanje ne. Posle toga ulaz vodi na cenovnik. Otključani prospekti i pipeline se
+    **nikad ne brišu**. Šest stanja pristupa je u `LANSIRANJE.md` §1.5.
+
+16. ✅ **Da li je plan dovoljan za aktivnog frilensera?** Starter = do 100 prospekata
+    mesečno, ili 50 prospekata uz 25 standardnih skeniranja, ili 100 brzih skeniranja —
+    korisnik bira, a svaka kombinacija košta približno isto. Provera na beta podacima ostaje.
+
+17. ✅ **Nema popusta** osim kupona za beta korisnike.
+
+### Otvoreno
+
+Nema. P1–P9 su zatvorena; puna obrazloženja su u `docs/LANSIRANJE.md` §1 i §4.
 
 ---
 
 ## 3. Naplata — tehnika i provajder
 
-18. ✅ **[NAPLATA] Provajder: Polar kao glavni tok, domaći račun ručno za manjinu.**
-    Odlučeno u `naplata-polar.md` §11, ali **uslovno** — čeka tri odgovora: fiskalizacija
-    (pitanja 17–18 za knjigovođu), srpski PDV (pitanje 22), pisana potvrda RSD isplate.
-    **Da li su §8 i §9 poslati knjigovođi? Da li je §10 (9–11) poslato Polaru?** To je
-    akcija broj jedan sa ove cele liste — nula koda, a sve blokira.
+18. ✅ **[NAPLATA] Provajder: Paddle**, domaći račun ručno za manjinu (firme sa PIB-om,
+    DinaCard-only kupci). **Polar je napušten** — katalog, checkout i ekran cena su
+    napravljeni na Paddle-u. Model je isti (merchant of record), pa cela analiza iz
+    `naplata-paddle.md` važi; razlika je što **Paddle ne podržava RSD**, pa su cene za
+    Srbiju EUR override na zemlju `RS`, ne dinari.
+    **I dalje uslovno:** čeka pisani odgovor knjigovođe o fiskalizaciji (korak R18 u
+    `docs/LANSIRANJE.md`). To je i dalje akcija broj jedan — nula koda, a sve blokira.
 
 19. **[NAPLATA] Ko je knjigovođa i da li razume digitalne usluge?** Pitanja iz
-    `naplata-polar.md` §9 nisu za prosečnog paušalskog knjigovođu. Ako sadašnji ne ume da
+    `naplata-paddle.md` §9 nisu za prosečnog paušalskog knjigovođu. Ako sadašnji ne ume da
     odgovori pisano na pitanja 17, 18 i 26 (fiskalizacija + test samostalnosti), treba
     poreski savetnik za jednokratnu konsultaciju — to košta manje od jedne pogrešne godine.
 
 20. **[NAPLATA] Fallback za DinaCard-only kupce.** Deo ciljne grupe (mladi frilenseri) ima
-    samo DinaCard, koja preko Polara ne prolazi. Odlučeno je „IPS QR na zahtev, ručno" —
+    samo DinaCard, koja preko Paddle-a ne prolazi. Odlučeno je „IPS QR na zahtev, ručno" —
     ali kako taj put izgleda u UI-u? Dugme „Plati uplatnicom — javi se" na ekranu cena,
     ili se ne pominje dok neko ne pita? Nevidljiva opcija = izgubljen kupac koji ne pita.
 
 21. **[NAPLATA] Politika povraćaja — napisana pre prve prodaje.** Nepregovarljivo po
-    `naplata-polar.md` §6: Polar sme sam da odobri povraćaj u 60 dana, mimo tvoje politike.
+    `naplata-paddle.md` §6: Paddle sme sam da odobri povraćaj u 60 dana, mimo tvoje politike.
     Odluke: rok (14 dana? 30?), da li se vraća srazmerno potrošenim kreditima, šta sa već
     otključanim kontaktima (vrednost je isporučena i ne može da se „vrati"). Predlog:
     povraćaj u punom iznosu ako je potrošeno < X kredita, inače srazmerno; napisati na
     srpskom i engleskom.
 
-22. **[NAPLATA] Da li `admin_adjust_credits` i UI podnose negativan balans?** Refund posle
-    potrošenih kredita vodi balans ispod nule (`naplata-polar.md` §6). Proveriti da RPC to
+22. ⚠️ **[NAPLATA] `admin_adjust_credits` NE podnosi negativan balans — provereno.**
+    Vraća `'balans bi bio negativan'` i odbija. Povraćaj paketa čiji su krediti potrošeni
+    danas pada. Ispravlja se u S16 (`docs/LANSIRANJE.md`). Ostaje pitanje: Refund posle
+    potrošenih kredita vodi balans ispod nule (`naplata-paddle.md` §6). Proveriti da RPC to
     dozvoljava i da UI prikaže negativan broj razumno, a ne NaN ili sakriveno.
 
-23. **[NAPLATA] KYC na Polaru — pokrenut na vreme?** Do 14 dana. Pokreće se **paralelno**
+23. **[NAPLATA] KYC na Paddle-u — pokrenut na vreme?** Do 14 dana. Pokreće se **paralelno**
     sa razvojem naplate, ne posle. Uz to: reverse-invoice podešavanja (naziv, PIB,
     numeracija) se zaključavaju **pre prve isplate** i posle se ne menjaju — numeraciju
     uskladiti sa knjigovođom unapred.
 
 24. **[NAPLATA] Test kupovina sopstvenom karticom pre lansiranja.** Uključuje proveru da li
     tvoja banka lepi naknadu za „plaćanje u inostranstvu" iako je iznos u RSD
-    (`naplata-polar.md` §4.2) — ako lepi, kupci će to videti i pitati.
+    (`naplata-paddle.md` §4.2) — ako lepi, kupci će to videti i pitati.
 
 ---
 
@@ -227,7 +269,10 @@ cela slika i da se odluka potvrdi, ne da se ponovo otvara.
     domen). Izračunati JEDAN broj i odlučiti: da li je prihvatljiv kao trošak učenja?
     Ako nije — kapovi se stežu sada, ne kad stigne račun.
 
-39. **[NAPLATA] Kolika je bruto margina po Starter korisniku?** 3.400 RSD − Polar (~8,4%)
+39. ✅ **[NAPLATA] Bruto margina — izračunata** u `docs/LANSIRANJE.md` §1.3. Najgori slučaj
+    (svi krediti na duboka skeniranja koja promašuju keš): **11% Starter, 16% Pro, 22%
+    Advanced**. Uz Paddle naknadu (~8%) bruto margina je **70–80% na sva tri plana**.
+    Raniji tekst je računao sa 3.400 RSD i Polarom i više ne stoji: 3.400 RSD − Paddle (~8,4%)
     − najgori slučaj potrošnje kredita (150 kredita = do 225 Places poziva ako je sve
     skeniranje? proveriti realan miks) − Claude − srazmerni deo infrastrukture. Ako je
     margina ispod ~70% kod prosečne potrošnje, cena ili krediti se koriguju pre lansiranja.
@@ -370,7 +415,7 @@ cela slika i da se odluka potvrdi, ne da se ponovo otvara.
     korisnicima. Piše se sada dok je mirno, čita se kad gori.
 
 65. **[NAPLATA] Šta korisnik vidi kad plaćanje padne (dunning)?** Kartica istekla, banka
-    odbila. Polar ima retry logiku — proveriti šta tačno radi, i šta aplikacija pokazuje u
+    odbila. Paddle ima retry logiku (sandbox 3× za 15 min, produkcija 60× za 3 dana) — proveriti šta aplikacija radi, i šta aplikacija pokazuje u
     međuvremenu (grace period pre pada na besplatno?).
 
 66. **[POSLE] Status stranica / obaveštenja o radovima.** Za 20 beta korisnika: poruka u
@@ -413,8 +458,10 @@ cela slika i da se odluka potvrdi, ne da se ponovo otvara.
     proveren; `ADMIN_BOOTSTRAP_IDS` postavljen; Clerk webhook događaji štiklirani
     (ručni koraci iz SESIJE.md!); budžet kapovi provereni.
 
-74. **[NAPLATA] Go/no-go lista za dan naplate.** Pisani odgovor knjigovođe (fiskalizacija +
-    test samostalnosti); Polar KYC prošao; reverse-invoice podešen; politika povraćaja
+74. ✅ **[NAPLATA] Go/no-go lista je spojena sa danom lansiranja** — naplata ide od prvog
+    dana (odluka D1), pa nema dva odvojena datuma. Lista je u `docs/LANSIRANJE.md` §8.
+    Raniji tekst, i dalje tačan po sadržaju: Pisani odgovor knjigovođe (fiskalizacija +
+    test samostalnosti); Paddle nalog odobren za produkciju; reverse-invoice podešen; politika povraćaja
     objavljena; sandbox prošao sve događaje uključujući refund; test kupovina pravom
     karticom; founding-mejl spreman; cena potvrđena naspram beta medijane.
 
@@ -426,10 +473,11 @@ Sve ostalo iznad je izvedivo ili proverivo; ovih deset su čiste odluke:
 
 1. Ko je primarna publika za prvih 20 korisnika — frilenseri ili agencije? (pitanje 2)
 2. Otvorena beta ili invite-only? (51)
-3. Datum/uslov kraja bete i šta founding korisnici dobijaju? (14, 25)
-4. Jedan plan ili više na dan naplate? (10)
-5. Besplatan plan posle bete: da, trial, ili ništa? (13)
-6. Da li su pitanja već poslata knjigovođi i Polaru? Ako ne — to je prvi sledeći potez. (18)
+3. ✅ Beta je ručna, sa rokom po nalogu; founding korisnici dobijaju kupon. (D1, D5)
+4. ✅ Tri plana: Starter, Pro, Advanced. (D3)
+5. ✅ Nema javnog besplatnog plana; `beta` postoji samo kao ručni izuzetak. (D1, D5)
+6. ⏳ Da li su pitanja poslata knjigovođi? Ako ne — to je i dalje prvi sledeći potez.
+   (pitanje 18; korak R18 u `docs/LANSIRANJE.md`)
 7. Ko piše/pregleda pravne tekstove i do kada? (43)
 8. Koliki je prihvatljiv mesečni trošak bete u evrima? (38)
 9. Koja je North Star metrika? (58)

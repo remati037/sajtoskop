@@ -32,11 +32,11 @@ Ovo je greška koju prave svi vodiči. Ne pitaš "prihvata li me platforma", pit
 | Platforma | Mehanizam isplate | Srbija? |
 |---|---|---|
 | **Lemon Squeezy** | Bankovna isplata za ograničenu listu zemalja, PayPal za 200+ | ✅ preko PayPala |
-| **Paddle** | Bankovni transfer u većinu zemalja sa podržanim rails-ovima | ⚠️ verovatno da, ali stroža provera + traže registrovan biznis |
+| **Paddle** ✅ **IZABRANO** | Bankovni transfer; nalog otvoren i sandbox katalog radi | ✅ **potvrđeno u praksi** — v. `naplata-paddle.md` |
 | **Dodo Payments** | Sopstvena mreža, 220+ zemalja, eksplicitno cilja non-Stripe zemlje | ✅ najverovatnije |
 | **Creem** | 130+ zemalja, objavljuju listu podržanih i nepodržanih | ⚠️ proveri listu, imali su i waitlist periode |
 | **Gumroad** | Stripe Connect | ❌ Srbija nije na Stripe Connect listi |
-| **Polar** | Stripe-backed | ❌ isto |
+| ~~**Polar**~~ | Stripe Connect **Express**, ne obični Stripe Payments — Srbija JESTE na njihovoj listi, pa je raniji „❌ isto” u ovom redu bio netačan | ⊘ **napušteno**, ali zbog odluke za Paddle, a ne zbog Srbije |
 | **Domaći virman / IPS QR** | Direktno na tvoj poslovni račun | ✅ nula posrednika |
 
 Koristiti tuđi račun u podržanoj zemlji je kršenje uslova i platforme i Stripe-a, i vodi u zamrznuta sredstva. Ne razmatramo.

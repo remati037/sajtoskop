@@ -18,6 +18,13 @@ import { fileURLToPath } from "node:url";
 // Prava implementacija, ne kopija: cela poenta provere je da se TS i SQL slažu
 // oko LA dana. Uvoz ne dodiruje bazu — `supabaseAdmin()` je lenj.
 import { budgetDay, nextDayReset, nextMonthReset } from "../apps/worker/src/lib/api-budget";
+// Katalog cena je od S16 u `packages/shared`. Test namerno koristi PRAVI `pri_`
+// ID, ne izmišljen string: `apply_subscription` ga upisuje u `subscriptions`, pa
+// bi izmišljen ID značio da provera prolazi nad podatkom kakav u produkciji ne
+// postoji.
+import { PLAN_PRICE_IDS } from "../packages/shared/src/plans";
+
+const PRO_MESECNO = PLAN_PRICE_IDS.pro.month;
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(root, "supabase", "migrations");
@@ -82,6 +89,7 @@ async function main(): Promise<void> {
                    "job_subscribers", "search_cache", "feedback",
                    "feedback_prompts", "changelog", "admin_audit",
                    "request_limits", "webhook_events",
+                   "billing_events", "subscriptions",
                    "lead_status", "outreach_messages", "signed_events"]) {
     const r = await one<{ relrowsecurity: boolean }>(
       `select relrowsecurity from pg_class where relname = $1`, [t]);
@@ -90,7 +98,14 @@ async function main(): Promise<void> {
 
   console.log("\nOgraničenja");
   await db.exec(`insert into profiles (id, email, credits_balance) values ('u1','a@b.rs',5)`);
-  await mustFail(`update profiles set credits_balance = -1 where id='u1'`, "negativan balans odbijen");
+
+  // [IZMENA u 0022] Prag balansa je pomeren sa 0 na -1000 da bi povraćaj paketa
+  // čiji su krediti potrošeni uopšte mogao da prođe (LANSIRANJE §2, red Z3).
+  // `check` i dalje postoji i dalje hvata odbegli skript — samo dublje.
+  // Test ide nad zasebnim profilom da minus ne bi iscurio u fiksture ispod.
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('prag','p@b.rs',0)`);
+  await mustFail(`update profiles set credits_balance = -2000 where id='prag'`, "balans ispod praga -1000 odbijen");
+  await mustFail(`update profiles set credits_topup = -1 where id='prag'`, "negativan credits_topup odbijen");
   await mustFail(`insert into businesses (place_id, city_slug, name, phone_type) values ('x','nis','X','sms')`, "nepoznat phone_type odbijen");
   await mustFail(`insert into businesses (place_id, city_slug, name, country_code) values ('x','nis','X','srb')`, "neispravan country_code odbijen");
 
@@ -1304,6 +1319,215 @@ async function main(): Promise<void> {
     "admin_adjust_credits: isti ref_id jednom u knjizi",
   );
 
+  // ── S16: novčanik i naplata (migracija 0022) ─────────────
+  // Ovo je novčana putanja. Svaka provera ispod odgovara jednoj odluci iz
+  // docs/LANSIRANJE.md §1.3–§1.5; ako se ijedna promeni „usput", pada ovde a ne
+  // na računu korisnika.
+  //
+  // Prave trke (20 paralelnih poziva, stvarni `for update`) i dalje pokriva
+  // `pnpm check:f4` nad pravom bazom — PGlite ima jednu konekciju.
+  console.log("\nS16 — novčanik i naplata");
+
+  type Apply = { ok: boolean; reason: string; granted: number };
+  const kase = async (u: string) =>
+    await one<{ b: number; t: number }>(
+      `select credits_balance as b, credits_topup as t from profiles where id = $1`, [u]);
+
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('w1','w1@x.rs',0)`);
+
+  // ── dve kase: potrošnja prazni prvo onu koja ISTIČE ──────
+  await db.exec(`update profiles set credits_balance = 2, credits_topup = 3 where id = 'w1'`);
+  check((await spend("w1", "p1"))?.reason === "unlocked", "unlock iz dve kase → unlocked");
+  let k = await kase("w1");
+  check(k?.b === 1 && k?.t === 3, "unlock skinuo credits_balance, ne credits_topup");
+
+  check((await spend("w1", "p2"))?.reason === "unlocked", "drugi unlock → unlocked");
+  k = await kase("w1");
+  check(k?.b === 0 && k?.t === 3, "balans ispražnjen pre nego što se dopuna dodirne");
+
+  // Tek sad, kad je kasa koja ističe prazna, ide se u dopunu.
+  await db.exec(`insert into businesses (place_id, city_slug, name) values ('wp3','nis','W3')`);
+  check((await spend("w1", "wp3"))?.reason === "unlocked", "unlock iz prazne kase → plaća dopuna");
+  k = await kase("w1");
+  check(k?.b === 0 && k?.t === 2, "prazan balans → skida se credits_topup");
+
+  // Zbir je jedini broj koji odlučuje da li se sme. 0 + 2 je dovoljno za scan.
+  const wScan = await scan("w1", "uzice", "vodoinstalater");
+  check(wScan?.reason === "charged" && wScan.credits_left === 1,
+    "scan se meri nad ZBIROM obe kase, i vraća zbir");
+  k = await kase("w1");
+  check(k?.b === 0 && k?.t === 1, "scan skinuo dopunu jer je balans prazan");
+
+  // Prazne obe kase → odbijenica, i to ista kao pre dve kase.
+  await db.exec(`update profiles set credits_balance = 0, credits_topup = 0 where id = 'w1'`);
+  check((await spend("w1", "f1"))?.reason === "insufficient_credits",
+    "obe kase prazne → insufficient_credits");
+  check((await scan("w1", "loznica", "krojac"))?.reason === "insufficient_credits",
+    "obe kase prazne → scan odbijen");
+
+  // Zbir se ne razlikuje bez obzira na podelu: 5 kredita je 5 kredita.
+  await db.exec(`update profiles set credits_balance = 5, credits_topup = 0 where id = 'w1'`);
+  await db.exec(`insert into businesses (place_id, city_slug, name) values ('wp4','nis','W4')`);
+  await spend("w1", "wp4");
+  const svaIzBalansa = await kase("w1");
+  await db.exec(`update profiles set credits_balance = 0, credits_topup = 5 where id = 'w1'`);
+  await db.exec(`insert into businesses (place_id, city_slug, name) values ('wp5','nis','W5')`);
+  await spend("w1", "wp5");
+  const svaIzDopune = await kase("w1");
+  check(
+    (svaIzBalansa!.b + svaIzBalansa!.t) === (svaIzDopune!.b + svaIzDopune!.t),
+    "isti trošak bez obzira iz koje kase — zbir se ne razlikuje",
+  );
+
+  // ── grant_monthly_credits ne sme da dodirne dopunu ───────
+  // Ovo je cela poenta razdvajanja (LANSIRANJE §1.4): mesečna dodela POSTAVLJA
+  // balans, pa bi bez druge kase brisala kupljene kredite.
+  await db.exec(`update profiles set credits_balance = 7, credits_topup = 40 where id = 'w1'`);
+  await db.exec(`select grant_monthly_credits('w1', 100, '2026-09')`);
+  k = await kase("w1");
+  check(k?.b === 100, "grant_monthly_credits POSTAVLJA credits_balance");
+  check(k?.t === 40, "grant_monthly_credits NE DIRA credits_topup");
+
+  // ── novi razlozi u knjizi ────────────────────────────────
+  const grantW = (a: number, r: string, ref: string | null) =>
+    one<Rpc>(`select * from grant_credits('w1',$1,$2,$3)`, [a, r, ref]);
+
+  await db.exec(`update profiles set credits_balance = 0, credits_topup = 0 where id = 'w1'`);
+  check((await grantW(100, "subscription_grant", "txn_a"))?.reason === "granted",
+    "grant_credits prihvata 'subscription_grant'");
+  check((await grantW(50, "credit_pack", "txn_b"))?.reason === "granted",
+    "grant_credits prihvata 'credit_pack'");
+  check((await grantW(1, "onboarding", "w1"))?.reason === "granted",
+    "grant_credits prihvata 'onboarding'");
+  check((await grantW(5, "poklon", null))?.reason === "invalid_reason",
+    "grant_credits odbija nepoznat razlog");
+
+  // Razlog bira kasu, ne pozivalac: samo `credit_pack` puni credits_topup.
+  k = await kase("w1");
+  check(k?.b === 101 && k?.t === 50,
+    "razlog bira kasu — credit_pack u dopunu, ostalo u balans");
+
+  // ── apply_subscription i apply_credit_pack ───────────────
+  const applySub = (txn: string | null, plan = "pro", credits = 300) =>
+    one<Apply>(
+      `select * from apply_subscription('w1','sub_1','ctm_1','active','${PRO_MESECNO}',$1,
+              now() + interval '30 days', $2, $3, 'RS')`,
+      [plan, credits, txn]);
+
+  await db.exec(`update profiles set credits_balance = 0, credits_topup = 0 where id = 'w1'`);
+  const s1 = await applySub("txn_sub_1");
+  check(s1?.reason === "granted" && s1.granted === 300, "apply_subscription → granted");
+  const s2 = await applySub("txn_sub_1");
+  check(s2?.ok === true && s2.reason === "already_granted" && s2.granted === 0,
+    "apply_subscription: isti txn drugi put ne dodeljuje ponovo");
+  check((await kase("w1"))?.b === 300, "dupli webhook nije dao 600 kredita");
+
+  const prof = await one<{ plan: string; iste: string | null; cid: string | null }>(
+    `select plan, plan_expires_at::text as iste, paddle_customer_id as cid
+     from profiles where id = 'w1'`);
+  check(prof?.plan === "pro", "apply_subscription postavlja profiles.plan");
+  check(prof?.iste !== null, "apply_subscription postavlja plan_expires_at");
+  check(prof?.cid === "ctm_1", "apply_subscription pamti paddle_customer_id");
+
+  const sub = await one<{ n: number; st: string; cc: string }>(
+    `select count(*)::int as n, min(status) as st, min(country_code) as cc
+     from subscriptions where paddle_subscription_id = 'sub_1'`);
+  check(sub?.n === 1 && sub.st === "active" && sub.cc === "RS",
+    "subscriptions: jedan red, upsert po paddle_subscription_id");
+
+  // Događaj bez naplate osveži stanje, ali ne dodeljuje ništa.
+  check((await applySub(null))?.reason === "saved",
+    "apply_subscription bez txn → saved, bez kredita");
+  check((await kase("w1"))?.b === 300, "'saved' nije dodao kredite");
+
+  await mustFail(
+    `insert into subscriptions (paddle_subscription_id, user_id, status) values ('sx','w1','izmisljen')`,
+    "nepoznat status pretplate odbijen");
+  await mustFail(
+    `insert into subscriptions (paddle_subscription_id, user_id, status, country_code)
+     values ('sx','w1','active','srb')`,
+    "neispravan country_code u subscriptions odbijen");
+  await mustFail(
+    `insert into subscriptions (paddle_subscription_id, user_id, status, plan)
+     values ('sx','w1','active','beta')`,
+    "plan 'beta' u subscriptions odbijen");
+
+  const pack = (txn: string) =>
+    one<Apply>(`select * from apply_credit_pack('w1', 150, $1, 'ctm_1')`, [txn]);
+
+  const p1 = await pack("txn_pack_1");
+  check(p1?.reason === "granted" && p1.granted === 150, "apply_credit_pack → granted");
+  const p2 = await pack("txn_pack_1");
+  check(p2?.ok === true && p2.reason === "already_granted" && p2.granted === 0,
+    "apply_credit_pack: isti txn drugi put ne dodeljuje ponovo");
+  k = await kase("w1");
+  check(k?.t === 150 && k?.b === 300,
+    "paket puni credits_topup i ne dodiruje credits_balance");
+
+  check((await one<Apply>(`select * from apply_credit_pack('w1', 50, '', null)`))?.reason
+    === "missing_ref_id", "apply_credit_pack bez txn odbijen");
+
+  // ── povraćaj paketa čiji su krediti potrošeni ────────────
+  // LANSIRANJE §2, red Z3: danas ovo pada. Posle 0022 mora da prođe, jer bi
+  // inače kupac dobio i novac nazad i posao.
+  await db.exec(`update profiles set credits_balance = 0, credits_topup = 0 where id = 'w1'`);
+  const adj = (delta: number, ref: string, kind?: string) =>
+    one<{ ok: boolean; reason: string; balance: number }>(
+      kind
+        ? `select * from admin_adjust_credits('a1','w1',$1,'nota',$2,$3)`
+        : `select * from admin_adjust_credits('a1','w1',$1,'nota',$2)`,
+      kind ? [delta, ref, kind] : [delta, ref]);
+
+  check((await adj(-50, "adm:pov0"))?.reason === "balans bi bio negativan",
+    "obična korekcija i dalje ne sme u minus");
+  const pov = await adj(-50, "adm:pov1", "povracaj");
+  check(pov?.ok === true && pov.balance === -50,
+    "povraćaj potrošenog paketa prolazi i ostavlja dug");
+  check((await adj(-50, "adm:pov1", "povracaj"))?.reason === "already_applied",
+    "isti povraćaj drugi put ne skida kredite dvaput");
+  check((await adj(1, "adm:pov2", "izmisljeno"))?.reason === "nepoznata vrsta",
+    "nepoznata vrsta podešavanja odbijena");
+
+  // Dug ne pušta potrošnju: zbir je -50, dakle ništa se ne sme.
+  await db.exec(`update profiles set credits_topup = 10 where id = 'w1'`);
+  check((await spend("w1", "f2"))?.reason === "insufficient_credits",
+    "negativan balans + dopuna: zbir ispod 1 → odbijeno");
+
+  // A kad zbir postane pozitivan, skida se iz dopune — dug ne raste.
+  await db.exec(`update profiles set credits_balance = -1, credits_topup = 5 where id = 'w1'`);
+  check((await spend("w1", "f2"))?.reason === "unlocked", "zbir 4 → unlock prolazi");
+  k = await kase("w1");
+  check(k?.b === -1 && k?.t === 4, "dug ne raste — skida se iz kase koja ima kredite");
+
+  // ── dnevni cap na AI varijante ───────────────────────────
+  type Claim = { ok: boolean; reason: string; used: number; remaining: number };
+  const claimAi = (u: string, lim: number) =>
+    one<Claim>(`select * from claim_ai_rewrite($1,$2)`, [u, lim]);
+
+  const c1 = await claimAi("w1", 2);
+  check(c1?.reason === "claimed" && c1.used === 1 && c1.remaining === 1,
+    "claim_ai_rewrite: prva varijanta → claimed");
+  await claimAi("w1", 2);
+  check((await claimAi("w1", 2))?.reason === "limit_reached",
+    "claim_ai_rewrite: preko limita → limit_reached");
+  await db.exec(`select release_ai_rewrite('w1')`);
+  check((await claimAi("w1", 2))?.reason === "claimed",
+    "release_ai_rewrite vraća rezervaciju posle pada AI poziva");
+  check((await claimAi("nema_ga", 5))?.reason === "no_user",
+    "claim_ai_rewrite: nepostojeći korisnik → no_user");
+
+  // ── billing_events: gruba brana idempotencije ────────────
+  await db.exec(`
+    insert into billing_events (event_id, event_type) values ('evt_1','transaction.completed')
+  `);
+  await db.exec(`
+    insert into billing_events (event_id, event_type) values ('evt_1','transaction.completed')
+    on conflict do nothing
+  `);
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from billing_events where event_id = 'evt_1'`))?.n === 1,
+    "billing_events: isti event_id drugi put → preskočen");
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
@@ -1313,6 +1537,8 @@ async function main(): Promise<void> {
                     "spend_credit_and_scan", "refund_scan", "record_scan",
                     "search_cache_state", "search_cache_overview",
                     "grant_feedback_credits",
+                    "apply_subscription", "apply_credit_pack",
+                    "claim_ai_rewrite", "release_ai_rewrite",
                     "admin_adjust_credits", "admin_users_page",
                     "admin_set_role", "admin_overview",
                     "claim_request", "zabelezi_utisak", "dopuni_utisak",

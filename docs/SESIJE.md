@@ -1947,3 +1947,117 @@ naplata, region) i otvorene stavke koje su faze svesno ostavile (backup na
 pravom serveru, vizuelne provere, pravni tekstovi).
 ```
 
+
+---
+
+## Posle S15 — plan do lansiranja je u `docs/LANSIRANJE.md`
+
+`PLAN-IZMENA.md` je zatvoren. Sve što je ostalo — naplata (Paddle), F8 (landing, pravni
+tekstovi, kanarinci, merenje), operativa i otvaranje bete — vodi se iz
+**`docs/LANSIRANJE.md`**: odluke D1–D6, sesije **S16–S23** sa gotovim promptovima, ručni
+koraci **R1–R28** i go/no-go lista.
+
+Numeracija sesija se nastavlja odatle (S16 je sledeća). Pravilo ostaje isto: posle svake
+isporuke se ažurira i ovaj fajl i tabela u `LANSIRANJE.md` §4.
+
+---
+
+## S16 — Novčanik, planovi i paketi kredita ☑
+
+**Isporučeno 21. avgusta 2026.** Izvor: `docs/LANSIRANJE.md` §1.3–§1.5 i §6, sesija S16.
+Migracija `0022_naplata.sql`. Nijedna ruta, nijedan webhook, nijedna komponenta i nijedna
+kapija pristupa — to su S18, S19 i S21.
+
+### Šta je urađeno
+
+- **Polar je uklonjen u celosti.** Obrisan stub `app/api/billing/webhook/route.ts`,
+  izbačen `@polar-sh/nextjs` iz `apps/web/package.json` i iz `pnpm-lock.yaml`
+  (regenerisan kroz `pnpm install`, ne ručno), uklonjeni `POLAR_ACCESS_TOKEN` i
+  `POLAR_WEBHOOK_SECRET` iz `.env`. `grep -ri polar` vraća samo `docs/`.
+- **`docs/naplata-polar.md` → `docs/naplata-paddle.md`** (`git mv`, istorija sačuvana) sa
+  blokom „Šta se promenilo prelaskom na Paddle" na vrhu. Ispravljen red o provajderu u
+  `naplata-bez-firme.md` §2 i pokazivači na staro ime u `MEJLOVI-PLAN.md` i `LANSIRANJE.md`.
+- **Migracija `0022_naplata.sql`** — dve kase kredita, tabele naplate, tri nova razloga u
+  knjizi, `apply_subscription` / `apply_credit_pack`, dnevni cap na AI varijante.
+- **`packages/shared/src/plans.ts` prepisan** — pet planova, Paddle katalog, budžetski kapovi.
+- **`apps/web/src/lib/cenovnik.ts`** — pogodnosti se sada računaju iz `PLANS`.
+- **`scripts/validate-migrations.ts`** — blok „S16 — novčanik i naplata", 46 provera.
+
+### Odluke koje nisu bile doslovno u promptu
+
+1. **Prag balansa je pomeren na `-1000`, `check` NIJE obrisan.** Povraćaj paketa čiji su
+   krediti potrošeni traži negativan balans, ali brisanje `profiles_credits_nonneg` bi
+   ukinulo P0-1 zaštitu na svakoj putanji. Prag je dvostruko od najvećeg dozvoljenog
+   pojedinačnog podešavanja (500), pa `check` i dalje hvata odbegli skript.
+   `credits_topup` ostaje na tvrdoj nuli.
+2. **`admin_adjust_credits` je dobio šesti parametar `p_kind`** (`'korekcija'` /
+   `'povracaj'`) sa podrazumevanom vrednošću, pa svaki postojeći pozivalac radi
+   nepromenjeno. Razlog u knjizi ostaje `'admin'` — time `credit_ledger_grant_idem_idx`
+   i dalje pokriva ovu putanju, a razlika se čuva u `admin_audit.payload`.
+   Funkcija je zato `drop`-ovana i napravljena iznova; prava su joj vraćena eksplicitno.
+3. **Kasu bira RAZLOG u telu `grant_credits`, ne parametar.** Parametar bi značio da
+   odluku „ističe / ne ističe" donosi webhook — jedno mesto gde greška znači ili trajne
+   kredite koje niko nije kupio, ili kupljene kredite obrisane prvom mesečnom dodelom.
+   Samo `'credit_pack'` puni `credits_topup`.
+4. **`pri_` ID-jevi su PRESELJENI iz `cenovnik.ts` u `plans.ts`, ne kopirani.** Prompt je
+   tražio jedan izvor istine koji puca u typecheck-u; `packages/shared` ne sme da uvozi iz
+   `apps/web`, pa je smer morao da se obrne. `cenovnik.ts` sada uvozi `PLAN_PRICE_IDS` i
+   `CREDIT_PACKS`, a obrnute mape (`planForPriceId`, `creditsForPriceId`) se **grade iz**
+   tih objekata umesto da se pišu ručno.
+5. **Pogodnosti na karticama se računaju iz `PLANS`**, a ne prepisuju. Brojevi su se i
+   ranije poklapali sa §1.3 (provereno red po red — v. „Provereno" niže), ali su stajali
+   kao tekst na dva mesta. Sada `tsc` traži da plan postoji, a broj je isti po
+   konstrukciji. Formatiranje hiljada je ručno, ne kroz `Intl` — isti string mora da
+   ispadne i na serveru i u pregledaču, inače je to hydration mismatch nad ponudom.
+6. **Dodat je i `release_ai_rewrite`, ne samo `claim_ai_rewrite`.** `claim_cache_miss` iz
+   0003 ima svoj `release` baš zato što korisnik ne sme da izgubi dnevnu kvotu zbog pada
+   koji nije njegov; par bez druge polovine bi tražio novu migraciju čim ga S21 zakači.
+7. **`ProfileRow`, `CreditReason` i novi RPC tipovi su dopunjeni u `db.ts`.**
+   `Record<CreditReason, string>` u `lib/ui-tekst.ts` je odmah pukao na tri nova razloga —
+   to je i bila poenta tog tipa. Dodati su prevodi: „Dodela uz pretplatu", „Kupljen paket",
+   „Dobrodošlica".
+
+### Šta se razišlo sa promptom
+
+**Tekst za `naplata-paddle.md` u promptu je bio zastareo.** Prompt je tražio da se napiše
+da su „cene za Srbiju EUR override na zemlju `RS`", ali je odluka **P7** taj override
+uklonila u celosti — i sam prompt to kaže tri reda iznad („Nema nijednog `RS` override-a").
+Napisana je tačna verzija: RSD nije među 33 Paddle valute, override je bio ostatak
+napuštenog pokušaja da cena bude u dinarima, i uklonjen je — **jedna EUR cena za ceo svet**.
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql` (dva prolaza, „Sve prošlo"), `pnpm test`,
+`pnpm --filter web lint` (0/0) i `pnpm build` prolaze. `/api/billing/webhook` više nije u
+listi ruta posle build-a.
+
+Brojevi u `cenovnik.ts` provereni red po red naspram §1.3 **pre** izmene — sva tri plana su
+se već poklapala (100/300/800 kredita, 30/60/120 skeniranja, 5/20/60 AI varijanti,
+500/2.000/10.000 CSV redova). Obe izmene u ponudi iz §1.3 su takođe već bile unete:
+„AI poruke po kanalu" nije bilo u spisku, a Advanced je već pisao „10.000 redova dnevno".
+
+### Ostaje na meni
+
+- **`pnpm check:f4` nad PRAVOM bazom** — menjana je novčana putanja
+  (`spend_credit_and_unlock`, `spend_credit_and_scan`, `grant_credits`,
+  `admin_adjust_credits`). PGlite ima jednu konekciju i pravu trku ne može da izvede;
+  test „20 paralelnih unlockova sa 1 kreditom → tačno jedan uspeh" mora preko `check:f4`.
+- **Pustiti `0022` na Supabase-u** pre S17.
+
+### Preneto dalje
+
+- **S17:** `SCAN_CREDIT_COST` je i dalje `1`, namerno — UI na ~10 mesta tvrdo piše
+  „1 kredit" i menja se zajedno sa cenom. Uz to: kolona sa brojem stranica u
+  `search_cache` i dubina u ključu deduplikacije (§1.2).
+- **S18:** webhook zove `apply_subscription` / `apply_credit_pack`, koje već postoje i već
+  su idempotentne po Paddle transaction ID-ju. `planForPriceId()` i `creditsForPriceId()`
+  su tu za preslikavanje `pri_` → plan / broj kredita.
+- **S19:** `beta_expires_at`, `plan_expires_at` i `GRACE_DAYS` postoje, ali ih niko ne
+  čita. `stanjePristupa()` je S19.
+- **S21:** `/krediti`, `/dashboard` i admin ekran korisnika i dalje prikazuju samo
+  `credits_balance`, a prikazano stanje treba da bude **zbir obe kase**. Dok webhook ne
+  postoji, `credits_topup` ne može biti različit od nule — ali ovo mora PRE S18.
+- **Poznata posledica, zapisana namerno:** `grant_monthly_credits` POSTAVLJA balans, pa
+  prva sledeća mesečna dodela briše negativan balans nastao povraćajem. Dug traje najviše
+  do kraja meseca. To je cena odluke iz §1.4 da ta funkcija ostane nepromenjena; ako se
+  pokaže kao stvaran problem, rešenje je zasebna kolona duga, a ne izmena te funkcije.

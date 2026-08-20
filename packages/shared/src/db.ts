@@ -23,12 +23,34 @@ export type ProfileRow = {
   id: string;
   email: string | null;
   plan: string;
+  /**
+   * Kasa koja ISTIČE: pretplata, beta, admin dodela, utisak. `grant_monthly_credits`
+   * je POSTAVLJA na ciljnu vrednost svakog meseca — bez rollovera (migracija 0004).
+   *
+   * Sme da bude negativna posle povraćaja paketa čiji su krediti već potrošeni;
+   * donji prag je -1000, ne 0 (migracija 0022 §1). Nijedna putanja potrošnje je
+   * ne gura u minus.
+   */
   credits_balance: number;
+  /**
+   * Kasa koja NE ISTIČE: krediti kupljeni u paketu (LANSIRANJE §1.4).
+   * Mesečna dodela je ne dodiruje. Uvek >= 0.
+   *
+   * Prikazano stanje kredita je ZBIR obe kase; razbijeno na dva reda samo na
+   * ekranu `/krediti` (to je S21).
+   */
+  credits_topup: number;
   cache_miss_day: string | null;
   cache_miss_count: number;
   /** Dnevni cap na CSV export (F4 §5). Isti LA dan kao `cache_miss_day`. */
   export_day: string | null;
   export_count: number;
+  /**
+   * Dnevni cap na „Napiši drugačije" varijante (LANSIRANJE §1.3, migracija 0022).
+   * Isti oblik i isti LA dan kao `export_day`. Kapija je `claim_ai_rewrite`.
+   */
+  ai_rewrite_day: string | null;
+  ai_rewrite_count: number;
   /**
    * Kad je korisniku prikazan podsetnik za utisak (F10, migracija 0010).
    * `null` znači „još nije viđen". Stoji u bazi, a ne u `localStorage`-u, da
@@ -60,7 +82,50 @@ export type ProfileRow = {
    */
   last_seen_at: string | null;
 
+  /**
+   * Naplata (migracija 0022). Sve tri kolone se u S16 samo stvaraju — puni ih
+   * webhook iz S18, a čita ih kapija pristupa iz S19.
+   *
+   * `beta_expires_at = null` znači NEOGRANIČENA beta, ne „istekla".
+   * Pun pristup traje do `max(beta_expires_at, plan_expires_at)`, a čitanje
+   * još `GRACE_DAYS` posle toga (LANSIRANJE §1.5).
+   */
+  paddle_customer_id: string | null;
+  plan_expires_at: string | null;
+  beta_expires_at: string | null;
+
   created_at: string;
+};
+
+/**
+ * Ogledalo Paddle pretplate (migracija 0022). Izvor istine je Paddle; ovo
+ * postoji da kapija pristupa i ekran stanja ne moraju da zovu mrežu.
+ */
+export type SubscriptionRow = {
+  paddle_subscription_id: string;
+  user_id: string;
+  paddle_customer_id: string | null;
+  /** Paddle-ova lista, ograničena `subscriptions_status_valid`. */
+  status: "active" | "trialing" | "past_due" | "paused" | "canceled";
+  price_id: string | null;
+  /** Samo plaćeni planovi. `beta` i `dopuna` nikad nemaju pretplatu. */
+  plan: "starter" | "pro" | "advanced" | null;
+  current_period_end: string | null;
+  canceled_at: string | null;
+  country_code: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Gruba brana idempotencije webhooka (migracija 0022). Fina brana je `ref_id`
+ * u `credit_ledger` — Paddle transaction ID.
+ */
+export type BillingEventRow = {
+  event_id: string;
+  event_type: string;
+  occurred_at: string | null;
+  received_at: string;
 };
 
 export type BusinessRow = {
@@ -121,7 +186,13 @@ export type CreditReason =
   | "admin"
   | "refund"
   /** Nagrada za utisak (F11, 0011). Ide isključivo kroz `grant_feedback_credits`. */
-  | "feedback";
+  | "feedback"
+  /** Mesečna dodela iz plaćene pretplate (0022). Puni `credits_balance`. */
+  | "subscription_grant"
+  /** Kupljen paket kredita (0022). JEDINI razlog koji puni `credits_topup`. */
+  | "credit_pack"
+  /** Besplatan prvi unlock (F8 §2, dodat u 0022). `ref_id` je `user_id`. */
+  | "onboarding";
 
 export type CreditLedgerRow = {
   id: number;
@@ -614,5 +685,36 @@ export type ScanSpendResult = RpcResult<ScanSpendReason> & {
 export type ExportClaimResult = RpcResult<ExportClaimReason> & {
   allowed: number;
   used: number;
+  reset_at: string;
+};
+
+/**
+ * `apply_subscription` i `apply_credit_pack` iz 0022 (S16). Zove ih isključivo
+ * Paddle webhook iz S18, posle provere potpisa.
+ *
+ * `granted` je broj STVARNO dodeljenih kredita — 0 uz `ok: true` znači da je
+ * dodela već bila obavljena (`already_granted`, ista transakcija stigla dvaput)
+ * ili da događaj nije nosio naplatu (`saved`). Klijent tada ne sme da javi
+ * „krediti su dodati".
+ */
+export type BillingApplyReason =
+  | "granted"
+  | "already_granted"
+  | "saved"
+  | "invalid_amount"
+  | "invalid_status"
+  | "invalid_plan"
+  | "missing_ref_id"
+  | "missing_subscription_id"
+  | "no_user";
+
+export type BillingApplyResult = RpcResult<BillingApplyReason> & { granted: number };
+
+/** `claim_ai_rewrite` iz 0022 — isti oblik kao `claim_cache_miss` iz 0003. */
+export type AiRewriteClaimReason = "claimed" | "limit_reached" | "no_user";
+
+export type AiRewriteClaimResult = RpcResult<AiRewriteClaimReason> & {
+  used: number;
+  remaining: number;
   reset_at: string;
 };

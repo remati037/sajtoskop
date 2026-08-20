@@ -26,6 +26,13 @@ export const RAZLOG_KREDITA: Record<CreditReason, string> = {
   refund: "Povraćaj",
   // F11: nagrada za utisak. Uvek pozitivna i uvek kroz `grant_feedback_credits`.
   feedback: "Nagrada za utisak",
+  // S16 (0022). „Mesečna dodela" je zauzeta za `monthly_grant`, a razlika je
+  // vidljiva korisniku: ovo je dodela koju je pokrenula NAPLATA, ne cron.
+  subscription_grant: "Dodela uz pretplatu",
+  // Jedini razlog koji puni kasu koja ne ističe — zato „Kupljen paket", ne
+  // „Dopuna": izvod mora da kaže odakle su krediti, ne šta rade.
+  credit_pack: "Kupljen paket",
+  onboarding: "Dobrodošlica",
 };
 
 export const STATUS_LABEL: Record<SiteStatus, string> = {

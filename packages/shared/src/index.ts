@@ -28,7 +28,12 @@ export type {
   AdminRole,
   AdminSetRoleResult,
   AdminUserRow,
+  AiRewriteClaimReason,
+  AiRewriteClaimResult,
   ApiBudgetRow,
+  BillingApplyReason,
+  BillingApplyResult,
+  BillingEventRow,
   BusinessRow,
   ChangelogRow,
   CreditLedgerRow,
@@ -63,6 +68,7 @@ export type {
   SearchCacheRow,
   SearchRow,
   SpendReason,
+  SubscriptionRow,
   UnlockRow,
   WebsiteAuditRow,
 } from "./db";
@@ -135,20 +141,29 @@ export {
 // ── padežni oblici za generator poruka ─────────────────────
 export { bezOblika, gradLokativ, nisaAkuzativ } from "./sklonidba";
 
-// ── planovi i globalni kapovi ──────────────────────────────
-export type { Plan, PlanId } from "./plans";
+// ── planovi, paketi, Paddle katalog i globalni kapovi ──────
+export type { Ciklus, PaidPlanId, PaketId, Plan, PlanId } from "./plans";
 export {
   AI_DAILY_CAP,
   AI_OUTREACH_DAILY_CAP,
+  ALL_PRICE_IDS,
   BUDGET_TIMEZONE,
+  CREDIT_PACKS,
   CREDITS_TIMEZONE,
   creditMonth,
+  creditsForPriceId,
   DEFAULT_PLAN,
   GLOBAL_DAILY_API_CAP,
   GLOBAL_MONTHLY_API_CAP,
   GOOGLE_TTL_DAYS,
+  GRACE_DAYS,
+  PLACES_EUR_PER_CALL,
+  PLACES_FREE_CALLS_MONTH,
+  PLACES_MONTHLY_BUDGET_EUR,
+  PLAN_PRICE_IDS,
   PLANS,
   planFor,
+  planForPriceId,
   PSI_DAILY_CAP,
   SCAN_CREDIT_COST,
 } from "./plans";

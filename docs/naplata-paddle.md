@@ -1,4 +1,40 @@
-# Naplata preko Polar.sh — izveštaj, rizici i pitanja za knjigovođu
+# Naplata preko merchant-of-record platforme — izveštaj, rizici i pitanja za knjigovođu
+
+> ## Šta se promenilo prelaskom na Paddle
+>
+> **Ovaj dokument je pisan za Polar. Polar je napušten; naplata ide preko Paddle-a.**
+> Preimenovan je iz `naplata-polar.md` u S16 (21. avgust 2026).
+>
+> **Šta i dalje važi doslovno, bez ijedne ograde:** ceo model *merchant of record*
+> (§1), provera „može li uopšte iz Srbije" po tačkama (§2), sve o knjigovodstvu,
+> fiskalizaciji i PDV-u (§4, §8, §9), i — najvažnije za kod — **§5.3, pet pravila
+> idempotencije**. Paddle ponavlja isporuku webhooka na svaki non-2xx i na mrežni
+> timeout, isto kao Polar; `billing_events` po ID-u događaja i `ref_id` u
+> `credit_ledger` postoje baš zbog toga (migracija 0022).
+>
+> **Šta čitaj kao „provajder", a ne kao „Polar":** imena događaja u §5.3 i cene u
+> §3 su Polarova. Paddle ima svoja imena (`transaction.completed`,
+> `subscription.updated`, `subscription.canceled`…) i svoju naknadu; tačna
+> preslikavanja su u `docs/LANSIRANJE.md` S18.
+>
+> **Šta više ne stoji — cena u dinarima.** §3.2 računa cenu od 3.990 RSD.
+> **Paddle podržava 33 valute i RSD nije među njima.** Prvi pokušaj da se to
+> zaobiđe bio je `unit_price_overrides` za zemlju `RS` — ne dinarska cena, nego
+> **niži iznos u evrima** za kupce iz Srbije (€14 umesto €29 na Starteru).
+>
+> **Taj override je uklonjen u celosti** (odluka P7, `docs/LANSIRANJE.md` §1.3):
+> **jedna EUR cena za ceo svet**, €29 / €59 / €119 mesečno. Tri razloga: override
+> je bio upola jeftiniji od sopstvene ranije odluke iz `LANSIRANJE-PITANJA.md` #8
+> (3.400 RSD ≈ €29), obarao je maržu u najgorem slučaju sa 11–22% na 30–56%, i
+> udvostručavao je broj stavki koje se prepisuju iz sandboxa u produkciju.
+> Reverzibilno je: override se vraća **jednim poljem na ceni** u Paddle panelu,
+> bez migracije, bez izmene koda i bez deploya — ali tek sa podacima iz bete,
+> a ne sa pretpostavkom.
+>
+> **Šta je otpalo kao pitanje:** §13 (odluke o paketima i kreditima) je
+> zamenjen `docs/LANSIRANJE.md` §1.3 i §1.4 — tri plana, dva paketa, dve kase
+> kredita. §10 (pitanja za Polar support) više nema kome da se pošalje.
+
 
 **Status dokumenta:** analiza pre odluke, ne PRD. Ništa se ne implementira dok se ne završi
 razgovor sa knjigovođom i dok ne stigne odgovor Polar supporta na pitanja iz §10.

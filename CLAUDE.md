@@ -13,6 +13,9 @@ Pre rada na bilo kojoj fazi pročitaj:
 - `docs/F{N}-*.md` — PRD za trenutnu fazu; **radi samo iz jednog PRD-a u jednoj sesiji**
 - `docs/bezbednost.md` — P0 lista, referenciraj kad faza dodiruje kredite, storage ili renderovanje sajtova
 - `docs/DIZAJN-SISTEM.md` — **obavezno pre bilo kakvog UI rada**; v. „Dizajn" niže
+- `docs/LANSIRANJE.md` — **plan do lansiranja**: otvorene odluke, sesije S16–S23 sa gotovim
+  promptovima, ručni koraci R1–R28 i go/no-go lista. Prvi fajl koji se otvara ako pitanje
+  glasi „šta je još ostalo".
 - `docs/SESIJE.md` — redosled preostalih isporuka i gotov prompt za svaku sledeću sesiju.
   **Posle svake završene isporuke ovaj fajl se ažurira** (štiklirano gotovo, dopisano šta se
   promenilo u odnosu na PRD).

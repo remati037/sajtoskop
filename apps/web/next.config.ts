@@ -54,6 +54,57 @@ function clerkDomains(): string[] {
 const clerk = clerkDomains().map((d) => `https://${d}`).join(" ");
 const clerkWss = clerkDomains().map((d) => `wss://${d}`).join(" ");
 
+/**
+ * Paddle (naplata, F-naplata) — jedan wildcard umesto šest imena hostova.
+ *
+ * Ovo je spisak koji je STVARNO izmeren, ne prepisan iz dokumentacije (Paddle
+ * je ne objavljuje). Snimljen sa `/cenovnik` dok su cene bile učitane i dok je
+ * checkout overlay bio otvoren:
+ *
+ *   cdn.paddle.com                        script      paddle.js, uvek sa golog cdn-a
+ *   sandbox-cdn.paddle.com                stylesheet  stil overlay-a
+ *   sandbox-api.paddle.com                fetch       PricePreview
+ *   sandbox-checkout-service.paddle.com   xhr         sesija checkout-a
+ *   sandbox-buy.paddle.com                frame, img  sam overlay
+ *
+ * Zašto `*.paddle.com`, a ne pet imena:
+ *   1. Svaki host ima svog `sandbox-` blizanca, pa bi spisak bio deset imena od
+ *      kojih polovina ne radi ništa u datom okruženju.
+ *   2. Prelazak na produkciju bi tražio izmenu CSP-a uz izmenu tokena — a to je
+ *      tačno ona izmena koja se zaboravi i otkrije se kao „checkout ne radi".
+ *   3. Paddle ume da doda host (Apple Pay, Retain) bez najave.
+ *
+ * Ovo NIJE širenje poverenja na treću stranu preko potrebe: `*.paddle.com` je
+ * domen jednog dobavljača kome ionako predajemo ceo tok plaćanja.
+ *
+ * Fontovi, `localizecdn` i Sentry koji se vide u snimku mreže NE idu ovde —
+ * njih učitava Paddle-ov dokument unutar iframe-a, pa važi NJIHOV CSP, ne naš.
+ */
+const paddle = "https://*.paddle.com";
+
+/**
+ * `'unsafe-eval'` SAMO u razvoju. U produkciji ga nema i ne sme da ga bude.
+ *
+ * ── šta se dešavalo ─────────────────────────────────────────
+ * `next dev` pakuje module kroz `eval()` (webpack `eval-source-map`). Bez
+ * `'unsafe-eval'` pregledač obori TAJ eval, pa React nikad ne hidrira — a to se
+ * ne vidi kao pad nego kao mrtva stranica: HTML je tu, izgleda ispravno, ali
+ * nijedno dugme ne radi. Prekidač teme na `/` se klikne i ništa se ne promeni.
+ *
+ * Zatečeno stanje, ne posledica naplate: `/` nema nijednu Paddle liniju i
+ * ponaša se isto. Otkriveno je tek uz cenovnik jer je to prvi ekran kome
+ * hidratacija TREBA da bi uopšte prikazao sadržaj (cene stižu iz `fetch`-a),
+ * dok su ostali ekrani serverski i izgledaju ispravno i mrtvi.
+ *
+ * ── zašto je bezbedno ───────────────────────────────────────
+ * Uslov je `NODE_ENV`, koji Next postavlja sam: `development` za `next dev`,
+ * `production` za `next build`/`next start`. Vercel gradi produkcijski, pa ovo
+ * na sajt ne stiže. Provera iz P0-4 (grep za `unsafe-eval` u produkcijskom
+ * headeru) i dalje prolazi — v. test ispod.
+ */
+const dev = process.env.NODE_ENV === "development";
+const unsafeEval = dev ? " 'unsafe-eval'" : "";
+
 // ── bezbednosni headeri (Faza 1, 1.1; P1 iz docs/bezbednost-i-zastita.md) ──
 // CSP je sastavljen oko onoga što app STVARNO koristi: Clerk (script/connect/img
 // — domen se izvlači iz publishable ključa, v. `clerkDomains()`), Supabase
@@ -63,17 +114,24 @@ const clerkWss = clerkDomains().map((d) => `wss://${d}`).join(" ");
 // `frame-ancestors 'none'` je CSP ekvivalent `X-Frame-Options: DENY`; stoje oba.
 const CSP = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' ${clerk}`,
+  `script-src 'self' 'unsafe-inline'${unsafeEval} ${clerk} ${paddle}`,
   // Clerk pravi Web Worker iz blob: URL-a (pollovanje tokena) — bez eksplicitnog
   // worker-src-a bi palo na script-src i bilo blokirano.
   "worker-src 'self' blob:",
-  "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev ${clerk}`,
+  `style-src 'self' 'unsafe-inline' ${paddle}`,
+  `img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev ${clerk} ${paddle}`,
   "font-src 'self' data:",
-  `connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com ${clerk}`,
+  `connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com ${clerk} ${paddle}`,
+  // Checkout overlay je iframe ka `sandbox-buy.paddle.com` / `buy.paddle.com`.
+  // Bez ovoga direktiva pada na `default-src 'self'` i modal ostane prazan —
+  // Paddle.js pri tome NE javlja grešku, samo se ništa ne pojavi.
+  `frame-src 'self' ${paddle}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
+  // Ostaje `'none'`: mi ne uokvirujemo nikoga i niko ne sme da uokviri nas.
+  // Ovo ne dira Paddle — `frame-ancestors` govori ko sme da uokviri NAŠU stranu,
+  // a `frame-src` koga MI smemo da uokvirimo. Paddle overlay je ovo drugo.
   "frame-ancestors 'none'",
 ].join("; ");
 
