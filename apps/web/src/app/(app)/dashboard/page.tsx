@@ -33,7 +33,7 @@ const PRECICE = [
   {
     href: "/pretraga",
     naslov: "Pretraga prospekata",
-    opis: "Grad i niša — sve što je u kešu je besplatno, novo skeniranje 1 kredit.",
+    opis: "Grad i niša — sve što je u kešu je besplatno, novo skeniranje 1–3 kredita po dubini.",
     Ikona: Search,
   },
   {
@@ -116,7 +116,7 @@ export default async function Page() {
               {
                 korak: "1",
                 naslov: "Izaberi grad i nišu",
-                opis: "Prva pretraga kombinacije koja nije u kešu košta 1 kredit — posle toga je besplatna svima 30 dana.",
+                opis: "Prva pretraga kombinacije koja nije u kešu košta 1 kredit po stranici rezultata (1–3, biraš dubinu) — posle toga je besplatna svima 30 dana.",
                 href: "/pretraga",
               },
               {

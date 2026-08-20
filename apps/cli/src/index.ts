@@ -10,11 +10,18 @@ import { z } from "zod";
 import type { Business, Niche, ScoreResult } from "@sajtoskop/shared";
 import {
   buildScanQueries,
+  cenaSkeniranja,
+  DUBINA_OPIS,
+  DUBINE,
+  dubinaZaRezultate,
   foldForSearch,
+  maxRezultataZaDubinu,
+  PLACES_PAGE_SIZE,
   resolveCity,
   resolveNiche,
   scoreSite,
   slugify,
+  stranicaZaRezultate,
   toCsv,
 } from "@sajtoskop/shared";
 import type { FetchStatus, SiteFetch } from "@sajtoskop/worker/lib";
@@ -41,6 +48,12 @@ const rel = (f: string): string => path.relative(workspaceRoot(), f);
 const optionsSchema = z.object({
   grad: z.string().min(1),
   nisa: z.string().min(1).optional(),
+  /**
+   * [S17] Slobodan broj rezultata OSTAJE — ovo je moj alat i CLI ne poznaje
+   * kredite (F9 §5). Ali se od S17 NORMALIZUJE kroz `stranicaZaRezultate`, pa
+   * `--broj 45` znači tačno 3 stranice, isto koliko bi značilo i u aplikaciji.
+   * Bez toga bi CLI i web računali isti scan kao različit broj Places poziva.
+   */
   broj: z.coerce.number().int().min(10).max(60),
   mock: z.boolean().default(false),
   offline: z.string().optional(),
@@ -49,6 +62,7 @@ const optionsSchema = z.object({
   save: z.boolean().default(false),
   csv: z.boolean().default(false),
   upit: z.string().optional(),
+  dubina: z.enum(DUBINE).optional(),
 });
 
 type Row = {
@@ -146,7 +160,8 @@ async function main(): Promise<void> {
   const program = new Command()
     .requiredOption("--grad <slug>", "slug grada, npr. nis")
     .option("--nisa <slug>", "slug niše, npr. stomatolog")
-    .option("--broj <n>", "koliko rezultata (10-60)", "30")
+    .option("--broj <n>", "koliko rezultata (10-60; zaokružuje se na stranicu od 20)", "30")
+    .option("--dubina <brzo|standardno|duboko>", "ponuda iz aplikacije umesto --broj")
     .option("--mock", "Places iz fixturea, bez API poziva", false)
     .option("--offline <fajl>", "učitaj biznise iz ranijeg out/*.json, nula API poziva")
     .option("--duboko", "cepaj velike gradove po opštinama (skupo!)", false)
@@ -178,6 +193,15 @@ async function main(): Promise<void> {
   }
 
   const city = resolveCity(opts.grad);
+
+  // [S17] Jedan broj, jedan izvor: `--dubina` je ponuda iz aplikacije, `--broj`
+  // je slobodan unos, a oba završe u istom `maxRezultata` zaokruženom na punu
+  // stranicu. Ispisuje se i koliko bi to koštalo u aplikaciji — CLI ne naplaćuje
+  // ništa, ali je jedini način da se cena proveri bez trošenja kredita.
+  const maxRezultata = opts.dubina
+    ? maxRezultataZaDubinu(opts.dubina)
+    : stranicaZaRezultate(opts.broj) * PLACES_PAGE_SIZE;
+
   const stamp = new Date().toISOString().slice(0, 10);
   const started = Date.now();
 
@@ -187,6 +211,13 @@ async function main(): Promise<void> {
   const scanSlug = niche.slug;
   console.log(`\nTražim: ${niche.label} · ${city.label}${opts.mock ? "  [MOCK]" : ""}`);
   console.log(`Upit: "${usedQuery} ${city.label}"`);
+  console.log(
+    `Dubina: ${DUBINA_OPIS[dubinaZaRezultate(maxRezultata)].labela} · ` +
+      `do ${maxRezultata} rezultata · ${stranicaZaRezultate(maxRezultata)} ` +
+      `${stranicaZaRezultate(maxRezultata) === 1 ? "stranica" : "stranice"} · ` +
+      `u aplikaciji ${cenaSkeniranja(maxRezultata)} ` +
+      `${cenaSkeniranja(maxRezultata) === 1 ? "kredit" : "kredita"}`,
+  );
 
   let all: Business[] = [];
   let calls = 0;
@@ -197,13 +228,16 @@ async function main(): Promise<void> {
   } else {
     const queries = opts.upit ? [`${opts.upit} ${city.label}`] : buildScanQueries(niche, city, { deep: opts.duboko });
     if (queries.length > 1 && !opts.mock) {
-      console.log(`Upozorenje: --duboko pravi ${queries.length} upita (do ${queries.length * 3} API poziva).`);
+      console.log(
+        `Upozorenje: --duboko pravi ${queries.length} upita ` +
+          `(do ${queries.length * stranicaZaRezultate(maxRezultata)} API poziva).`,
+      );
     }
 
     const seen = new Set<string>();
     for (const q of queries) {
       const { businesses, apiCalls } = await searchText(q, {
-        maxResults: opts.broj, languageCode: opts.lang, mock: opts.mock,
+        maxResults: maxRezultata, languageCode: opts.lang, mock: opts.mock,
       });
       calls += apiCalls;
       for (const b of businesses) {
@@ -211,7 +245,7 @@ async function main(): Promise<void> {
         seen.add(b.placeId);
         all.push(b);
       }
-      if (all.length >= opts.broj) break;
+      if (all.length >= maxRezultata) break;
     }
     console.log(`Google Places... ${all.length} rezultata (${calls} API poziva)`);
 
@@ -234,7 +268,7 @@ async function main(): Promise<void> {
     for (const b of offCity) console.log(`   ${b.name.slice(0, 30)} — ${b.address}`);
   }
 
-  const businesses = inCity.slice(0, opts.broj);
+  const businesses = inCity.slice(0, maxRezultata);
 
   if (opts.save && !opts.offline) {
     const f = outPath(`${scanSlug}-${city.slug}-${stamp}.json`);

@@ -519,8 +519,12 @@ async function main(): Promise<void> {
   console.log("\nspend_credit_and_scan");
   type Scan = { ok: boolean; reason: string; job_id: number; joined: boolean;
                 charged: boolean; credits_left: number };
-  const scan = (u: string, c: string, n: string) =>
-    one<Scan>(`select * from spend_credit_and_scan($1,'RS',$2,$3)`, [u, c, n]);
+  // [S17] Peti argument je `p_max_results` i iz njega izlazi CENA. Podrazumevanih
+  // 20 je „Brzo" = 1 stranica = 1 kredit, pa provere ispod (nasleđene iz F9)
+  // ostaju iste kao kad je cena bila fiksna — ono što S17 dodaje meri se u
+  // zasebnom bloku niže.
+  const scan = (u: string, c: string, n: string, max = 20) =>
+    one<Scan>(`select * from spend_credit_and_scan($1,'RS',$2,$3,$4)`, [u, c, n, max]);
 
   await db.exec(`insert into profiles (id, email, credits_balance) values ('s1','s1@x.rs',3), ('s2','s2@x.rs',1)`);
 
@@ -551,6 +555,7 @@ async function main(): Promise<void> {
   check((await one<{ b: number }>(
     `select credits_balance as b from profiles where id='s1'`))?.b === 3, "balans s1 vraćen na 3");
 
+  // [S17] Povraćaj vraća ono što je NAPLAĆENO, a ovde je oboma naplaćen 1 kredit.
   console.log("\nregistar keša");
   const stanje = (c: string, n: string) =>
     one<{ scanned_at: string | null; fresh: boolean; total: number; no_site: number }>(
@@ -1527,6 +1532,183 @@ async function main(): Promise<void> {
   check((await one<{ n: number }>(
     `select count(*)::int as n from billing_events where event_id = 'evt_1'`))?.n === 1,
     "billing_events: isti event_id drugi put → preskočen");
+
+  // ── S17: dubina skeniranja i cena po stranici (0023) ─────
+  // Novčana putanja, ponovo. Svaka provera ispod je jedan red iz tabele u
+  // docs/LANSIRANJE.md §1.2 ili jedna od tri zamke koje ta odluka nosi.
+  //
+  // Prave trke (dva korisnika u istoj sekundi, stvarni `for update`) i dalje
+  // pokriva `pnpm check:f4` nad pravom bazom — PGlite ima jednu konekciju.
+  console.log("\nS17 — dubina skeniranja");
+
+  // Isti izvor cene koji koriste web, worker i CLI. Uvozi se OVDE, a ne prepisuje
+  // kao broj: ceo smisao provere je da se TS i SQL slažu oko iste formule.
+  const { cenaSkeniranja, maxRezultataZaDubinu, stranicaZaRezultate } =
+    await import("../packages/shared/src/plans");
+
+  check(
+    cenaSkeniranja(20) === 1 && cenaSkeniranja(40) === 2 && cenaSkeniranja(60) === 3,
+    "shared: 20/40/60 rezultata → 1/2/3 kredita",
+  );
+  check(
+    stranicaZaRezultate(0) === 1 && stranicaZaRezultate(200) === 3 && stranicaZaRezultate(21) === 2,
+    "shared: broj stranica je odsečen na 1–3 i zaokružen naviše",
+  );
+
+  await db.exec(`
+    insert into profiles (id, email, credits_balance) values
+      ('d1','d1@x.rs',20), ('d2','d2@x.rs',20), ('d3','d3@x.rs',1)
+  `);
+
+  /** Koliko je stavka u knjizi naplatila za taj posao. */
+  const naplaceno = async (jobId: number | undefined): Promise<number> =>
+    (await one<{ d: number }>(
+      `select coalesce(-sum(delta), 0)::int as d from credit_ledger
+        where reason = 'scan' and ref_id = $1`, [`scan:${jobId}`]))?.d ?? 0;
+
+  const balans = async (u: string): Promise<number> =>
+    (await one<{ b: number }>(
+      `select (credits_balance + credits_topup) as b from profiles where id = $1`, [u]))?.b ?? -1;
+
+  // 1/2/3 stranice → 1/2/3 kredita. Cena se meri i u KNJIZI i u balansu:
+  // stavka koja se ne poklapa sa skinutim iznosom je rupa u povraćaju.
+  for (const [dubina, ocekivano] of [
+    ["brzo", 1],
+    ["standardno", 2],
+    ["duboko", 3],
+  ] as const) {
+    const pre = await balans("d1");
+    const r = await scan("d1", "novi-sad", `dubina-${dubina}`, maxRezultataZaDubinu(dubina));
+    const posle = await balans("d1");
+
+    check(
+      r?.reason === "charged" && pre - posle === ocekivano,
+      `„${dubina}" skida ${ocekivano} ${ocekivano === 1 ? "kredit" : "kredita"} (skinuto ${pre - posle})`,
+    );
+    check(
+      (await naplaceno(r?.job_id)) === ocekivano,
+      `„${dubina}": knjiga i balans se slažu (${await naplaceno(r?.job_id)})`,
+    );
+    check(
+      r?.credits_left === posle,
+      `„${dubina}": vraćeni credits_left je stvarno stanje`,
+    );
+  }
+
+  // Payload nosi NORMALIZOVAN `maxResults` — worker iz njega računa stranice, pa
+  // svaka vrednost između znači da plaćeno i skenirano nisu isti broj poziva.
+  const norm = await scan("d1", "vranje", "zaokruzivanje", 45);
+  check(
+    (await one<{ m: number }>(
+      `select (payload->>'maxResults')::int as m from job_queue where id = $1`,
+      [norm?.job_id]))?.m === 60,
+    "45 traženih rezultata → payload 60 (3 pune stranice), ne 45",
+  );
+  check((await naplaceno(norm?.job_id)) === 3, "45 rezultata se naplaćuje kao 3 stranice");
+
+  // ZAMKA 2 iz §1.2: dubina MORA da bude u ključu deduplikacije. Bez toga bi
+  // plitki scan „pobedio" i duboki bi platio 3 kredita za 20 rezultata.
+  const a1 = await scan("d1", "cacak", "trka-dubina", 20);
+  const a3 = await scan("d2", "cacak", "trka-dubina", 60);
+  check(
+    a1?.job_id !== a3?.job_id && a3?.charged === true,
+    "ista kombinacija, dve dubine, isti trenutak → DVA posla",
+  );
+  check(
+    (await naplaceno(a1?.job_id)) === 1 && (await naplaceno(a3?.job_id)) === 3,
+    "svaki od dva posla naplaćuje SVOJU dubinu (1 i 3)",
+  );
+  check(
+    (await one<{ k: string }>(`select dedupe_key as k from job_queue where id = $1`,
+      [a3?.job_id]))?.k === "RS:cacak:trka-dubina:p3",
+    "ključ deduplikacije nosi broj stranica",
+  );
+
+  // Dupli klik na ISTU dubinu i dalje ne naplaćuje dvaput (F9 odluka 4).
+  const a3opet = await scan("d2", "cacak", "trka-dubina", 60);
+  check(
+    a3opet?.reason === "already_paid" && a3opet.charged === false && a3opet.job_id === a3?.job_id,
+    "dupli klik na istu dubinu → already_paid, bez druge naplate",
+  );
+  check((await naplaceno(a3?.job_id)) === 3, "dupli klik nije dodao stavku u knjigu");
+
+  // Povraćaj vraća TAČAN iznos, ne 1 kredit.
+  const preP = await balans("d2");
+  check((await one<{ refunded: number }>(
+    `select * from refund_scan($1)`, [a3?.job_id]))?.refunded === 1, "povraćaj: jedan platilac");
+  check((await balans("d2")) - preP === 3, "povraćaj vraća 3 kredita za posao naplaćen 3");
+  check((await one<{ refunded: number }>(
+    `select * from refund_scan($1)`, [a3?.job_id]))?.refunded === 0, "drugi povraćaj ne vraća ponovo");
+  check((await balans("d2")) - preP === 3, "ponovljen povraćaj ne menja balans");
+
+  // Nedovoljno kredita za „Duboko", dovoljno za „Brzo" → uredna odbijenica, ne pad.
+  const dubokoBezPara = await scan("d3", "pirot", "tanak-novcanik", 60);
+  check(
+    dubokoBezPara?.reason === "insufficient_credits" && dubokoBezPara.credits_left === 1,
+    `1 kredit + „Duboko" → insufficient_credits, bez pada`,
+  );
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from job_queue where dedupe_key like 'RS:pirot:%'`))?.n === 0,
+    "odbijena naplata NE upisuje posao ni na jednoj dubini",
+  );
+  check(
+    (await scan("d3", "pirot", "tanak-novcanik", 20))?.reason === "charged",
+    `isti korisnik i dalje može „Brzo" — jeftinija ponuda je izlaz, ne zid`,
+  );
+
+  // ZAMKA 1 iz §1.2: pogodak u kešu je uslovan i po dubini.
+  console.log("\nS17 — keš pamti dubinu");
+
+  await db.exec(`select record_scan('RS','uzice','plitko',5,null,false,1)`);
+  type Sc = { pages: number; fresh: boolean };
+  const kes = (c: string, n: string) =>
+    one<Sc>(`select sc.pages, (sc.last_scanned_at > now() - interval '30 days') as fresh
+             from search_cache sc where sc.city_slug = $1 and sc.niche_slug = $2`, [c, n]);
+
+  const plitko = await kes("uzice", "plitko");
+  check(plitko?.pages === 1 && plitko.fresh === true, "record_scan upisuje dubinu 1");
+  check(
+    (plitko?.fresh ?? false) && (plitko?.pages ?? 0) >= stranicaZaRezultate(20),
+    "keš dubine 1, zahtev dubine 1 → besplatno",
+  );
+  check(
+    !((plitko?.fresh ?? false) && (plitko?.pages ?? 0) >= stranicaZaRezultate(60)),
+    "keš dubine 1, zahtev dubine 3 → NIJE pogodak, naplaćuje se",
+  );
+
+  await db.exec(`select record_scan('RS','uzice','duboko',55,null,false,3)`);
+  const duboko = await kes("uzice", "duboko");
+  check(
+    (duboko?.fresh ?? false) && (duboko?.pages ?? 0) >= stranicaZaRezultate(20),
+    "keš dubine 3, zahtev dubine 1 → besplatno",
+  );
+
+  // Duboko pa plitko: dubina se SPUŠTA. Tvrditi da je i dalje duboka značilo bi
+  // servirati 40 nedirnutih redova kao sveže (pravilo 1).
+  await db.exec(`select record_scan('RS','uzice','duboko',18,null,false,1)`);
+  check((await kes("uzice", "duboko"))?.pages === 1,
+    "ponovni plitki scan spušta dubinu keša, ne zadržava staru");
+
+  await mustFail(
+    `update search_cache set pages = 4 where city_slug = 'uzice' and niche_slug = 'duboko'`,
+    "dubina van 1–3 odbijena",
+  );
+
+  // Backfill: zatečeni red dobija dubinu iz broja rezultata, ne podrazumevanu.
+  // Migracija je već prošla, pa se red ubacuje kako je izgledao PRE nje i
+  // backfill se pušta doslovno onako kako je zapisan u 0023.
+  await db.exec(`
+    insert into search_cache (country_code, city_slug, niche_slug, last_results_count, pages)
+    values ('RS','zajecar','stari-duboki',55,1), ('RS','zajecar','stari-plitki',12,1);
+    update search_cache
+       set pages = least(3, greatest(1, ceil(last_results_count / 20.0)::int))
+     where pages = 1 and last_results_count > 20;
+  `);
+  check((await kes("zajecar", "stari-duboki"))?.pages === 3,
+    "backfill: red sa 55 rezultata je duboki scan, ne plitki");
+  check((await kes("zajecar", "stari-plitki"))?.pages === 1,
+    "backfill: red sa 12 rezultata ostaje plitak");
 
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",

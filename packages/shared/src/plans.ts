@@ -324,19 +324,110 @@ export function creditMonth(now: Date = new Date()): string {
 /** Pravilo 1 iz CLAUDE.md: Google podatak stariji od ovoga se ne servira. */
 export const GOOGLE_TTL_DAYS = 30;
 
+// ═══════════════════════════════════════════════════════════
+// DUBINA SKENIRANJA — 1 KREDIT = 1 STRANICA = 1 PLACES POZIV
+// ═══════════════════════════════════════════════════════════
+// LANSIRANJE §1.2, isporuka S17. Ovo je JEDINI izvor cene skeniranja; do S17 je
+// tu stajala konstanta `SCAN_CREDIT_COST = 1` i ona više ne postoji.
+//
+// ── zašto je jedinica STRANICA, a ne „skeniranje" ─────────
+// Text Search vraća najviše 20 rezultata po stranici i naplaćuje SVAKU stranicu
+// kao poseban poziv (`consume()` je u `fetchPage`, ne u `searchText`). Skeniranje
+// za 20 rezultata je zato koštalo mene 1 poziv, a za 60 rezultata 3 — trostruka
+// razlika u trošku uz istu cenu za korisnika. Od S17 se cena poklapa sa troškom,
+// pa novčanik sam po sebi ograničava izloženost: nema režima potrošnje koji je
+// 3× skuplji od drugog.
+//
+// ── zašto POSTOJI i tip `Dubina`, a ne samo funkcija ──────
+// Cena je funkcija broja stranica — `cenaSkeniranja(maxResults)` je totalna nad
+// bilo kojim brojem i nju koriste worker, CLI i SQL (isti izraz u migraciji
+// 0023). Ali korisnik ne bira „37 rezultata": bira jednu od tri ponude, ta se
+// ponuda deli linkom (`?dubina=duboko`) i mora da preživi Back. Zato je `Dubina`
+// ZATVOREN skup od tri člana — token koji UI prikazuje i URL nosi — dok je
+// `stranicaZaRezultate` derivacija koja i za zatečen payload (`maxResults: 30`
+// iz starih poslova) i za CLI-jev slobodan `--broj` daje istu cenu.
+//
+// Dva izvora bi se razišla; ovako je `DUBINE[d].maxResults` samo IMENOVANA
+// vrednost iste funkcije, a `dubinaZaRezultate` je njen inverz.
+
+/** Koliko rezultata Places vraća po stranici. Googleov maksimum, ne naš izbor. */
+export const PLACES_PAGE_SIZE = 20;
+
+/** Tvrda granica Text Searcha: 3 stranice × 20 = 60 rezultata. */
+export const PLACES_MAX_PAGES = 3;
+
 /**
- * Cena jednog skeniranja u kreditima (F9).
+ * Koliko stranica (dakle Places poziva, dakle kredita) traži toliko rezultata.
  *
- * ‼️ NE DIRAJ OVDE. Odluka iz LANSIRANJE §1.2 je da cena postane **1 kredit po
- *    stranici rezultata** (1 / 2 / 3 za Brzo / Standardno / Duboko), ali se to
- *    menja u S17 — i to zajedno sa svim UI stringovima.
- *
- *    Razlog: `components/pretraga-ekran.tsx` na desetak mesta tvrdo piše
- *    „1 kredit" („Skeniraj za 1 kredit", „Osveži za 1 kredit", poruka posle
- *    naplate…). Podizanje ove konstante bez izmene tih stringova pravi prozor u
- *    kome se naplaćuje jedno a piše drugo — nad novcem.
- *
- * Cena je i dalje ista za Beograd i za Šabac, iako Beograd troši više Places
- * poziva; upravo to rešava prelazak na cenu po stranici u S17.
+ * Ograničeno na 1–3 sa obe strane: `0` bi značilo besplatno skeniranje, a `4`
+ * poziv koji Google ionako ne vraća. Ista formula stoji u `spend_credit_and_scan`
+ * (migracija 0023) — tamo je izvor naplate, ovde izvor prikaza.
  */
-export const SCAN_CREDIT_COST = 1;
+export function stranicaZaRezultate(maxResults: number): number {
+  const n = Number.isFinite(maxResults) ? Math.floor(maxResults) : 0;
+  return Math.min(PLACES_MAX_PAGES, Math.max(1, Math.ceil(n / PLACES_PAGE_SIZE)));
+}
+
+/** Cena skeniranja u kreditima. 1 kredit = 1 stranica = 1 Places poziv. */
+export function cenaSkeniranja(maxResults: number): number {
+  return stranicaZaRezultate(maxResults);
+}
+
+/** Tri ponude na ekranu pretrage. Vrednost ide u URL, pa se ne prevodi. */
+export type Dubina = "brzo" | "standardno" | "duboko";
+
+/** Redosled u segmentnoj kontroli — od najjeftinije ka najskupljoj. */
+export const DUBINE = ["brzo", "standardno", "duboko"] as const satisfies readonly Dubina[];
+
+/**
+ * Podrazumevana dubina. Namerno „Standardno" (2 kredita): korisnik koji ništa ne
+ * dira plaća isto koliko je do S17 plaćalo svako skeniranje bilo koje dubine.
+ */
+export const PODRAZUMEVANA_DUBINA: Dubina = "standardno";
+
+export type DubinaOpis = {
+  /** Šta piše na dugmetu. */
+  labela: string;
+  /** Gornja granica rezultata — ono što ide u `payload.maxResults`. */
+  maxResults: number;
+  /** Broj stranica = broj Places poziva = cena u kreditima. */
+  stranica: number;
+};
+
+/**
+ * `maxResults` je NAMERNO tačan umnožak stranice (20/40/60), a ne „do 45".
+ * Worker računa stranice iz `maxResults`, pa svaka vrednost između bi značila da
+ * plaćeno i skenirano više nisu isti broj poziva.
+ */
+export const DUBINA_OPIS: Record<Dubina, DubinaOpis> = {
+  brzo:       { labela: "Brzo",       maxResults: 20, stranica: 1 },
+  standardno: { labela: "Standardno", maxResults: 40, stranica: 2 },
+  duboko:     { labela: "Duboko",     maxResults: 60, stranica: 3 },
+};
+
+/** Koliko kredita košta izabrana dubina. */
+export function cenaDubine(dubina: Dubina): number {
+  return DUBINA_OPIS[dubina].stranica;
+}
+
+/** Koliko rezultata nosi izabrana dubina — jedina vrednost koja sme u payload. */
+export function maxRezultataZaDubinu(dubina: Dubina): number {
+  return DUBINA_OPIS[dubina].maxResults;
+}
+
+/**
+ * Inverz: koja je ponuda odgovarala ovom broju rezultata.
+ *
+ * Postoji zbog zatečenih podataka — poslovi upisani pre S17 nose `maxResults: 30`,
+ * a redovi u `search_cache` dobijaju dubinu backfillom iz broja rezultata. Bez
+ * inverza bi ekran za takav red morao da izmisli oznaku.
+ */
+export function dubinaZaRezultate(maxResults: number): Dubina {
+  const stranica = stranicaZaRezultate(maxResults);
+  return DUBINE.find((d) => DUBINA_OPIS[d].stranica === stranica) ?? PODRAZUMEVANA_DUBINA;
+}
+
+/** Nepoznata vrednost iz URL-a ili tela zahteva ne sme da sruši ekran. */
+export function dubinaIli(raw: unknown, rezerva: Dubina = PODRAZUMEVANA_DUBINA): Dubina {
+  return DUBINE.find((d) => d === raw) ?? rezerva;
+}

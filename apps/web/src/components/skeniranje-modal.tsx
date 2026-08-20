@@ -6,21 +6,38 @@
 // Isti obrazac kao otključavanje: korisnik vidi šta plaća, koliko ima i koliko
 // mu ostaje, pre nego što se ijedan kredit pomeri.
 //
-// Tri razloga zbog kojih se ovaj modal otvara imaju tri različita teksta, i to
-// nije ukras (F9, odluka 8): „nije u kešu" i „bilo je besplatno, isteklo je" su
-// za korisnika različite vesti, a treće — ručno osvežavanje nečega što još važi
-// — mora jasno da kaže da plaća nešto što bi inače imao badava.
+// Četiri razloga zbog kojih se ovaj modal otvara imaju četiri različita teksta,
+// i to nije ukras (F9, odluka 8): „nije u kešu" i „bilo je besplatno, isteklo
+// je" su za korisnika različite vesti, treće — ručno osvežavanje nečega što još
+// važi — mora jasno da kaže da plaća nešto što bi inače imao badava, a četvrto
+// je od S17: kombinacija JESTE u kešu i JESTE sveža, ali plića od tražene
+// dubine. To je jedini slučaj u kome korisnik plaća a podaci nisu stari, pa mu
+// se mora reći tačno šta kupuje — stranice, ne svežinu.
+//
+// [S17] Nijedan naslov ni dugme više ne piše „1 kredit". Cena dolazi iz
+// `predlog.cost` (1 / 2 / 3, po izabranoj dubini) i prolazi kroz `plural` —
+// „2 kredita", ne „2 kredit".
 
-import { RefreshCw, Search, Zap } from "lucide-react";
+import { Layers, RefreshCw, Search, Zap } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { formatDatum, plural } from "@/lib/ui-tekst";
 
-export type SkeniranjeRazlog = "prvo" | "isteklo" | "rucno";
+export type SkeniranjeRazlog = "prvo" | "isteklo" | "rucno" | "plice";
 
 export type SkeniranjePredlog = {
   razlog: SkeniranjeRazlog;
+  /** Cena izabrane dubine u kreditima: 1 „Brzo", 2 „Standardno", 3 „Duboko". */
   cost: number;
+  /** Šta piše na dugmetu dubine — „Brzo" / „Standardno" / „Duboko". */
+  dubinaLabela: string;
+  /** Do koliko prospekata izabrana dubina ide (20 / 40 / 60). */
+  maxRezultata: number;
+  /**
+   * [S17] Koliko je stranica u kešu, kad je razlog `plice`. `null` inače.
+   * Ovo je jedini broj koji objašnjava zašto se plaća nešto što nije staro.
+   */
+  kesiranaDubina: number | null;
   /** Kad je kombinacija poslednji put skenirana. `null` za prvo skeniranje. */
   lastScannedAt: string | null;
   creditsLeft: number;
@@ -35,16 +52,23 @@ type Props = {
   onOdustani: () => void;
 };
 
-const NASLOV: Record<SkeniranjeRazlog, string> = {
-  prvo: "Skeniranje košta 1 kredit",
-  isteklo: "Osvežavanje košta 1 kredit",
-  rucno: "Ponovno skeniranje košta 1 kredit",
+/** „2 kredita", nikad „2 kredit". Jedna funkcija za naslov, dugme i tabelu. */
+function kredita(n: number): string {
+  return `${n} ${plural(n, "kredit", "kredita", "kredita")}`;
+}
+
+const RADNJA: Record<SkeniranjeRazlog, string> = {
+  prvo: "Skeniranje",
+  isteklo: "Osvežavanje",
+  rucno: "Ponovno skeniranje",
+  plice: "Dublje skeniranje",
 };
 
-const POTVRDA: Record<SkeniranjeRazlog, string> = {
-  prvo: "Skeniraj za 1 kredit",
-  isteklo: "Osveži za 1 kredit",
-  rucno: "Skeniraj ponovo za 1 kredit",
+const POTVRDA_GLAGOL: Record<SkeniranjeRazlog, string> = {
+  prvo: "Skeniraj",
+  isteklo: "Osveži",
+  rucno: "Skeniraj ponovo",
+  plice: "Skeniraj dublje",
 };
 
 export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props) {
@@ -55,15 +79,22 @@ export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props)
   const posle = predlog.creditsLeft - predlog.cost;
   const datum = predlog.lastScannedAt ? formatDatum(predlog.lastScannedAt) : null;
 
-  const Ikona = razlog === "prvo" ? Search : razlog === "isteklo" ? Zap : RefreshCw;
+  const Ikona =
+    razlog === "prvo" ? Search
+    : razlog === "isteklo" ? Zap
+    : razlog === "plice" ? Layers
+    : RefreshCw;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onOdustani()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{NASLOV[razlog]}</DialogTitle>
+          <DialogTitle>
+            {RADNJA[razlog]} košta <span className="num">{kredita(predlog.cost)}</span>
+          </DialogTitle>
           <DialogDescription>
-            {predlog.cityLabel} · {predlog.nicheLabel}
+            {predlog.cityLabel} · {predlog.nicheLabel} ·{" "}
+            <span className="num">{predlog.dubinaLabela}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -83,15 +114,39 @@ export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props)
                 Podaci su od <span className="num">{datum}</span> i još važe — ovo skeniranje nije
                 neophodno. Povlači sveže stanje sa Google Maps-a i pomera rok za novih 30 dana.
               </>
+            )}
+            {razlog === "plice" && (
+              <>
+                Ova kombinacija JESTE u kešu i podaci nisu stari — skenirana je{" "}
+                <span className="num">{datum}</span>, ali samo{" "}
+                <span className="num">
+                  {predlog.kesiranaDubina ?? 1}{" "}
+                  {plural(predlog.kesiranaDubina ?? 1, "stranicu", "stranice", "stranica")}
+                </span>
+                . Za{" "}
+                <span className="num">
+                  {predlog.dubinaLabela.toLowerCase()} (do {predlog.maxRezultata} prospekata)
+                </span>{" "}
+                Google mora da se pozove ponovo, i to se plaća.
+              </>
             )}{" "}
-            Posle skeniranja je ova kombinacija besplatna svima narednih 30 dana.
+            Posle skeniranja je ova kombinacija besplatna svima narednih 30 dana —
+            do te dubine.
           </p>
 
           <dl className="grid grid-cols-2 gap-y-2 rounded-xl border border-border bg-bg-subtle px-4 py-3 text-xs">
-            <dt className="text-fg-muted">Cena</dt>
+            <dt className="text-fg-muted">Dubina</dt>
             <dd className="num text-right font-medium">
-              {predlog.cost} {plural(predlog.cost, "kredit", "kredita", "kredita")}
+              {predlog.dubinaLabela} · do {predlog.maxRezultata}
             </dd>
+
+            <dt className="text-fg-muted">
+              Cena{" "}
+              <span className="text-[11px]">
+                ({predlog.cost} {plural(predlog.cost, "stranica", "stranice", "stranica")})
+              </span>
+            </dt>
+            <dd className="num text-right font-medium">{kredita(predlog.cost)}</dd>
 
             <dt className="text-fg-muted">Imaš</dt>
             <dd className="num text-right font-medium">{predlog.creditsLeft}</dd>
@@ -102,11 +157,14 @@ export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props)
 
           {!dovoljno ? (
             <p className="text-xs text-danger">
-              Nemaš dovoljno kredita. Pretrage iz keša su i dalje besplatne.
+              Nemaš dovoljno kredita za ovu dubinu
+              {predlog.cost > 1 ? " — probaj plići izbor" : ""}. Pretrage iz keša su i dalje
+              besplatne.
             </p>
           ) : (
             <p className="text-xs text-fg-muted">
-              Ako Google ne nađe nijednu firmu, kredit ti se vraća.
+              Ako Google ne nađe nijednu firmu,{" "}
+              {predlog.cost === 1 ? "kredit ti se vraća" : `sva ${predlog.cost} kredita ti se vraćaju`}.
             </p>
           )}
         </div>
@@ -117,7 +175,7 @@ export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props)
           </Button>
           <Button type="button" variant="primary" onClick={onPotvrdi} disabled={ceka || !dovoljno}>
             <Ikona className="h-4 w-4" />
-            {ceka ? "Pokrećem…" : POTVRDA[razlog]}
+            {ceka ? "Pokrećem…" : `${POTVRDA_GLAGOL[razlog]} za ${kredita(predlog.cost)}`}
           </Button>
         </div>
       </DialogContent>

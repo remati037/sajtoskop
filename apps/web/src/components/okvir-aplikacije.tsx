@@ -497,7 +497,7 @@ function KarticaKredita({
       </div>
 
       <p className="mt-2 text-[11px] leading-tight text-fg-muted">
-        Obnavlja se prvog u mesecu. Keš je besplatan, novo skeniranje 1 kredit.
+        Obnavlja se prvog u mesecu. Keš je besplatan, novo skeniranje 1–3 kredita po dubini.
       </p>
     </Link>
   );

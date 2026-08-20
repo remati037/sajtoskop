@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/ide-odmah.ts",
+    "test": "tsx test/ide-odmah.ts && tsx test/dubina.ts",
     "lint": "eslint ."
   },
   "dependencies": {

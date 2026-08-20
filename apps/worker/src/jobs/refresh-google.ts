@@ -5,7 +5,7 @@
 // naša imovina i nema TTL (00-kontekst §4). Osvežava se samo ono što je
 // Googleovo — naziv, adresa, telefon, sajt, ocena.
 
-import { resolveCity, resolveNiche } from "@sajtoskop/shared";
+import { resolveCity, resolveNiche, stranicaZaRezultate } from "@sajtoskop/shared";
 import { recordScan } from "../lib/db-writes";
 import type { JobContext, JobResult } from "./types";
 import { collectAndUpsert } from "./scan";
@@ -32,6 +32,10 @@ export async function runRefreshGoogle(raw: unknown, ctx: JobContext): Promise<J
     nicheSlug: niche.slug,
     count: inCity.length,
     jobId: ctx.job.id,
+    // [S17] I ručno osvežavanje upisuje dubinu koju je stvarno povuklo. Podrazumevanih
+    // `maxResults: 60` je pun scan, pa je kombinacija posle njega besplatna i za
+    // „Duboko" — a to je i jedini razlog zbog kog ovaj posao još postoji.
+    pages: stranicaZaRezultate(payload.maxResults),
   });
 
   // Biznis koji se više ne pojavljuje u Text Searchu ostaje sa starim datumom.

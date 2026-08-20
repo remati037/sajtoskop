@@ -3,13 +3,21 @@
 // nema svež audit. Jedini posao u sistemu koji troši Google kvotu.
 //
 // ── koliko ovo košta ───────────────────────────────────────
-// Jedan upit je do 3 Places poziva (3 stranice × 20 rezultata). Podrazumevano
-// je JEDAN upit po scanu, dakle najviše 3 poziva.
+// [S17] Jedan upit je TAČNO onoliko Places poziva koliko je stranica plaćeno:
+// `maxResults` iz payloada (20 / 40 / 60) → 1 / 2 / 3 poziva → 1 / 2 / 3 kredita
+// (LANSIRANJE §1.2). `spend_credit_and_scan` normalizuje `maxResults` na umnožak
+// stranice pre nego što upiše posao, a `searchText` staje na tom broju stranica
+// — pa skeniranje dublje od plaćenog ne može da nastane ni zaokruživanjem.
+//
+// Podrazumevano je JEDAN upit po scanu (`buildScanQueries` bez `deep` vraća
+// jedan), pa je broj upita × broj stranica = broj poziva = cena.
 //
 // `SCAN_DEEP=1` cepa veliki grad po opštinama iz taksonomije. Beograd ima 15
 // opština → 45 poziva, što je 60% dnevnog capa i 5% mesečnog za jednu pretragu
-// jednog korisnika. Zato deep ima svoj tvrd limit (`SCAN_MAX_QUERIES`) i nije u
-// payloadu — web ga ne može poslati ni greškom, postoji samo za ručno pokretanje.
+// jednog korisnika. Zato deep ima svoj tvrd limit (`SCAN_MAX_QUERIES`), nije u
+// payloadu — web ga ne može poslati ni greškom — i postoji samo za ručno
+// pokretanje. ‼️ Deep JESTE skeniranje dublje od plaćenog i zato NIKAD ne sme da
+// se uključi na mašini koja vrti poslove iz weba.
 
 import type { Business, City, Niche } from "@sajtoskop/shared";
 import {
@@ -18,6 +26,7 @@ import {
   foldForSearch,
   resolveCity,
   resolveNiche,
+  stranicaZaRezultate,
 } from "@sajtoskop/shared";
 import { BudgetError } from "../lib/api-budget";
 import { placeIdsNeedingAudit, recordScan, refundScan, upsertBusinesses, zapisiNapredak } from "../lib/db-writes";
@@ -26,7 +35,7 @@ import { enqueueMany } from "../lib/queue";
 import type { JobContext, JobResult } from "./types";
 import { scanPayloadSchema } from "./types";
 
-/** Tvrd limit na broj upita po scanu. Svaki upit je do 3 Places poziva. */
+/** Tvrd limit na broj upita po scanu. Svaki upit je do 3 Places poziva (deep). */
 const SCAN_MAX_QUERIES = Number(process.env.SCAN_MAX_QUERIES ?? 5);
 
 /**
@@ -136,6 +145,11 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     ctx,
   );
 
+  // [S17] Dubina koju ovaj scan pokriva — ista formula iz koje je izvedena i
+  // cena. Čita se iz `maxResults`, ne iz broja vraćenih firmi: Google ume da za
+  // tri plaćene stranice vrati 25 rezultata, a korisnik je platio obim, ne broj.
+  const stranica = stranicaZaRezultate(payload.maxResults);
+
   // Registar keša se upisuje pre svakog izlaza iz ove funkcije, i za prazan
   // rezultat (F9 §1). Prazno koje se ne zapamti naplaćuje se svakom sledećem
   // radoznalom korisniku redom, a svaki taj pokušaj su nova 3 Places poziva.
@@ -149,6 +163,9 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     // korisnik vidi da kombinacija nije potpuna, i ponovno skeniranje ne
     // izgleda kao lažno svež rezultat (B5).
     partial,
+    // [S17] Bez ovoga bi svaka kombinacija u kešu izgledala kao plitka i „Duboko"
+    // bi se naplaćivalo iznova nad podacima koji već postoje.
+    pages: stranica,
   });
 
   // Skenirano, ali neregistrovano. Za korisnika je to najgori mogući ishod:
@@ -158,9 +175,11 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
   let vracenoBezRegistra = 0;
   if (!registrovan) {
     vracenoBezRegistra = await refundScan(ctx.job.id);
+    // `refundScan` vraća BROJ PLATILACA, ne zbir kredita — od S17 iznos po
+    // platiocu nije uvek 1, pa bi „vraćeno N kredita" bio pogrešan broj u logu.
     ctx.log(
       `registar keša NIJE upisan — kombinacija ostaje van keša, ` +
-        `vraćeno ${vracenoBezRegistra} kredita`,
+        `kredit vraćen na ${vracenoBezRegistra} naloga`,
     );
   }
 
@@ -177,7 +196,7 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     return {
       note:
         `${city.label} · ${niche.label}: nijedan rezultat (${apiCalls} API poziva` +
-        `${vraceno > 0 ? `, vraćeno ${vraceno} kredita` : ""})`,
+        `${vraceno > 0 ? `, kredit vraćen na ${vraceno} naloga` : ""})`,
       ...(partial && { partial }),
     };
   }
@@ -205,7 +224,7 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     note:
       `${city.label} · ${niche.label}: ${inCity.length} biznisa, ` +
       `${created} za analizu, ${apiCalls} API poziva${partial ? " (parcijalno)" : ""}` +
-      (registrovan ? "" : ` — BEZ REGISTRA KEŠA, vraćeno ${vracenoBezRegistra} kredita`),
+      (registrovan ? "" : ` — BEZ REGISTRA KEŠA, kredit vraćen na ${vracenoBezRegistra} naloga`),
     ...(partial && { partial }),
   };
 }

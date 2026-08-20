@@ -118,6 +118,13 @@ export async function recordScan(args: {
   jobId: number | null;
   /** [Faza 6, 6.4] Budžet je stao usred scana — kombinacija se pamti kao parcijalna. */
   partial?: boolean;
+  /**
+   * [S17] Koliko je stranica ovaj scan povukao (1–3) — dakle koliko je Places
+   * poziva plaćeno i koliko obim keš od sada pokriva. Bez ovoga bi kombinacija
+   * skenirana plitko izgledala kao pun scan i zahtev za „Duboko" nad njom bi
+   * prošao besplatno sa 20 redova umesto 60 (migracija 0023).
+   */
+  pages: number;
 }): Promise<boolean> {
   let poslednja = "";
 
@@ -129,6 +136,7 @@ export async function recordScan(args: {
       p_count: args.count,
       p_job_id: args.jobId,
       p_partial: args.partial ?? false,
+      p_pages: args.pages,
     });
 
     if (!error) return true;

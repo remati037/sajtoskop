@@ -1,7 +1,8 @@
-# Vizuelna provera — PLAN-IZMENA (Faze 0–7)
+# Vizuelna provera — PLAN-IZMENA (Faze 0–7) i lansiranje (S16+)
 
 > Lista onoga što se stvarno može proveriti kroz aplikaciju i terminal posle
-> svih osam faza iz `docs/PLAN-IZMENA.md` (isporuke S8–S15, migracije 0017–0021).
+> svih osam faza iz `docs/PLAN-IZMENA.md` (isporuke S8–S15, migracije 0017–0021),
+> uz sekcije dopisane za isporuke iz `docs/LANSIRANJE.md` (S16+, migracije 0022+).
 > Grupisana po ekranima — ide se kroz app u jednom prolazu. Svaka stavka kaže
 > **šta uraditi** i **šta očekivati**. Prazan kvadratić = još nije provereno.
 >
@@ -38,6 +39,49 @@
 - [ ] Isprazni kredite pa pokušaj otključavanje — poruka o neuspehu stoji **odmah iznad tabele**, ne na vrhu strane.
 - [ ] Isključi internet pa klikni „Otključaj" — poruka „Nema veze sa serverom…" uz tabelu, kredit nije skinut.
 - [ ] Brzi klik na „Otključaj" 100+ puta iz konzole (`for i in $(seq 101); do curl -X POST …`) — 101. vraća **429** sa porukom na srpskom; sledeći minut opet radi.
+
+### Dubina skeniranja i cena po stranici (S17)
+> 1 kredit = 1 stranica = 1 Places poziv. Sve ispod se proverava u **obe teme**.
+
+**Prekidač**
+- [ ] Ispod forme stoji segmentna kontrola **Brzo / Standardno / Duboko**, klizač je **jedan** element koji se pomera (isti obrazac kao mesečno/godišnje na `/cenovnik`), staza i klizač idu `--border-strong`.
+- [ ] Podrazumevano je **Standardno** — na svežoj strani, bez ijednog klika.
+- [ ] Uz svaku opciju stoje broj prospekata i cena (`20 · 1 kredit`, `40 · 2 kredita`, `60 · 3 kredita`), oba `.num` — brojevi ne skaču pri prelasku sa opcije na opciju.
+- [ ] Tab dovodi fokus na aktivnu opciju; **strelice levo/desno** menjaju izbor i vrte se u krug.
+- [ ] Dok scan traje, prekidač je isključen (ne može da se promeni dubina posla koji je već plaćen).
+
+**Cena prati izbor — nigde ne sme da ostane „1 kredit"**
+- [ ] Izaberi kombinaciju van keša i prođi kroz sve tri dubine: dugme piše **„Skeniraj za 1 / 2 / 3 kredita"** (pazi na oblik — „2 kredita", nikad „2 kredit").
+- [ ] Traka ispod forme menja iznos zajedno sa dugmetom.
+- [ ] Modal potvrde: naslov, red **Cena**, red **Posle skeniranja** i dugme potvrde — sva četiri broja se slažu sa izabranom dubinom.
+- [ ] Modal ima i red **Dubina** („Standardno · do 40").
+- [ ] Posle naplate poruka glasi „Skinuto je N kredita za … skeniranje", a balans u bočnoj traci padne za tačno toliko.
+- [ ] `grep -rn "1 kredit" apps/web/src` ne vraća **nijedan** string o skeniranju (otključavanje i +1 za utisak ostaju — oni i dalje koštaju 1).
+
+**Plitak keš za dublji zahtev (zamka 1)**
+- [ ] Skeniraj kombinaciju na **Brzo**. Prebaci na **Duboko** — tabela se **isprazni** (nije filter nego druga ponuda), traka kaže „U kešu je samo 1 stranica — duboko košta 3 kredita", ne „stariji od 30 dana".
+- [ ] Klik → modal ima ikonicu slojeva i tekst koji izričito kaže da **podaci nisu stari, samo ih je manje**.
+- [ ] Vrati se na **Brzo** — ista kombinacija je opet **besplatno**.
+- [ ] Posle dubokog scana ista kombinacija je besplatna na **sve tri** dubine.
+
+**URL i deljenje**
+- [ ] Izaberi „Duboko" — adresa dobije `&dubina=duboko`; osveži stranu, prekidač je i dalje na „Duboko".
+- [ ] Vrati na „Standardno" — parametar **nestaje** iz URL-a (podrazumevano se ne upisuje), a stari link `?grad=…&nisa=…` i dalje radi.
+- [ ] Otvori link sa `dubina=duboko` u drugom tabu nad plaćenom kombinacijom: strana se učita, traka kaže cenu za 3 kredita, **nema** modala dok korisnik sam ne klikne.
+- [ ] Zalepi `&dubina=izmisljeno` — pada na Standardno, bez greške na ekranu.
+
+**Lista keša**
+- [ ] Svaki red nosi oznaku dubine (**Brzo / Standardno / Duboko**); hover pokazuje objašnjenje sa brojem stranica.
+- [ ] Sa izabranim „Duboko", klik na red označen „Brzo" je i dalje **besplatan** — prekidač se vidljivo spusti na „Brzo". Lista se zove „besplatne pretrage" i klik na red nikad ne otvara modal sa računom.
+
+**Tanak novčanik**
+- [ ] Nalog sa **1 kreditom** + „Duboko": dugme je isključeno, traka kaže „Imaš 1 kredit — dovoljno za pliću dubinu", veza „Vidi kredite" radi.
+- [ ] Prebaci na „Brzo" — dugme oživi i skeniranje prođe. Nigde nema pada ni praznog ekrana.
+
+**Da se ne skenira dublje nego što je plaćeno**
+- [ ] U logu workera posle „Brzo" scana piše **1 API poziv**, posle „Standardno" 2, posle „Duboko" 3 — ni jedan više.
+- [ ] `select pages, last_results_count from search_cache order by last_scanned_at desc limit 5` — dubina odgovara ponudi koja je plaćena.
+- [ ] `select delta, ref_id from credit_ledger where reason = 'scan' order by id desc limit 5` — iznos je −1 / −2 / −3, poklapa se sa dubinom.
 
 ### Besplatne pretrage / lista keša (Faza 5, 5.6 · Faza 6, 6.4)
 - [ ] Sklopljeni red „Besplatne pretrage" je jedna kartica bez unutrašnjeg okvira — samo razdelnici.

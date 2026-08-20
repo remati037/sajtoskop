@@ -16,7 +16,7 @@ import { Command } from "commander";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadRootEnv, supabaseAdmin, workspaceRoot } from "@sajtoskop/worker/lib";
-import { CITIES } from "@sajtoskop/shared";
+import { CITIES, stranicaZaRezultate } from "@sajtoskop/shared";
 
 // Pre svega ostalog — `.env` živi u korenu monorepoa, a cwd zavisi od toga
 // da li si pokrenuo `pnpm seed` ili `pnpm --filter @sajtoskop/cli seed`.
@@ -255,6 +255,11 @@ async function recordSeededScans(db: SupabaseClient, records: SeedRecord[]): Pro
       niche_slug: v.niche,
       last_scanned_at: v.stamp,
       last_results_count: v.count,
+      // [S17] Dubina se izvodi iz broja seedovanih redova, isto kao backfill u
+      // migraciji 0023. Bez nje bi svaka seedovana kombinacija ostala na
+      // podrazumevanoj 1 stranici i „Duboko" bi u razvoju uvek tražilo kredit
+      // nad podacima koji lokalno već postoje.
+      pages: stranicaZaRezultate(v.count),
     }));
 
   if (redovi.length === 0) {

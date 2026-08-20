@@ -354,7 +354,7 @@ ostaje kao rezerva za nekoga ko kupuje pre nego što se uloguje. Isti popust, dv
 | N8 | **`/cenovnik` nije linkovan niotkuda.** Nula linkova u celom `src`. | — |
 | ~~N9~~ ☑ | **Rešeno u S16.** Stub, zavisnost, lockfile i env očišćeni; `grep -ri polar` vraća samo `docs/`. | — |
 | N10 | **Paketi postoje kao podatak, ali ne i kao ekran.** Cene se učitavaju (u `SVI_PRICE_ID` su), sekcija koja ih prikazuje dolazi u S21. | `components/cenovnik-ekran.tsx` |
-| N11 | **`SCAN_CREDIT_COST` je i dalje 1**, a odluka je cena po dubini. UI na ~10 mesta tvrdo piše „1 kredit". Menja se u S17, i to sve odjednom. | `plans.ts`, `pretraga-ekran.tsx` |
+| ~~N11~~ | ~~`SCAN_CREDIT_COST` je i dalje 1~~ — **rešeno u S17.** Konstanta je obrisana, cena se izvodi iz broja stranica, i sva mesta koja su pisala „1 kredit" (i tri van `pretraga-ekran.tsx` koje spisak nije imao) promenjena su odjednom. | `plans.ts`, `pretraga-ekran.tsx` |
 
 ### Ne radi — životni ciklus i ostalo
 
@@ -448,7 +448,7 @@ odgovor knjigovođe). Ne blokira nijednu sesiju — blokira **produkciju**, ne r
 | ~~R1, R2, R5, R5a, R6~~ | Places cena, budžet, paketi, override-i, kupon | — | — | ☑ |
 | **R3, R4, R7, R8** | Paddle: API ključ, payment link, tunel, destination | — | 45 min | ☐ |
 | ~~**S16**~~ | Novčanik, planovi, paketi, migracija `0022` | — | 1,5 dana | ☑ |
-| **S17** | **Dubina skeniranja, cena po stranici** | S16 | 1 dan | ☐ |
+| ~~**S17**~~ | Dubina skeniranja, cena po stranici, migracija `0023` | S16 | 1 dan | ☑ |
 | **S18** | Paddle webhook + serverski checkout + kupon | S17, R3+R4+R7+R8 | 1,5 dana | ☐ |
 | **S19** | Životni ciklus pristupa: beta istek, grace, modal, baneri | S16 | 1,5 dana | ☐ |
 | **S20** | Admin konzola: beta nalozi | S19 | 0,75 dana | ☐ |
@@ -617,8 +617,9 @@ pomene u `docs/`; `planFor("pro")` vraća Pro limite; potrošnja prazni pravu ka
 **☑ Isporučeno 21. avgusta 2026.** Sva četiri uslova ispunjena; 46 novih provera u bloku
 „S16 — novčanik i naplata". Detalji i odstupanja u `docs/SESIJE.md`.
 
-**Preneto u S17:** `SCAN_CREDIT_COST` je i dalje `1` (namerno — v. N11), a cena po dubini
-traži i kolonu sa brojem stranica u `search_cache` i dubinu u ključu deduplikacije (§1.2).
+**Preneto u S17 (i tamo isporučeno):** `SCAN_CREDIT_COST` je bio `1` (namerno — v. N11),
+a cena po dubini je tražila i kolonu sa brojem stranica u `search_cache` i dubinu u ključu
+deduplikacije (§1.2).
 
 **Preneto u S21:** `/krediti`, `/dashboard` i admin ekran korisnika i dalje prikazuju samo
 `credits_balance`. Dok webhook ne postoji, `credits_topup` ne može ni da bude različit od
@@ -728,6 +729,17 @@ Dopuni docs/PROVERA-VIZUELNA.md sekcijom za izbor dubine. Ažuriraj docs/SESIJE.
 
 **Gotovo kad:** „Brzo" naplaćuje 1 kredit i vraća 20 prospekata; „Duboko" nad kombinacijom
 keširanom plitko naplaćuje i ide u Places; `pnpm check:f4` prolazi.
+
+**☑ Isporučeno 20. avgusta 2026.** Migracija `0023_dubina_skeniranja.sql`. Sve tri zamke iz
+§1.2 pokrivene proverama: keš pamti dubinu (`search_cache.pages`, sa backfillom iz
+`last_results_count`), ključ deduplikacije nosi broj stranica (`RS:grad:nisa:p2`), a cena
+se izvodi iz stranica i meri nad zbirom obe kase. `SCAN_CREDIT_COST` više ne postoji.
+33 nove provere u `check:sql` i nov `apps/web/test/dubina.ts`. Detalji i odstupanja u
+`docs/SESIJE.md`.
+
+**Preneto u S18:** ništa. **Preneto u S21:** ekran cenovnika i prikaz zbira obe kase na
+`/krediti`, `/dashboard` i admin ekranu — strana pretrage je već prešla na zbir, jer
+odlučuje o naplati.
 
 ---
 
@@ -1359,6 +1371,7 @@ Ne radi se pre, ali je zapisano da se ne izgubi:
 | Datum | Izmena |
 |---|---|
 | 2026-08-20 | Prva verzija. |
+| 2026-08-20 | **S17 isporučen — cena skeniranja je 1 kredit po stranici.** Migracija `0023`: `search_cache.pages` (1–3, backfill iz `last_results_count`), dubina u ključu deduplikacije (`RS:grad:nisa:p2`), cena izvedena iz stranica i merena nad zbirom obe kase, `refund_scan` vraća tačan iznos iz knjige. `SCAN_CREDIT_COST` obrisan; zamenili su ga `Dubina` (zatvoren skup za UI i URL) i `cenaSkeniranja()` (totalna funkcija za worker, CLI i SQL). `PLACES_PAGE_SIZE`/`PLACES_MAX_PAGES` preseljeni iz `places.ts` u `plans.ts`. Nov razlog naplate `plice` — svež ali plitak keš. **Nijedna funkcija ne menja povratni tip**, jer bi drugi prolaz `check:sql` pukao; dubina se čita iz kolone, kao `partial` u 0021. `searchText` staje na plaćenom broju stranica — dotad je umeo da povuče stranicu preko plaćene. |
 | 2026-08-21 | **Dokument očišćen od zaostalih „otvoreno" oznaka.** §4 preimenovan u „Pitanja — sva zatvorena"; zaglavlje kaže da S16 nema preduslova; `P6` skinut sa preduslova S20; `N10` prepravljen (paketi POSTOJE u katalogu i kodu, fali im samo ekran); dodat `N11` (`SCAN_CREDIT_COST` je i dalje 1, menja se u S17); mapa isporuka razdvaja odrađene ručne korake od preostalih. |
 | 2026-08-21 | **Kupon `BETA2026` napravljen** (`dsc_01m0fgb2e0ex6dh5g3hba2c1ep`) i upisan u `.env`. **Pogodnosti u `cenovnik.ts` usklađene** sa tabelom §1.3: šest istih stavki po kartici, „AI poruke po kanalu" zamenjeno dnevnim brojem AI varijanti, Advanced 800 kredita i 10.000 CSV redova. Lede na `/cenovnik` prepravljen — kredit je sada prospekt ILI stranica skeniranja. **S16 više ne dira `SCAN_CREDIT_COST`** (ostaje 1 do S17), jer UI na ~10 mesta tvrdo piše „1 kredit". |
 | 2026-08-21 | **Paddle sandbox katalog dovršen iz sesije.** `RS` override skinut sa svih šest cena; napravljen proizvod „Dopuna kredita" sa dve jednokratne cene (€19 / €49); svih 8 `pri_` ID-jeva upisano u `lib/cenovnik.ts`; `.env.example` dopunjen sa tri serverske Paddle promenljive. **Kupon `BETA2026` ostaje ručno** — MCP ključ nema `discount.write` (korak R6). |

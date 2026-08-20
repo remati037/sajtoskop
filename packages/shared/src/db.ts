@@ -218,8 +218,11 @@ export type SearchRow = {
 
 /**
  * Registar keširanih kombinacija (F9, migracija 0009). Jedini izvor istine o
- * tome da li pretraga košta: `last_scanned_at` mlađi od `GOOGLE_TTL_DAYS` znači
- * besplatno, sve ostalo znači 1 kredit.
+ * tome da li pretraga košta.
+ *
+ * [S17] Uslov pogotka je od migracije 0023 DVOSTRUK: `last_scanned_at` mlađi od
+ * `GOOGLE_TTL_DAYS` **i** `pages >= tražene dubine`. Sve ostalo košta onoliko
+ * kredita koliko tražena dubina ima stranica (LANSIRANJE §1.2).
  */
 export type SearchCacheRow = {
   country_code: string;
@@ -230,6 +233,16 @@ export type SearchCacheRow = {
   scan_count: number;
   last_job_id: number | null;
   created_at: string;
+  /** [Faza 6, 6.4] Budžet je stao usred scana — kombinacija nije potpuna. */
+  partial: boolean;
+  /**
+   * [S17] Koliko je STRANICA povukao poslednji scan (1–3, migracija 0023).
+   *
+   * Ovo je ono što keš pogodak čini uslovnim: zahtev za 3 stranice nad redom
+   * skeniranim na 1 NIJE pogodak — 20 redova nije 60. Isti broj je i cena koja
+   * je za taj red plaćena.
+   */
+  pages: number;
 };
 
 export type JobType =

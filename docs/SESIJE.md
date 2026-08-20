@@ -2061,3 +2061,154 @@ se već poklapala (100/300/800 kredita, 30/60/120 skeniranja, 5/20/60 AI varijan
   prva sledeća mesečna dodela briše negativan balans nastao povraćajem. Dug traje najviše
   do kraja meseca. To je cena odluke iz §1.4 da ta funkcija ostane nepromenjena; ako se
   pokaže kao stvaran problem, rešenje je zasebna kolona duga, a ne izmena te funkcije.
+
+---
+
+## S17 — Dubina skeniranja i cena po stranici ☑
+
+**Isporučeno 20. avgusta 2026.** Izvor: `docs/LANSIRANJE.md` §1.2 i §6, sesija S17.
+Migracija `0023_dubina_skeniranja.sql`. Webhook, kapija pristupa i ekran cenovnika nisu
+dirani — to su S18, S19 i S21.
+
+**Cilj, ispunjen:** 1 kredit = 1 stranica rezultata = 1 Places poziv.
+
+| Dubina | Prospekata | Stranica | Kredita |
+|---|---|---|---|
+| Brzo | do 20 | 1 | 1 |
+| Standardno *(podrazumevano)* | do 40 | 2 | 2 |
+| Duboko | do 60 | 3 | 3 |
+
+### Šta je urađeno
+
+1. **`packages/shared/src/plans.ts`** — `SCAN_CREDIT_COST` obrisan. Umesto njega:
+   `stranicaZaRezultate()` / `cenaSkeniranja()` (totalne nad bilo kojim brojem),
+   tip `Dubina` sa tri člana, `DUBINA_OPIS`, `DUBINE`, `PODRAZUMEVANA_DUBINA`,
+   `cenaDubine()`, `maxRezultataZaDubinu()`, `dubinaZaRezultate()`, `dubinaIli()`.
+   `PLACES_PAGE_SIZE` i `PLACES_MAX_PAGES` **preseljeni iz `places.ts`** — nisu kopirani.
+   `scansPerMonth` u modelu nikad nije ni postojao (S16 ga nije ostavio); `cacheMissPerDay`
+   ostaje kao dnevni osigurač sa vrednostima iz §1.3.
+2. **Migracija `0023`** — `spend_credit_and_scan` izvodi cenu iz broja stranica, meri je
+   nad zbirom obe kase i nosi dubinu u ključu deduplikacije (`RS:grad:nisa:p2`);
+   `search_cache.pages` sa `check (pages between 1 and 3)` i backfillom iz
+   `last_results_count`; `record_scan` prima sedmi argument `p_pages`; `refund_scan` čita
+   iznos iz `credit_ledger` i vraća tačno onoliko koliko je naplaćeno.
+3. **Web** — segmentna kontrola sa tri opcije po obrascu prekidača ciklusa iz
+   `cenovnik-ekran.tsx`, stanje dubine u URL-u (`?dubina=`), četvrti razlog naplate
+   (`plice`) kroz traku cene i modal, dubina uz svaki red u listi keša.
+   **Nijedan „1 kredit" o skeniranju nije ostao** — ni u `pretraga-ekran.tsx`, ni u
+   `skeniranje-modal.tsx`, ni na `/dashboard`, ni u bočnoj traci.
+4. **Worker** — `searchText` staje na PLAĆENOM broju stranica; `record_scan` dobija dubinu
+   iz `scan` i iz `refresh_google`.
+5. **CLI** — nov `--dubina`, a `--broj` se normalizuje kroz isti `stranicaZaRezultate`.
+   Ispisuje koliko bi izabrani obim koštao u aplikaciji. `seed.ts` upisuje `pages`.
+6. **Testovi** — 33 nove provere u `check:sql` (blokovi „S17 — dubina skeniranja" i
+   „S17 — keš pamti dubinu") i nov `apps/web/test/dubina.ts` sa 25 provera.
+
+### Odluke koje nisu bile doslovno u promptu
+
+1. **I `Dubina` I `cenaSkeniranja()`, ne jedno ili drugo.** Prompt je tražio da se predloži
+   oblik. Cena je funkcija broja stranica i mora da bude totalna — worker dobija sirov
+   `maxResults` iz payloada (uključujući `30` iz poslova upisanih pre S17), CLI ima
+   slobodan `--broj`, a SQL prelazi istu formulu. Ali korisnik ne bira „37 rezultata":
+   bira jednu od tri ponude, a ta ponuda ide u URL i mora da preživi Back i deljenje
+   linka. Zato je `Dubina` **zatvoren skup** (token za UI i URL), a `DUBINA_OPIS[d].maxResults`
+   je samo IMENOVANA vrednost iste funkcije — `dubinaZaRezultate` je njen inverz, pa dva
+   izvora ne mogu da se raziđu.
+2. **Kolona se zove `pages`, ne `depth`.** Nosi broj stranica, a to je istovremeno broj
+   Places poziva i cena u kreditima. „Depth" bi bio naziv ponude — a ponuda se sme
+   preimenovati i preurediti bez ijedne migracije dokle god je u bazi broj stranica.
+3. **NIJEDNA funkcija ne menja povratni tip.** `spend_credit_and_scan`, `search_cache_state`
+   i `search_cache_overview` prave 0009, 0020 i 0022 kroz `create or replace`; drugi prolaz
+   `check:sql` bi na izmenjenom `returns table` pukao sa „cannot change return type of
+   existing function". Zato se `pages` čita **iz kolone**, u `search-cache.ts` — isti
+   obrazac kojim je 0021 uveo `partial`. `record_scan` sme da menja argumente jer se pre
+   kreiranja eksplicitno `drop`-uje, i to je jedina funkcija koja to radi.
+4. **`spend_credit_and_scan` NORMALIZUJE `maxResults` na `stranica × 20` pre upisa u
+   payload.** Bez toga bi worker iz `maxResults: 45` izračunao 3 stranice, a naplaćeno bi
+   bilo… takođe 3, ali samo slučajno. Ovako su plaćeno i skenirano isti broj po
+   konstrukciji.
+5. **`searchText` sada staje na plaćenom broju stranica, ne na `MAX_PAGES`.** Ovo je jedina
+   izmena koja je stvarno zaustavila skeniranje dublje od plaćenog: petlja je išla do 3 i
+   izlazila tek na `out.length >= maxResults`, a taj uslov se proverava POSLE poziva — scan
+   za 20 rezultata je umeo da povuče drugu stranicu ako je Google na prvoj vratio 19
+   (firma van grada, duplikat po `place_id`). Jedna stranica preko plaćenog je jedan
+   Places poziv koji niko nije odobrio.
+6. **Nov razlog naplate: `plice`.** Kombinacija koja JESTE u kešu i JESTE sveža, ali je
+   skenirana pliće nego što se traži. To je jedini slučaj u kome se plaća a podaci nisu
+   stari, pa rečenica govori o OBIMU: „U kešu je samo 1 stranica — duboko košta 3 kredita".
+   „Stariji od 30 dana" bi tu bio prosto netačan.
+7. **Klik na red u listi keša SPUŠTA izabranu dubinu na keširanu.** Lista se zove
+   „besplatne pretrage" i klik na red koji piše „besplatno do 11.09." ne sme da otvori
+   modal sa računom — a otvorio bi ga zbog prekidača koji korisnik nije ni dodirnuo.
+   Prekidač se pri tome vidljivo pomeri, pa je promena očigledna.
+8. **Promena dubine briše rezultate**, kao promena grada (Faza 4, 4.4), i **ne pokreće**
+   novu pretragu. Tabela sa 20 redova ispod prekidača na kome piše „Duboko · do 60" bi
+   tvrdila da je to duboka lista; a automatska pretraga bi značila da se plaća pomeranjem
+   prekidača.
+9. **Podrazumevana dubina se ne upisuje u URL.** `?grad=…&nisa=…` ostaje kratak link koji
+   je i do sada radio i znači tačno ono što je i značio — 2 kredita.
+10. **`budzetZaScan()` prima broj poziva.** Odbiti „Brzo" zato što u dnevnoj kvoti nema
+    mesta za tri poziva značilo bi odbiti skeniranje koje bi stalo.
+11. **`refund_scan` i dalje vraća BROJ PLATILACA, ne zbir kredita.** Oblik funkcije se ne
+    dira (v. 3), a logovi u workeru koji su pisali „vraćeno N kredita" su ispravljeni u
+    „kredit vraćen na N naloga" — od S17 iznos po platiocu nije uvek 1.
+12. **Poruka o nedovoljnim kreditima nudi izlaz.** „Ovo skeniranje košta 3, a imaš 1. Za
+    „Brzo" (1 kredit) ti je dovoljno ono što imaš." Ista logika u modalu i u traci cene.
+13. **Prikazani balans na strani pretrage je ZBIR obe kase.** `route.ts` je čitao samo
+    `credits_balance`, pa bi korisniku sa kupljenim paketom pisalo „nemaš dovoljno" iako
+    `spend_credit_and_scan` meri nad zbirom. Ovo je bio zaostatak iz S16 („Preneto u S21"),
+    ali na putanji koja odlučuje o naplati nije smeo da sačeka.
+14. **Pad čitanja `pages` u `stanjeKesa` se NE guta**, za razliku od `partial`. `partial` je
+    oznaka na ekranu; `pages` je polovina uslova naplate. Tiho `0` bi svaku pretragu
+    proglasilo plaćenom, tiho `3` bi dublji zahtev nad plitkim kešom pustio besplatno.
+    U `listaKesa` se pad i dalje guta — ta lista ništa ne naplaćuje.
+
+### Šta se razišlo sa promptom
+
+**Funkcija u `places.ts` se zvala `pagesNeeded`, ne `stranicaZaRezultate`.** Prompt je
+naveo srpsko ime; u kodu je stajalo englesko. Preseljena je u shared pod imenom
+`stranicaZaRezultate` — `plans.ts` već ima `Ciklus` i `PaketId`, pa je to ime lokalnoj
+konvenciji tog fajla bliže od `pagesNeeded`.
+
+**`scansPerMonth` nije postojao.** Prompt je tražio da se ukloni „ako je S16 ostavio" —
+nije ga ostavio, u `plans.ts` ga nikad nije ni bilo. Ništa nije uklonjeno.
+
+**Spisak „1 kredit" mesta iz prompta je bio nepotpun.** Grep je našao i tri van
+`pretraga-ekran.tsx`: dva na `/dashboard` i jedno u bočnoj traci (`okvir-aplikacije.tsx`).
+Sva tri su ispravljena.
+
+### Provereno
+
+`pnpm typecheck`, `pnpm check:sql` (dva prolaza, „Sve prošlo" — 33 nove provere),
+`pnpm test`, `pnpm --filter web lint` (0/0) i `pnpm build` prolaze.
+
+Provere koje pokrivaju baš ono što je prompt tražio: 1/2/3 stranice → 1/2/3 kredita
+(mereno i u knjizi i u balansu); dupli klik na istu dubinu → jedna naplata; dva korisnika
+sa različitim dubinama → dva posla i dva različita iznosa; keš dubine 1 + zahtev dubine 3
+→ naplata, keš dubine 3 + zahtev dubine 1 → besplatno; `refund_scan` vraća 3 za posao
+naplaćen 3; nedovoljno kredita za „Duboko" a dovoljno za „Brzo" → uredna poruka i uspešno
+plitko skeniranje.
+
+### Ostaje na meni
+
+- **`pnpm check:f4` nad PRAVOM bazom** — opet je dirana novčana putanja
+  (`spend_credit_and_scan`, `refund_scan`). PGlite ima jednu konekciju i pravu trku ne
+  može da izvede.
+- **Pustiti `0023` na Supabase-u** pre S18.
+- Proći sekciju „Dubina skeniranja i cena po stranici (S17)" u `docs/PROVERA-VIZUELNA.md`,
+  u obe teme.
+
+### Preneto dalje
+
+- **S21 (ekran cenovnika):** lede na `/cenovnik` i dalje treba da kaže da je kredit
+  „prospekat ILI **stranica** skeniranja" — tekst je usklađen još u S16, ali sada iza njega
+  stoji i kod. Ekran cenovnika u ovoj sesiji nije diran.
+- **S21 (prikaz kredita):** `/krediti`, `/dashboard` i admin ekran korisnika i dalje
+  prikazuju samo `credits_balance`. Strana pretrage je od S17 izuzetak (v. odluka 13) —
+  ostala tri ekrana ostaju na S21.
+- **Ako se ikad uvede četvrta ponuda:** menja se `DUBINA_OPIS` u `plans.ts`, `check` na
+  `search_cache.pages`, i odsecanje u `stranicaZaRezultate` / `v_pages`. Ništa drugo —
+  prekidač, URL, modal i traka cene se grade iz `DUBINE`.
+- **`SCAN_DEEP=1` je jedini preostali put do skeniranja dubljeg od plaćenog.** Nije u
+  payloadu i web ga ne može poslati, ali NIKAD ne sme da se uključi na mašini koja vrti
+  poslove iz weba. Zapisano i u zaglavlju `apps/worker/src/jobs/scan.ts`.

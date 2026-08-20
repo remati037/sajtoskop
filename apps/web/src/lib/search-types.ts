@@ -6,7 +6,7 @@
 // Ovde su samo tipovi i konstante. Funkcija koja pravi `PublicLead` je u
 // `public-lead.ts` i ona jeste `server-only`.
 
-import type { AiIssue, PhoneKind, Platform, SiteStatus, UglyBand } from "@sajtoskop/shared";
+import type { AiIssue, Dubina, PhoneKind, Platform, SiteStatus, UglyBand } from "@sajtoskop/shared";
 
 // Hard cap, bez `limit` parametra iz klijenta (PRD §2: nema bulk endpointa).
 export const PAGE_SIZE = 30;
@@ -102,24 +102,41 @@ export type SearchSummary = {
  * `queued` postoji od F3: kombinacija koje nema u kešu pokreće posao.
  *
  * `needs_scan` je od F9 i zamenjuje raniji `not_scanned`: kombinacija nije u
- * kešu (ili je starija od 30 dana), skeniranje košta kredit i korisnik ga još
- * nije potvrdio. Uz taj status NE IZLAZI nijedan lead — ni ime, ni grad.
+ * kešu, starija je od 30 dana, ili je skenirana pliće nego što se traži (S17);
+ * skeniranje košta i korisnik cenu još nije potvrdio. Uz taj status NE IZLAZI
+ * nijedan lead — ni ime, ni grad.
  */
 export type SearchStatus = "cache" | "needs_scan" | "queued";
 
 /** Prvo skeniranje kombinacije ili osvežavanje one kojoj je istekao TTL. */
-export type ScanKind = "prvo" | "osvezavanje";
+/**
+ * `plice` je od S17: kombinacija JESTE u kešu i JESTE sveža, ali je skenirana
+ * plitko a korisnik traži dublje. Nije osvežavanje (podaci nisu stari) i nije
+ * prvo skeniranje (nešto već postoji) — treća vrsta, treća rečenica.
+ */
+export type ScanKind = "prvo" | "osvezavanje" | "plice";
 
 /**
  * Cena koju server nudi klijentu uz `needs_scan`. Klijent ne računa ništa sam —
  * ni cenu, ni preostali balans, ni to da li je u pitanju prvo skeniranje.
  */
 export type ScanCost = {
+  /** Cena u kreditima = broj stranica izabrane dubine (S17). */
   cost: number;
   kind: ScanKind;
   /** Kad je kombinacija poslednji put skenirana. `null` = nikad. */
   lastScannedAt: string | null;
   creditsLeft: number;
+  /** Dubina za koju je ova cena izračunata — ona koju je klijent tražio. */
+  dubina: Dubina;
+  /**
+   * [S17] Dubina koja je u kešu, kad kombinacija JESTE skenirana ali plitko.
+   *
+   * `null` znači „nikad skenirano" ili „isteklo". Kad je broj manji od tražene
+   * dubine, razlog naplate nije istekao rok nego premali obim — a to je treća
+   * rečenica u traci cene, ne ista kao prve dve.
+   */
+  kesiranaDubina: number | null;
 };
 
 export type SearchResponse = {
@@ -146,6 +163,8 @@ export type SearchResponse = {
   emptyScan?: boolean;
   /** `true` kad je ovaj zahtev skinuo kredit. Klijent po tome javlja poruku. */
   charged?: boolean;
+  /** Koliko je kredita skinuto (S17: 1/2/3). Popunjeno samo uz `charged: true`. */
+  cost?: number;
   /** Balans posle ovog zahteva. Popunjen samo kad je bilo naplate. */
   creditsLeft?: number;
 };
@@ -174,6 +193,13 @@ export type KesStavka = {
   partial: boolean;
   /** Skenirano, ali Google nema nijednu firmu. Ostaje u listi, sivo. */
   empty: boolean;
+  /**
+   * [S17] Koliko je stranica povukao poslednji scan (1–3).
+   *
+   * Bez ovoga korisnik ne zna zašto je jedna pretraga besplatna a druga nije:
+   * red keširan plitko je besplatan za „Brzo", a naplaćuje se za „Duboko".
+   */
+  pages: number;
 };
 
 /** Ono što vraća `GET /api/job/:id`. Klijent po ovome crta stanje pretrage. */

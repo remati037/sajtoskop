@@ -7,7 +7,7 @@ import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { Business } from "@sajtoskop/shared";
-import { cirToLat, phoneType } from "@sajtoskop/shared";
+import { cirToLat, phoneType, PLACES_PAGE_SIZE, stranicaZaRezultate } from "@sajtoskop/shared";
 import {
   assertAvailable,
   BudgetError,
@@ -49,8 +49,12 @@ const FIELD_MASK = [
   "nextPageToken",
 ].join(",");
 
-const PAGE_SIZE = 20;      // maksimum koji API dozvoljava
-const MAX_PAGES = 3;       // 3 × 20 = 60, tvrda granica Text Searcha
+// [S17] Veličina stranice i tvrda granica od 3 stranice žive u
+// `packages/shared/src/plans.ts`, jer iz njih izlazi CENA: 1 kredit = 1 stranica
+// = 1 Places poziv (LANSIRANJE §1.2). Dok su stajale ovde, web nije imao odakle
+// da ih pročita — isti presedan kao ugly-score: jedan izvor istine za web,
+// worker i CLI. Odsecanje na 3 radi `stranicaZaRezultate`.
+const PAGE_SIZE = PLACES_PAGE_SIZE;
 const PAGE_DELAY_MS = 2000;
 
 export type SearchOptions = {
@@ -99,14 +103,6 @@ function explainError(status: number, body: string): string {
     : status >= 500 ? "greška na Googleovoj strani, probaj ponovo za minut"
     : "nepoznat uzrok";
   return `Places API ${status} — ${hint}\n${body.slice(0, 500)}`;
-}
-
-/**
- * Koliko će stranica ovaj scan realno povući.
- * Koristi se za pre-flight proveru budžeta, da scan ne pukne na pola.
- */
-function pagesNeeded(maxResults: number): number {
-  return Math.min(MAX_PAGES, Math.max(1, Math.ceil(maxResults / PAGE_SIZE)));
 }
 
 async function fetchPage(
@@ -197,7 +193,10 @@ export async function searchText(
 
   // Pre-flight: proveri budžet za CEO scan pre prvog poziva.
   // Bolje pući odmah nego posle prve stranice sa 20 nepotpuno prikupljenih firmi.
-  await assertAvailable(pagesNeeded(maxResults), `scan "${textQuery}" (${maxResults} rez.)`);
+  await assertAvailable(
+    stranicaZaRezultate(maxResults),
+    `scan "${textQuery}" (${maxResults} rez.)`,
+  );
 
   const seen = new Set<string>();
   const out: Business[] = [];
@@ -205,7 +204,14 @@ export async function searchText(
   let partial = false;
   let token: string | undefined;
 
-  for (let page = 0; page < MAX_PAGES; page++) {
+  // ‼️ Gornja granica je PLAĆEN broj stranica, ne `MAX_PAGES`. Do S17 je petlja
+  // išla do 3 i stajala tek na `out.length >= maxResults` — a taj uslov pada tek
+  // POSLE poziva, pa je scan za 20 rezultata umeo da povuče drugu stranicu ako
+  // je Google na prvoj vratio 19 (firma van grada, duplikat po `place_id`).
+  // Jedna stranica preko plaćenog je jedan Places poziv koji niko nije odobrio.
+  const stranica = stranicaZaRezultate(maxResults);
+
+  for (let page = 0; page < stranica; page++) {
     if (page > 0) await sleep(PAGE_DELAY_MS);
 
     let data: PlacesResponse;

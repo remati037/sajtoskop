@@ -2,7 +2,7 @@
 // Jedini ulaz u pretragu — i jedino mesto na kome se odlučuje da li ona košta.
 //
 // F2: čita iz keša. F3: promašaj keša upisuje `scan` posao. F9: taj posao se
-// plaća 1 kreditom, a keš mlađi od 30 dana je besplatan svima. Sam Places poziv
+// plaća kreditima, a keš mlađi od 30 dana je besplatan svima. Sam Places poziv
 // i dalje radi isključivo worker — ova funkcija ne sme da dodirne Google (pravilo 7).
 //
 // ── redosled na plaćenom putu, i zašto baš taj ─────────────
@@ -12,14 +12,27 @@
 //   2. registar keša             — možda je besplatno, pa nema šta da se naplati
 //   3. `pay !== true`            — cena se vraća klijentu, kredit se ne dira
 //   4. pre-flight budžet         — da se ne plati posao koji čeka Googleovu kvotu
-//   5. `claim_cache_miss`        — dnevni limit od 10 (F9 zadržava i njega)
+//   5. `claim_cache_miss`        — dnevni osigurač po planu (F9 zadržava i njega)
 //   6. `spend_credit_and_scan`   — kredit i posao, u jednoj transakciji
+//
+// ── [S17] cena je po stranici ──────────────────────────────
+// Klijent šalje `dubina` (zatvoren skup od tri), NIKAD broj rezultata. Ova ruta
+// je prevodi u `maxResults` i time u broj stranica, dakle u broj Places poziva,
+// dakle u cenu — 1 kredit po stranici (LANSIRANJE §1.2).
+//
+// Dubina menja i BESPLATAN put, ne samo cenu: pogodak u kešu traži i svežinu i
+// dovoljan obim. Keširane 1 stranica ne pokriva zahtev za 3 — 20 redova nije 60.
 //
 // Zaštita NIJE u middleware-u (Clerk je deprecirao `createRouteMatcher`), nego
 // prva linija handlera: `requireUserId()`.
 
 import { NextResponse } from "next/server";
-import { DEFAULT_PLAN, SCAN_CREDIT_COST } from "@sajtoskop/shared";
+import {
+  cenaSkeniranja,
+  DEFAULT_PLAN,
+  maxRezultataZaDubinu,
+  stranicaZaRezultate,
+} from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
 import { budzetZaScan } from "@/lib/budzet";
 import {
@@ -32,7 +45,7 @@ import {
 import { getOwnProfile } from "@/lib/profile";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import { searchCachedLeads } from "@/lib/search";
-import { COUNTRY, stanjeKesa } from "@/lib/search-cache";
+import { besplatno, COUNTRY, stanjeKesa } from "@/lib/search-cache";
 import { searchBodySchema } from "@/lib/search-schema";
 import { PAGE_SIZE, type SearchResponse } from "@/lib/search-types";
 import { formatDatum } from "@/lib/ui-tekst";
@@ -80,17 +93,24 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const { city, niche, filters, page, pay, force } = parsed.data;
+  const { city, niche, filters, page, pay, force, dubina } = parsed.data;
+
+  // Ponuda → rezultati → stranice → cena. Jedan lanac, jedan izvor (shared), i
+  // baza ga u `spend_credit_and_scan` prelazi ponovo nad istim `maxResults`.
+  const maxResults = maxRezultataZaDubinu(dubina);
+  const stranica = stranicaZaRezultate(maxResults);
+  const cost = cenaSkeniranja(maxResults);
 
   try {
     const stanje = await stanjeKesa(city, niche);
+    const uKesu = besplatno(stanje, stranica);
 
     // ── besplatan put ───────────────────────────────────────
     // Dva slučaja, oba bez naplate: keš je svež, ili je scan u toku i ovaj
     // korisnik ga je već platio. Drugi je bitan koliko i prvi — bez njega bi
     // korisnik koji gleda kako mu se lista puni na svakom osvežavanju nailazio
     // na traženje kredita za posao koji je maločas platio.
-    if (stanje.fresh && !(pay && force)) {
+    if (uKesu && !(pay && force)) {
       const result = await searchCachedLeads({
         userId, city, niche, filters, page,
         scannedAt: stanje.scannedAt,
@@ -103,7 +123,7 @@ export async function POST(req: Request): Promise<Response> {
       return NextResponse.json(body, { headers: HEADERS });
     }
 
-    const uToku = await zivPlacenPosao({ userId, countryCode: COUNTRY, city, niche });
+    const uToku = await zivPlacenPosao({ userId, countryCode: COUNTRY, city, niche, maxResults });
 
     if (uToku !== null) {
       const result = await searchCachedLeads({
@@ -127,7 +147,7 @@ export async function POST(req: Request): Promise<Response> {
     // posao. Zaustavlja se PRE cene i pre naplate — i za `pay` i bez njega, jer
     // je poslednji korak pollovanja upravo zahtev bez `pay` i on je taj koji je
     // do sada ekran ostavljao prazan, bez rezultata i bez ijedne reči.
-    const neregistrovan = await scanBezRegistra({ countryCode: COUNTRY, city, niche });
+    const neregistrovan = await scanBezRegistra({ countryCode: COUNTRY, city, niche, maxResults });
 
     if (neregistrovan !== null) {
       console.error(
@@ -144,8 +164,21 @@ export async function POST(req: Request): Promise<Response> {
 
     // ── nije besplatno: koliko košta ────────────────────────
     const profile = await getOwnProfile();
-    const creditsLeft = profile?.credits_balance ?? 0;
-    const kind = stanje.scannedAt ? ("osvezavanje" as const) : ("prvo" as const);
+
+    // Prikazano stanje kredita je ZBIR obe kase (0022): potrošnja prazni prvo
+    // `credits_balance`, pa `credits_topup`, i provera je nad zbirom. Prikazati
+    // samo balans značilo bi reći „nemaš dovoljno" čoveku koji ima kupljen paket.
+    const creditsLeft = (profile?.credits_balance ?? 0) + (profile?.credits_topup ?? 0);
+
+    // Tri razloga naplate, tri rečenice korisniku (F9 odluka 8 + S17):
+    //   prvo         — kombinacije nema u registru
+    //   osvezavanje  — ima je, ali je starija od 30 dana
+    //   plice        — sveža je, ali je skenirana pliće nego što se traži
+    const kind = !stanje.scannedAt
+      ? ("prvo" as const)
+      : stanje.fresh
+        ? ("plice" as const)
+        : ("osvezavanje" as const);
 
     if (!pay) {
       // Nijedan lead ne izlazi uz `needs_scan` — ni ime, ni grad (pravilo 1 i 9).
@@ -158,10 +191,12 @@ export async function POST(req: Request): Promise<Response> {
         results: [],
         summary: PRAZAN_SUMAR,
         scan: {
-          cost: SCAN_CREDIT_COST,
+          cost,
           kind,
           lastScannedAt: stanje.scannedAt,
           creditsLeft,
+          dubina,
+          kesiranaDubina: stanje.fresh ? stanje.pages : null,
         },
       };
 
@@ -169,7 +204,10 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     // ── plaćeni put ─────────────────────────────────────────
-    const budzet = await budzetZaScan();
+    // Rezerviše se tačno onoliko poziva koliko izabrana dubina traži. Odbiti
+    // „Brzo" zato što u kvoti nema mesta za tri poziva značilo bi odbiti
+    // skeniranje koje bi stalo.
+    const budzet = await budzetZaScan(stranica);
     if (!budzet.dostupno) {
       return greska(
         "Dnevna kvota za skeniranje je potrošena. Kredit nije skinut — probaj sutra, " +
@@ -195,7 +233,7 @@ export async function POST(req: Request): Promise<Response> {
 
     let charge: Awaited<ReturnType<typeof spendCreditAndScan>>;
     try {
-      charge = await spendCreditAndScan({ userId, countryCode: COUNTRY, city, niche });
+      charge = await spendCreditAndScan({ userId, countryCode: COUNTRY, city, niche, maxResults });
     } catch (err) {
       // Rezervacija je potrošena, a naplata nije prošla — vrati je korisniku.
       await releaseCacheMiss(userId);
@@ -213,9 +251,13 @@ export async function POST(req: Request): Promise<Response> {
 
       // 402 Payment Required — isti status kao kod otključavanja, pa klijent zna
       // da ponudi „vidi kredite" umesto „pokušaj ponovo".
+      // [S17] Poruka mora da kaže KOLIKO fali i da postoji jeftinija ponuda —
+      // korisnik sa 1 kreditom koji je kliknuo „Duboko" ima uredan izlaz, ne zid.
+      const jeftinije = cost > 1 ? ` Za „Brzo" (1 kredit) ti je dovoljno ono što imaš.` : "";
+
       return greska(
-        `Nemaš dovoljno kredita za skeniranje. Beta plan dobija 30 kredita prvog u mesecu, ` +
-          `a pretrage iz keša su besplatne i ne troše ništa.`,
+        `Nemaš dovoljno kredita: ovo skeniranje košta ${cost}, a imaš ${charge.creditsLeft}.` +
+          `${jeftinije} Pretrage iz keša su besplatne i ne troše ništa.`,
         402,
       );
     }
@@ -243,7 +285,7 @@ export async function POST(req: Request): Promise<Response> {
     // loguje i vraća se prazan `queued`.
     let result: Awaited<ReturnType<typeof searchCachedLeads>>;
     try {
-      result = stanje.fresh
+      result = uKesu
         ? await searchCachedLeads({
             userId, city, niche, filters, page,
             scannedAt: stanje.scannedAt,
@@ -276,6 +318,7 @@ export async function POST(req: Request): Promise<Response> {
       status: "queued",
       job: { id: jobId, joined: charge.joined },
       charged: charge.charged,
+      cost,
       creditsLeft: charge.creditsLeft,
     };
 

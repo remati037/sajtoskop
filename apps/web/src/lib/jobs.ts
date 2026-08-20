@@ -9,7 +9,7 @@
 // njoj ne zna ništa — on izvršava ono što u redu zatekne.
 
 import "server-only";
-import { planFor } from "@sajtoskop/shared";
+import { planFor, stranicaZaRezultate } from "@sajtoskop/shared";
 import type { JobStatus, JobType, ScanSpendReason, ScanSpendResult } from "@sajtoskop/shared";
 import { adminSupabase } from "./supabase";
 
@@ -88,9 +88,17 @@ async function enqueue(args: {
   return { jobId: row.job_id, joined: row.joined };
 }
 
-/** Ključ po kome dva korisnika sa istom pretragom dele jedan posao. */
-function scanKey(countryCode: string, city: string, niche: string): string {
-  return `${countryCode}:${city}:${niche}`;
+/**
+ * Ključ po kome dva korisnika sa istom pretragom dele jedan posao.
+ *
+ * [S17] Nosi i BROJ STRANICA (`…:p2`). Bez toga bi dva korisnika sa različitim
+ * dubinama u istoj sekundi delila jedan posao — plitki bi „pobedio" jer je
+ * upisan prvi, a duboki bi platio 3 kredita za 20 rezultata. Isti izraz stoji u
+ * `spend_credit_and_scan` (migracija 0023); ako se raziđu, web bi tražio živ
+ * posao pod ključem pod kojim ga baza nije upisala.
+ */
+function scanKey(countryCode: string, city: string, niche: string, stranica: number): string {
+  return `${countryCode}:${city}:${niche}:p${stranica}`;
 }
 
 /**
@@ -116,12 +124,20 @@ export async function spendCreditAndScan(args: {
   countryCode: string;
   city: string;
   niche: string;
+  /**
+   * [S17] Gornja granica rezultata izabrane dubine (20 / 40 / 60). Baza iz nje
+   * izvodi i broj stranica i cenu i ključ deduplikacije, i NORMALIZUJE je na
+   * `stranica × 20` pre nego što je upiše u payload — worker time ne može da
+   * skenira dublje nego što je plaćeno.
+   */
+  maxResults: number;
 }): Promise<ScanCharge> {
   const { data, error } = await adminSupabase().rpc("spend_credit_and_scan", {
     p_user: args.userId,
     p_country: args.countryCode,
     p_city: args.city,
     p_niche: args.niche,
+    p_max_results: args.maxResults,
   });
 
   if (error) throw new Error(`Naplata skeniranja nije uspela: ${error.message}`);
@@ -156,6 +172,8 @@ export async function zivPlacenPosao(args: {
   countryCode: string;
   city: string;
   niche: string;
+  /** [S17] Dubina je deo ključa posla — plitki i duboki scan su dva posla. */
+  maxResults: number;
 }): Promise<number | null> {
   const db = adminSupabase();
 
@@ -163,7 +181,8 @@ export async function zivPlacenPosao(args: {
     .from("job_queue")
     .select("id")
     .eq("type", "scan")
-    .eq("dedupe_key", scanKey(args.countryCode, args.city, args.niche))
+    .eq("dedupe_key", scanKey(args.countryCode, args.city, args.niche,
+                              stranicaZaRezultate(args.maxResults)))
     .in("status", ["pending", "running"])
     .order("id", { ascending: true })
     .limit(1)
@@ -216,6 +235,8 @@ export async function scanBezRegistra(args: {
   countryCode: string;
   city: string;
   niche: string;
+  /** [S17] Ista dubina koju korisnik traži — plići posao nije ovaj posao. */
+  maxResults: number;
 }): Promise<number | null> {
   const od = new Date(Date.now() - BEZ_REGISTRA_MINUTA * 60_000).toISOString();
 
@@ -223,7 +244,8 @@ export async function scanBezRegistra(args: {
     .from("job_queue")
     .select("id")
     .eq("type", "scan")
-    .eq("dedupe_key", scanKey(args.countryCode, args.city, args.niche))
+    .eq("dedupe_key", scanKey(args.countryCode, args.city, args.niche,
+                              stranicaZaRezultate(args.maxResults)))
     .eq("status", "done")
     .gte("finished_at", od)
     .order("id", { ascending: false })

@@ -9,11 +9,18 @@
 // strani weba; tvrda brana ostaje u workeru.
 
 import "server-only";
-import { GLOBAL_DAILY_API_CAP, GLOBAL_MONTHLY_API_CAP } from "@sajtoskop/shared";
+import { GLOBAL_DAILY_API_CAP, GLOBAL_MONTHLY_API_CAP, PLACES_MAX_PAGES } from "@sajtoskop/shared";
 import { adminSupabase } from "./supabase";
 
-/** Jedan scan je do 3 stranice paginacije, dakle do 3 poziva. */
-export const POZIVA_PO_SCANU = 3;
+/**
+ * Gornja granica: jedan scan je do 3 stranice paginacije, dakle do 3 poziva.
+ *
+ * [S17] Od uvođenja dubine ovo je samo REZERVA, ne stvaran trošak — „Brzo" je
+ * jedna stranica i traži jedan poziv. Zato `budzetZaScan` prima broj poziva:
+ * odbiti „Brzo" zato što u kvoti nema mesta za tri poziva značilo bi odbiti
+ * skeniranje koje bi stalo.
+ */
+export const POZIVA_PO_SCANU = PLACES_MAX_PAGES;
 
 export type BudzetStanje = {
   dostupno: boolean;
@@ -21,7 +28,7 @@ export type BudzetStanje = {
   mesecOstatak: number;
 };
 
-export async function budzetZaScan(): Promise<BudzetStanje> {
+export async function budzetZaScan(poziva: number = POZIVA_PO_SCANU): Promise<BudzetStanje> {
   const { data, error } = await adminSupabase().rpc("api_budget_status", {
     p_daily_cap: GLOBAL_DAILY_API_CAP,
     p_monthly_cap: GLOBAL_MONTHLY_API_CAP,
@@ -36,7 +43,7 @@ export async function budzetZaScan(): Promise<BudzetStanje> {
   if (!row) return { dostupno: false, danOstatak: 0, mesecOstatak: 0 };
 
   return {
-    dostupno: row.day_remaining >= POZIVA_PO_SCANU && row.month_remaining >= POZIVA_PO_SCANU,
+    dostupno: row.day_remaining >= poziva && row.month_remaining >= poziva,
     danOstatak: row.day_remaining,
     mesecOstatak: row.month_remaining,
   };

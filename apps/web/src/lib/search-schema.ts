@@ -3,7 +3,7 @@
 // proveri bez podizanja Next-a — ruta je tanka i ne sme da krije logiku.
 
 import { z } from "zod";
-import { CITY_SLUGS, NICHE_SLUGS } from "@sajtoskop/shared";
+import { CITY_SLUGS, DUBINE, NICHE_SLUGS, PODRAZUMEVANA_DUBINA } from "@sajtoskop/shared";
 import { MAX_PAGE } from "./search-types";
 
 // `strictObject`: nepoznat ključ je greška, ne šum. Da neko ne pokuša da provuče
@@ -29,6 +29,20 @@ export const searchBodySchema = z.strictObject({
   page: z.number().int().min(1).max(MAX_PAGE).default(1),
 
   /**
+   * [S17] Koliko duboko skenirati — i time koliko kredita to košta (1/2/3).
+   *
+   * Zatvoren skup iz `@sajtoskop/shared`, nikad slobodan broj rezultata: kad bi
+   * klijent slao `maxResults`, mogao bi da traži 60 rezultata pošto je na ekranu
+   * video cenu za 20. Ovako server sam prevodi ponudu u broj stranica, na jednom
+   * mestu, iz istog izvora iz kog je cena i prikazana.
+   *
+   * Podrazumevano „Standardno" — isto što je do S17 koštalo svako skeniranje.
+   * Nema dejstva na besplatnom putu osim jednog: pogodak u kešu je uslovan i po
+   * dubini, pa `dubina` odlučuje i da li je pretraga uopšte besplatna.
+   */
+  dubina: z.enum(DUBINE).default(PODRAZUMEVANA_DUBINA),
+
+  /**
    * Korisnik je u modalu potvrdio trošak (F9 §3). Bez ovoga se kredit NIKAD ne
    * skida — pretraga bez `pay` je uvek ili besplatna, ili vrati `needs_scan` sa
    * cenom. Podrazumevana vrednost je zato `false`, a ne izostavljeno polje:
@@ -37,7 +51,7 @@ export const searchBodySchema = z.strictObject({
   pay: z.boolean().default(false),
 
   /**
-   * Ponovo skeniraj i kad je keš svež (F9, odluka 7 — dugme „Osveži za 1 kredit"
+   * Ponovo skeniraj i kad je keš svež (F9, odluka 7 — tekstualno dugme „Osveži"
    * i „Skeniraj ipak ponovo" nad praznom kombinacijom). Bez `pay` nema dejstva.
    */
   force: z.boolean().default(false),

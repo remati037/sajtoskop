@@ -24,13 +24,35 @@ export function istekKesa(scannedAt: string): string {
 export type StanjeKesa = {
   /** `null` znači da kombinacija nikad nije skenirana. */
   scannedAt: string | null;
-  /** Skenirana i mlađa od 30 dana — dakle besplatna. */
+  /**
+   * Skenirana i mlađa od 30 dana. To je NUŽAN, ali od S17 ne i dovoljan uslov
+   * da pretraga bude besplatna — v. `besplatno()`.
+   */
   fresh: boolean;
   total: number;
   noSite: number;
   /** [Faza 6, 6.4] Budžet je stao usred scana — rezultat nije potpun (B5). */
   partial: boolean;
+  /**
+   * [S17] Koliko je stranica povukao poslednji scan (1–3), 0 za nikad skeniranu.
+   * Ovo je druga polovina uslova pogotka: 20 redova nije 60.
+   */
+  pages: number;
 };
+
+/**
+ * Da li je zahtev za `trazenoStranica` nad ovim stanjem BESPLATAN.
+ *
+ * Jedno mesto za ceo uslov, jer se u ruti proverava tri puta (pre besplatnog
+ * puta, pre cene, i posle naplate kad se odlučuje da li se keš uopšte prikazuje).
+ * Dva uslova, oba nužna:
+ *
+ *   svežina  — pravilo 1, Google podatak stariji od 30 dana se ne servira
+ *   obim     — S17, keširane 1 stranica ne pokriva zahtev za 3
+ */
+export function besplatno(stanje: StanjeKesa, trazenoStranica: number): boolean {
+  return stanje.fresh && stanje.pages >= trazenoStranica;
+}
 
 /**
  * Stanje jedne kombinacije. Vraća red uvek, i za nikad skeniranu.
@@ -59,22 +81,32 @@ export async function stanjeKesa(city: string, niche: string): Promise<StanjeKes
   // pošlo naopako — a tiho „nije u kešu" bi značilo naplatu bez razloga.
   if (!row) throw new Error("search_cache_state nije vratio rezultat.");
 
-  // [Faza 6, 6.4] `partial` ne menja oblik RPC funkcije (0009 je ponovo
-  // kreira u check:sql), pa se čita direktno iz tabele — jedan upit manje bitan
-  // od samog stanja, a ne sme da obori pretragu ako padne.
+  // [Faza 6, 6.4 · S17] Ni `partial` ni `pages` ne menjaju oblik RPC funkcije
+  // (0009 i 0020 ih ponovo kreiraju u check:sql, pa im povratni tip mora da
+  // ostane isti), nego se čitaju direktno iz tabele — jednim upitom, za oba.
+  //
+  // ‼️ Razlika je u tome šta se sme progutati: `partial` je oznaka na ekranu i
+  //    njegov pad ne sme da obori pretragu. `pages` je POLOVINA USLOVA NAPLATE,
+  //    pa se njegov pad NE guta — tiho `pages: 0` bi svaku pretragu proglasilo
+  //    plaćenom, a tiho `pages: 3` bi dublji zahtev nad plitkim kešom pustio
+  //    besplatno. Zato jedan upit koji sme da baci, i `fresh` kao brana: dok god
+  //    kombinacija nije sveža, dubina ionako ne odlučuje ništa.
   let partial = false;
-  try {
-    const { data: p } = await adminSupabase()
+  let pages = 0;
+
+  if (row.fresh) {
+    const { data: p, error: pErr } = await adminSupabase()
       .from("search_cache")
-      .select("partial")
+      .select("partial, pages")
       .eq("country_code", COUNTRY)
       .eq("city_slug", city)
       .eq("niche_slug", niche)
-      .maybeSingle<{ partial: boolean }>();
+      .maybeSingle<{ partial: boolean; pages: number }>();
+
+    if (pErr) throw new Error(`Čitanje dubine keša nije uspelo: ${pErr.message}`);
+
     partial = p?.partial ?? false;
-  } catch {
-    // Bez zastavice kombinacija izgleda kao potpuna — bolje nego da padne ceo
-    // `/api/search` zbog ukrasa.
+    pages = p?.pages ?? 0;
   }
 
   return {
@@ -83,6 +115,7 @@ export async function stanjeKesa(city: string, niche: string): Promise<StanjeKes
     total: row.total,
     noSite: row.no_site,
     partial,
+    pages,
   };
 }
 
@@ -112,31 +145,41 @@ export async function listaKesa(userId: string): Promise<KesStavka[]> {
     mine: boolean;
   }[];
 
-  // [Faza 6, 6.4] Zastavice parcijalnosti u JEDNOM upitu (oblik overview
-  // funkcije se ne dira — 0009 je ponovo kreira u check:sql). Pad se guta:
-  // bez oznake kombinacija izgleda potpuna, a lista ostaje.
-  const parcijalne = new Set<string>();
+  // [Faza 6, 6.4 · S17] `partial` i `pages` u JEDNOM upitu (oblik overview
+  // funkcije se ne dira — 0009 i 0020 je ponovo kreiraju u check:sql).
+  //
+  // Ovde se pad SME progutati, za razliku od `stanjeKesa`: ova lista ništa ne
+  // naplaćuje. Bez dubine red prikazuje najplići mogući obim (1 stranica), pa
+  // je najgori ishod da lista potceni kombinaciju — a naplatu ionako odlučuje
+  // `stanjeKesa`, gde pad baca.
+  const dodatno = new Map<string, { partial: boolean; pages: number }>();
   try {
     const { data: p } = await adminSupabase()
       .from("search_cache")
-      .select("city_slug, niche_slug, partial")
-      .eq("partial", true)
-      .returns<{ city_slug: string; niche_slug: string }[]>();
-    for (const r of p ?? []) parcijalne.add(`${r.city_slug}:${r.niche_slug}`);
+      .select("city_slug, niche_slug, partial, pages")
+      .eq("country_code", COUNTRY)
+      .returns<{ city_slug: string; niche_slug: string; partial: boolean; pages: number }[]>();
+    for (const r of p ?? []) {
+      dodatno.set(`${r.city_slug}:${r.niche_slug}`, { partial: r.partial, pages: r.pages });
+    }
   } catch {
     // ukras — ne ruši listu
   }
 
-  return rows.map((r) => ({
-    city: r.city_slug,
-    niche: r.niche_slug,
-    total: r.total,
-    noSite: r.no_site,
-    scannedAt: r.scanned_at,
-    expiresAt: istekKesa(r.scanned_at),
-    fresh: r.fresh,
-    mine: r.mine,
-    empty: r.total === 0,
-    partial: parcijalne.has(`${r.city_slug}:${r.niche_slug}`),
-  }));
+  return rows.map((r) => {
+    const d = dodatno.get(`${r.city_slug}:${r.niche_slug}`);
+    return {
+      city: r.city_slug,
+      niche: r.niche_slug,
+      total: r.total,
+      noSite: r.no_site,
+      scannedAt: r.scanned_at,
+      expiresAt: istekKesa(r.scanned_at),
+      fresh: r.fresh,
+      mine: r.mine,
+      empty: r.total === 0,
+      partial: d?.partial ?? false,
+      pages: d?.pages ?? 1,
+    };
+  });
 }

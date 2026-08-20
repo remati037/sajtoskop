@@ -142,30 +142,40 @@ export {
 export { bezOblika, gradLokativ, nisaAkuzativ } from "./sklonidba";
 
 // ── planovi, paketi, Paddle katalog i globalni kapovi ──────
-export type { Ciklus, PaidPlanId, PaketId, Plan, PlanId } from "./plans";
+export type { Ciklus, Dubina, DubinaOpis, PaidPlanId, PaketId, Plan, PlanId } from "./plans";
 export {
   AI_DAILY_CAP,
   AI_OUTREACH_DAILY_CAP,
   ALL_PRICE_IDS,
   BUDGET_TIMEZONE,
+  cenaDubine,
+  cenaSkeniranja,
   CREDIT_PACKS,
   CREDITS_TIMEZONE,
   creditMonth,
   creditsForPriceId,
   DEFAULT_PLAN,
+  DUBINA_OPIS,
+  DUBINE,
+  dubinaIli,
+  dubinaZaRezultate,
   GLOBAL_DAILY_API_CAP,
   GLOBAL_MONTHLY_API_CAP,
   GOOGLE_TTL_DAYS,
   GRACE_DAYS,
+  maxRezultataZaDubinu,
   PLACES_EUR_PER_CALL,
   PLACES_FREE_CALLS_MONTH,
+  PLACES_MAX_PAGES,
   PLACES_MONTHLY_BUDGET_EUR,
+  PLACES_PAGE_SIZE,
   PLAN_PRICE_IDS,
   PLANS,
   planFor,
   planForPriceId,
+  PODRAZUMEVANA_DUBINA,
   PSI_DAILY_CAP,
-  SCAN_CREDIT_COST,
+  stranicaZaRezultate,
 } from "./plans";
 
 // ── naplata: interfejs bez implementacije (F4 §6) ──────────

@@ -7,6 +7,12 @@
 // narednih 30 dana. Zato red nosi i broj prospekata bez sajta — to je jedina
 // cifra koja govori ima li tu posla, a ne samo koliko ima firmi.
 //
+// [S17] Red nosi i DUBINU do koje je kombinacija skenirana. Bez nje korisnik ne
+// zna zašto je jedna pretraga besplatna a druga nije: red skeniran na jednu
+// stranicu je besplatan za „Brzo", a za „Duboko" traži kredite — a spolja obe
+// izgledaju kao isti „besplatan" red. Klik na red zato i spušta izabranu dubinu
+// na keširanu (v. `izKesa`), da lista ne bi obećala nešto što naplaćuje.
+//
 // Dva stanja, po tome da li na strani već stoje rezultati:
 //   pre pretrage  — puna lista sa uvodnim tekstom, ovo je glavna stvar na ekranu
 //   posle nje     — jedan sklopljen red; tabela je glavna stvar, lista je pri ruci
@@ -17,7 +23,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Search, Sparkles } from "lucide-react";
-import { foldForSearch } from "@sajtoskop/shared";
+import { DUBINA_OPIS, dubinaZaRezultate, foldForSearch, PLACES_PAGE_SIZE } from "@sajtoskop/shared";
 import { cn } from "@/lib/cn";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -116,14 +122,16 @@ export function KesLista({
           <p className="mt-1 text-xs leading-relaxed text-fg-muted">
             {ukupno === 0 ? (
               <>
-                U kešu još nema nijedne kombinacije. Prva pretraga bilo koje košta 1 kredit — i
-                posle nje je ta kombinacija besplatna svima 30 dana.
+                U kešu još nema nijedne kombinacije. Prva pretraga bilo koje košta{" "}
+                <span className="num">1–3 kredita</span>, po izabranoj dubini — i posle nje je ta
+                kombinacija besplatna svima 30 dana.
               </>
             ) : (
               <>
                 Sve što je već u kešu je besplatno i neograničeno — klik na red otvara pretragu
-                bez ijednog kredita. Kombinacija koje nema, ili koja je starija od 30 dana, košta
-                1 kredit.
+                bez ijednog kredita, do dubine koja piše uz njega. Kombinacija koje nema, koja je
+                starija od 30 dana, ili koju tražiš dublje nego što je skenirana, košta{" "}
+                <span className="num">1 kredit po stranici rezultata</span>.
               </>
             )}
           </p>
@@ -266,6 +274,20 @@ function Red({
             {stavka.noSite > 0 && ` · ${stavka.noSite} bez sajta`}
           </span>
         )}
+
+        {/* [S17] Do koje dubine je ovaj red besplatan. Naziv ponude, ne broj
+            stranica: „Brzo" je ono što piše na prekidaču iznad, pa je veza
+            između reda i izbora očigledna bez ijednog objašnjenja. */}
+        <span
+          title={
+            `Skenirano do ${DUBINA_OPIS[dubinaZaRezultate(stavka.pages * PLACES_PAGE_SIZE)].maxResults} prospekata ` +
+            `(${stavka.pages} ${plural(stavka.pages, "stranica", "stranice", "stranica")}). ` +
+            `Besplatno je do te dubine; dublje skeniranje se plaća.`
+          }
+          className="num rounded-full border border-border bg-bg-subtle px-2 py-0.5 text-[10px] font-medium text-fg-muted"
+        >
+          {DUBINA_OPIS[dubinaZaRezultate(stavka.pages * PLACES_PAGE_SIZE)].labela}
+        </span>
 
         {/* [Faza 6, 6.4] Parcijalan scan — budžet je stao usred skeniranja, pa
             kombinacija možda nije potpuna (B5). */}
