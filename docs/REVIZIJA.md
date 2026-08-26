@@ -349,7 +349,7 @@ esbuild/sharp; ugly-score jedini izvor istine (grep po `apps/` — svuda iz
 - **Uslovi korišćenja** i **Politika privatnosti** (ZZPL) — ne postoje ni na jednom
   URL-u; P0 stavka „pre launcha" iz bezbednosnog dokumenta.
 - **Copyright notice** — nema ga u futeru (nema ni futera u app delu).
-- **Landing** (`sajtoskop.com`) — F8, još nije rađen; koren app-a je prijava.
+- ~~**Landing** (`sajtoskop.com`) — F8, još nije rađen~~ — **napravljen 27.8., van ovog repozitorijuma.** Aplikacija je preseljena na `app.sajtoskop.com`; koren app-a i dalje jeste prijava (`LANSIRANJE.md` §1.7).
 - **Kanarinci** — nisu u bazi.
 - **Metrika aktivacije** — F8 §5 traži 5 SQL upita; tabela postoji, upita nema ni
   kao skripte.

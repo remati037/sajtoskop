@@ -14,6 +14,11 @@
 Završene faze: F0–F9, F10, F11.1–F11.4 (F11 ceo), F12.1–F12.3 (F12 ceo).
 Neradjeno iz originalnog opsega: **F8** (landing, pravni, beta).
 
+> **Dopuna 27. avgusta 2026.** F8 se raspao: **landing je napravljen van ovog repozitorijuma**
+> na `sajtoskop.com` (aplikacija je na `app.sajtoskop.com`), **pravni tekstovi i futer su
+> isporučeni u S22**, a **onboarding je zasebna faza** od dve sesije — S27 i S28. Ostaju
+> kanarinci i merenje (S25). Operativni plan je `docs/LANSIRANJE.md`, ne ovaj fajl.
+
 Tekuće: popravke iz `docs/REVIZIJA.md` po `docs/PLAN-IZMENA.md`.
 
 ---
@@ -43,8 +48,9 @@ Isporučeno u celosti (v. „S7" u `docs/SESIJE.md`):
 Ovo je **jedina faza koja dovodi korisnike**, i po `00-kontekst §2` odlučuje o
 tome da li proizvod uopšte ima smisla. Ne preskakati.
 
-1. **Landing** na `sajtoskop.com` (hero sa brojkama iz seed izveštaja, FAQ) —
-   app koren ostaje prijava; domeni se razdvoje (`app.` subdomen ili path)
+1. ~~**Landing** na `sajtoskop.com`~~ — **urađeno 27.8., van repoa.** Domeni su razdvojeni
+   tačno kako je ovde i predviđeno: landing na golom domenu, aplikacija na `app.` poddomenu,
+   a koren aplikacije ostaje prijava (`LANSIRANJE.md` §1.7)
 2. **Pravni tekstovi** — Uslovi korišćenja + Politika privatnosti (ZZPL),
    linkovani iz futera i iz registracije; copyright notice
 3. **Kanarinci** — 5–10 lažnih biznisa sa fingerprintima (§4 PRD-a)

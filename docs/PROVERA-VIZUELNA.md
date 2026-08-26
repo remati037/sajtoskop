@@ -324,7 +324,8 @@
       kad cifra stigne.
 - [ ] Uz cenu piše **„jednokratno"**, ne „/ mesečno".
 - [ ] Kopija kaže obe stvari, jasno: **„Krediti iz paketa ne ističu"** i **„Paket nije zamena za
-      plan"** (po kreditu je skuplji), plus **„Pretplata nije uslov"**.
+      plan"** (po kreditu je skuplji). ‼️ Rečenica **„Pretplata nije uslov" više NE sme da stoji**
+      — povučena je 26.8., kad je paket počeo da traži plan ili betu.
 - [ ] **Jedno primarno dugme na celom ekranu** — ono je na istaknutom planu (Pro). Dugmad
       paketa su sekundarna.
 
@@ -379,6 +380,38 @@
 
 ---
 
+## 7c. Pravne strane i futer (S22)
+
+> Sve tri strane su **javne i statične** — proveravaju se **odjavljen**, u **obe teme** i na
+> **telefonu ≤ 390 px**.
+
+### Tri strane
+- [ ] `/uslovi`, `/privatnost` i `/povracaj` se otvaraju bez prijave i **ne preusmeravaju**
+      nigde.
+- [ ] Na vrhu svake stoji baner **„Ovo je nacrt"** — dok god ima ijednog markera.
+- [ ] Markeri `<POPUNITI: …>` se **vide** kao žute kapsule u mono slogu, u obe teme, i
+      **čitljivi su** (ne bledožuto na belom).
+- [ ] Dužina reda staje na `62ch` — tekst se ne razvlači preko celog širokog ekrana.
+- [ ] Dno svake strane vodi na **druga dva** teksta, nikad na samu sebe.
+- [ ] Numeracija odeljaka je u `.num` i ne skače.
+
+### Futer
+- [ ] Stoji na `/`, `/cenovnik`, `/welcome` i sve tri pravne strane.
+- [ ] **Ne postoji nigde u grupi `(app)`** — proveri `/pretraga`, `/pipeline`, `/lista`,
+      `/krediti`, `/dashboard`, `/utisci`.
+- [ ] Pet linkova plus kontakt; svi rade i vode gde piše.
+- [ ] Copyright notice ima godinu u `.num`.
+- [ ] Na `/` (kratak ekran) futer je **na dnu**, ne odmah ispod forme, i ne pravi suvišan
+      skrol.
+- [ ] Telefon ≤ 390 px: linkovi se prelamaju u dva reda, ništa ne izlazi iz ekrana.
+
+### Registracija
+- [ ] Na kartici **„Registracija"** stoji rečenica sa linkovima na Uslove i Privatnost.
+- [ ] Na kartici **„Prijava"** te rečenice **nema**.
+- [ ] Oba linka se otvaraju i vraćaju bez gubitka izabrane kartice.
+
+---
+
 ## 8. Tema i pristupačnost (Faza 4, 4.8 · Faza 5)
 
 - [ ] Prekidač teme: **Tab** ulazi u celu grupu, **strelicama ← →** menja temu; klik radi isto.
@@ -418,4 +451,7 @@
 9. Obe teme + telefon na tri ekrana
 10. Životni ciklus: rok u prošlost → baner + modal, izvoz prolazi a skeniranje ne; rok 40 dana unazad → `/zakljucano`; `credits_topup = 25` → vraća se unutra (S19)
 11. Konzola: otvori beta nalog jednim obrascem, klikni dvaput, pa ga ugasi rokom u prošlosti (S20)
-12. Cenovnik → sekcija paketa, kupi paket bez pretplate; `/krediti` → obe kase odvojeno i portal (S21)
+12. Cenovnik → sekcija paketa; paket se kupuje **samo** uz aktivan plan ili betu, a nalogu bez
+    plana stoji katanac (izmena 26.8.); `/krediti` → obe kase odvojeno i portal (S21)
+13. Pravne strane i futer: `/uslovi`, `/privatnost`, `/povracaj` u obe teme, futer na `/`,
+    `/cenovnik` i `/welcome`, linkovi uz dugme za registraciju (S22)

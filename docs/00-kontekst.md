@@ -43,6 +43,20 @@ agencija koje su pravile sajtove, poruke na srpskom po kanalima.
 
 ## 2. Model lansiranja
 
+> ‼️ **NADJAČANO 27. avgusta 2026 — izvor istine je `docs/LANSIRANJE.md` §1.1–§1.8.**
+> Tekst ispod opisuje besplatnu betu kao model lansiranja. To više ne stoji:
+>
+> - **Naplata ide od prvog dana**, kroz Paddle kao merchant of record. Tri plana (€29 / €59 /
+>   €119 mesečno) i dva paketa kredita. Nema besplatnog plana za javnost.
+> - **Beta je ručni izuzetak**, ne javna ponuda: otvara se iz admin konzole, nosi **50**
+>   kredita i rok koji admin postavlja. Nikad ne nastaje registracijom ni kuponom.
+> - **Nov nalog dobija plan `dopuna` i nula kredita**, plus **jedno besplatno otključavanje**
+>   (odluka O1) da bi onboarding imao kraj.
+> - **1 kredit = 1 Places poziv.** Skeniranje košta 1–3 kredita po dubini, otključavanje 1.
+> - Životni ciklus ima šest stanja, sa 30 dana grace perioda posle isteka.
+>
+> Ostavljeno kao trag zašto je model tada izgledao ovako.
+
 **Besplatna beta.** Korisnik ne plaća ništa u prvoj fazi. Ali:
 
 - Krediti postoje od prvog dana, samo se dele besplatno
@@ -82,6 +96,20 @@ Ispod 1.500 RSD medijane → alat je interni alat za Remati i to je legitiman is
                             │ Places / PageSpeed / Anthropic
                             └── isključivo iz workera
 ```
+
+### Dva domena (od 27. avgusta 2026)
+
+```
+sajtoskop.com          landing — prodajna strana, VAN ovog repozitorijuma
+app.sajtoskop.com      aplikacija — apps/web iz ovog repoa
+```
+
+Landing se ne održava ovde i ne pravi se ovde. Iz aplikacije se na njega pokazuje kroz
+`NEXT_PUBLIC_LANDING_URL`, nikad zakucanim domenom. Obrnuto, landing pokazuje na aplikaciju:
+pravne strane (`/uslovi`, `/privatnost`, `/povracaj`) i cenovnik, a **CTA za plan nosi slug,
+nikad `pri_` ID** — obrazloženje u `LANSIRANJE.md` §1.7.
+
+`/` u aplikaciji je i dalje ekran za prijavu i registraciju.
 
 ### Zašto Postgres red umesto Redis + BullMQ
 
@@ -171,6 +199,25 @@ Bendovi: Solidan / Osrednji / Ružan / Katastrofa. Pragovi su definisani u posto
 | F6 | PageSpeed + Claude analiza | rečenica koja se lepi u poruku |
 | F7 | generator poruka + kanban | feedback loop |
 | F8 | landing, beta, pravni tekstovi | korisnici ulaze |
+
+**F8 se raspao na tri komada** (27.8.): landing je napravljen **van repoa** na
+`sajtoskop.com`; pravni tekstovi i futer su isporučeni u **S22**; onboarding je prerastao u
+zasebnu fazu od dve sesije — **S27** i **S28** (`LANSIRANJE.md` §1.8). Ostaju kanarinci i
+merenje (**S25**).
+
+### Nadjačane tvrdnje u starijim PRD-ovima
+
+Faze F1–F12 su isporučene i njihovi PRD-ovi se **ne prepravljaju** — oni su zapis onoga što je
+tada odlučeno. Ali nekoliko tvrdnji iz njih više nije tačno, pa stoje ovde da se ne primene po
+inerciji:
+
+| Gde | Šta piše | Šta je istina |
+|---|---|---|
+| `F1-baza-auth.md` §9, `F1-postavljanje.md` | registracija pravi profil sa **30 kredita** | **nula kredita** i plan `dopuna` (S20); `KREDITI_NA_REGISTRACIJI = 0` |
+| `F4-krediti.md`, `F6-psi-ai.md`, `mvp-plan.md` | beta plan = **30 kredita mesečno** | beta je ručna, **50** kredita, i nije javna ponuda (`LANSIRANJE.md` §1.1) |
+| `F12-admin.md` §8 | pozivnica pravi profil sa 30 kredita | isto — nula; kredite dodeljuje admin kroz `admin_open_beta` |
+| `F8-landing.md` §1, §2, §9 | landing i onboarding u ovom repou | v. tabelu na vrhu tog fajla |
+| `F9-cena-pretrage.md` §1 | skeniranje košta **1 kredit**, mesečna dodela 30 | **1 kredit po stranici**, dakle 1–3 po dubini (S17); dodela zavisi od plana (`LANSIRANJE.md` §1.3) |
 
 **Posle F3 imam proizvod.** Sve od F5 nadalje je dodatak. Ako se nešto raspadne, F4 je verzija
 koja se pušta.

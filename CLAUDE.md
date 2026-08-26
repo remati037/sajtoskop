@@ -3,7 +3,12 @@
 Lead-gen alat: pronalazi biznise u Srbiji sa lošim ili nepostojećim sajtovima
 i priprema outreach materijal za web dizajnere, frilensere i agencije.
 
-Domen: sajtoskop.com · Autor: Marko Milenković / Remati · Solo developer.
+**Dva domena:** `sajtoskop.com` je **landing** i **nije u ovom repozitorijumu** —
+ne pravi ga i ne prepravljaj ga odavde. `app.sajtoskop.com` je aplikacija iz `apps/web`.
+Na landing se pokazuje kroz `NEXT_PUBLIC_LANDING_URL`, nikad zakucanim domenom; landing na
+aplikaciju pokazuje slugom plana, **nikad Paddle `pri_` ID-jem** (`docs/LANSIRANJE.md` §1.7).
+
+Autor: Marko Milenković / Remati · Solo developer.
 
 ## Kontekst i planovi
 

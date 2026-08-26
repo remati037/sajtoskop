@@ -35,6 +35,8 @@ sledeću sesiju.
 | S19 | Životni ciklus pristupa | `LANSIRANJE.md` | — | 1,5 dana | ☑ |
 | S20 | Admin konzola: beta nalozi | `LANSIRANJE.md` | `0024` | 0,75 dana | ☑ |
 | S21 | Cenovnik sa paketima, stanje pretplate, portal, linkovi | `LANSIRANJE.md` | — | 1 dan | ☑ |
+| S22 | Pravni tekstovi i futer | `LANSIRANJE.md`, `F8-landing.md` §3 | — | 0,5 dana | ☑ |
+| — | *Izmena posle S22: dva domena, onboarding kao faza, O1* | `LANSIRANJE.md` §1.7, §1.8 | — | — | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -1960,7 +1962,7 @@ pravom serveru, vizuelne provere, pravni tekstovi).
 
 `PLAN-IZMENA.md` je zatvoren. Sve što je ostalo — naplata (Paddle), F8 (landing, pravni
 tekstovi, kanarinci, merenje), operativa i otvaranje bete — vodi se iz
-**`docs/LANSIRANJE.md`**: odluke D1–D6, sesije **S16–S23** sa gotovim promptovima, ručni
+**`docs/LANSIRANJE.md`**: odluke D1–D8, sesije **S16–S28** sa gotovim promptovima, ručni
 koraci **R1–R28** i go/no-go lista.
 
 Numeracija sesija se nastavlja odatle (S16 je sledeća). Pravilo ostaje isto: posle svake
@@ -2875,6 +2877,187 @@ koje se odbija sa `403`.
 - **Tvoj nalog je trenutno `dopuna`** (150 dokupljenih kredita, bez pretplate), pa po novom
   pravilu **više ne može da kupi paket**. Za dalje testiranje paketa treba ti aktivna
   pretplata ili beta nalog iz konzole.
-- **Kopija landinga (S23/S24)** ne sme da obeća paket bez pretplate.
+- **Kopija landinga** ne sme da obeća paket bez pretplate. *(Dopuna 27.8.: landing je napravljen van repoa, pa ovo više nije sesija nego ručna provera teksta na `sajtoskop.com` — v. `LANSIRANJE.md` §1.7.)*
 - **`docs/PROVERA-VIZUELNA.md` §7b** ima novu podsekciju „Ko sme da kupi", uključujući
   `fetch` iz konzole koji dokazuje da kapija nije samo kozmetika.
+
+---
+
+## S22 — Pravni tekstovi i futer ☑
+
+**Isporučeno 26. avgusta 2026.** Izvor: `docs/LANSIRANJE.md` sesija S22, `docs/F8-landing.md`
+§3, `docs/bezbednost-i-zastita.md` (Sloj 1 — Uslovi korišćenja). **Bez migracije**; ništa u
+ovoj isporuci ne dodiruje bazu.
+
+**Cilj, ispunjen:** `/uslovi`, `/privatnost` i `/povracaj` postoje kao javne strane, futer
+postoji uopšte (do sada ga nije bilo nigde), a uz dugme za registraciju stoje linkovi na
+Uslove i Privatnost. Ono što u tekstu traži stvaran podatak stoji kao **vidljiv marker**, ne
+kao izmišljena rečenica.
+
+### Šta je urađeno
+
+- **`components/futer.tsx`** — nova komponenta. Linkovi: Cenovnik, Uslovi korišćenja,
+  Politika privatnosti, Politika povraćaja, Kontakt (`mailto:podrska@sajtoskop.com`), plus
+  copyright notice sa godinom u `.num`. Montiran na `/`, `/cenovnik`, `/welcome`, `/uslovi`,
+  `/privatnost` i `/povracaj`. **Nikad u grupi `(app)`** — obrazloženje stoji u zaglavlju
+  fajla: tamo je stalna navigacija bočna traka, a futer bi se pojavljivao ispod tabele
+  prospekata i pomerao radnu površinu.
+- **`components/pravni-okvir.tsx`** — zajednički okvir tri strane: `PravniOkvir` (zaglavlje,
+  jedna kolona teksta na `62ch`, futer), `Odeljak`, `Lista`, `TekstLink`, `Popuniti` i
+  `NacrtBaner`. Dno svake strane samo vodi na **druga dva** teksta — spisak je jedan niz, pa
+  se ne održava tri puta.
+- **`/uslovi`** — 14 odeljaka. Sve obavezne klauzule iz F8 §3: zabrana automatizovanog
+  pristupa i reverse engineeringa, zabrana preprodaje i deljenja pristupa, zabrana gradnje
+  konkurentskog proizvoda, jedan nalog = jedno lice, pravo na suspenziju, odgovornost
+  korisnika za način kontaktiranja. Uz njih i Paddle kao **merchant of record**, pravilo o
+  kreditima (pretplata se ne prenosi, paket ne ističe, paket traži plan ili betu) i
+  **odeljak 5 o pristupu posle isteka** — 30 dana samo za čitanje i izvoz, pa prestanak, sa
+  izričitim „ništa se ne briše".
+- **`/privatnost`** — 13 odeljaka po ZZPL-u. Izričito piše da su kontakti firmi **podaci o
+  ličnosti preduzetnika** i zašto. Odeljak 6 opisuje **postojeći** put brisanja (Clerk →
+  `user.deleted` → kaskada nad `profiles`, pravilo 15), uključujući šta ostaje i zašto
+  (revizija, knjigovodstvo, podaci o firmama). Odeljak 7 je za vlasnika firme koja je u bazi
+  a nije korisnik. Odeljak 8 nabraja svih sedam obrađivača, a Paddle izdvaja kao
+  **samostalnog rukovaoca**, jer kao MoR ne obrađuje po našem nalogu.
+- **`/povracaj`** — 9 odeljaka. Odeljak 5 izričito priznaje da **Paddle sme sam da odobri
+  povraćaj u roku od 60 dana** i onda kad naša politika kaže drugačije; odeljak 4 objašnjava
+  šta biva sa potrošenim kreditima (skidaju se, stanje ide u minus, otključani prospekti
+  ostaju otključani); odeljak 6 da povraćaj **ne otkazuje** pretplatu.
+- **`components/auth-ekran.tsx`** — rečenica „Otvaranjem naloga prihvataš Uslove korišćenja i
+  Politiku privatnosti", **samo na kartici „Registracija"**.
+
+### Odstupanja i odluke
+
+- **Tri strane su statične** (`○` u build izveštaju). Zaglavlje pravne strane namerno **ne
+  čita Clerk sesiju** — `/cenovnik` to radi da bi znao kuda vodi dugme, a pravnom tekstu to
+  ne treba i pretvorilo bi ga u dinamičnu rutu bez ijednog razloga.
+- **`<POPUNITI: …>` je komponenta, ne komentar.** Marker se **vidi na objavljenoj strani**,
+  kao žuta kapsula, a na vrhu sve tri strane stoji baner „Ovo je nacrt". Marker sakriven u
+  komentaru bi značio stranu koja izgleda gotovo, a nije — a ove strane čita i Paddle
+  recenzent u koraku R21. Kad poslednji marker nestane, briše se i `<NacrtBaner />`.
+- **Komponente, ne markdown.** Renderovanje markdowna bi značilo ili
+  `dangerouslySetInnerHTML` na javnoj strani ili paket više u bundle-u, a tekstovi ionako
+  nose linkove ka `/cenovnik` i međusobno.
+- **Futer nije montiran na `/zakljucano`.** Prompt nabraja pet mesta i to je namerno: ta
+  strana ima jedan izlaz i jedno primarno dugme, a red linkova ispod bi ga razvodnio. Ako
+  ikad zatreba, komponenta je već tu.
+- **U tekstu nema nijedne izmišljene činjenice.** Sve što nije u kodu ili u odlukama iz
+  `LANSIRANJE.md` je marker — uključujući i ono što bi zvučalo bezazleno (rok čuvanja logova,
+  regioni obrade, nadležan sud).
+
+### Markeri — 25, spisak je u odgovoru sesije
+
+```bash
+grep -rn "<Popuniti>" apps/web/src/app        # svih 25, po fajlovima
+```
+
+- **`/uslovi` (8)** — datum objave, pun pravni naziv, adresa, matični broj, PIB, žig, nadležan
+  sud, primena propisa o zaštiti potrošača.
+- **`/privatnost` (11)** — datum objave, pun pravni naziv, adresa, matični broj, PIB, lice za
+  zaštitu podataka, rok čuvanja knjigovodstva (R18), rok čuvanja revizije, rok čuvanja logova,
+  regioni obrade (Supabase, Hetzner, Vercel), osnov za prenos van zemlje.
+- **`/povracaj` (6)** — datum objave, **rok za zahtev (R17)**, **prag potrošenih kredita
+  (R17)**, pravilo za godišnju pretplatu (R17), rok za paket (R17), pravo na odustanak.
+
+### Ostaje na meni
+
+- **R17 nije donet**, pa Politika povraćaja ima strukturu bez brojeva. Kad odluka padne,
+  menjaju se **samo markeri**, ne tekst oko njih.
+- **R19** — pročitati sva tri teksta i popuniti svih 25 markera. Tek posle toga ima smisla
+  **R21** (Paddle KYC), jer oni traže vidljive Uslove i Politiku povraćaja.
+- **`podrska@sajtoskop.com` još ne postoji** (R23), a sada stoji na sedam mesta u pravnim
+  tekstovima i u futeru.
+- **Prolaz kroz `docs/PROVERA-VIZUELNA.md`** za tri nove strane i futer — obe teme, telefon
+  ≤ 390 px (deo koraka R28).
+- **Rečenica „Beta je besplatna dok traje. 30 kredita mesečno, bez kartice." na `/`** nije
+  tačna od S16/S20: nov nalog je `dopuna` sa nula kredita, a beta se otvara samo iz konzole.
+  Nije dirana jer je kopija te strane opseg **S24**, ali je greška o novcu i stoji tačno iznad
+  novih pravnih linkova.
+
+### Preneto dalje
+
+- **S24 (od 27.8. preokret na `app.` poddomen, ne landing):** landing je napravljen **van
+  ovog repozitorijuma** i stoji na `sajtoskop.com`, pa `/` u aplikaciji ostaje ekran za
+  prijavu (`docs/LANSIRANJE.md` §1.7). Za futer to znači dve izmene u S24: logo i nova
+  stavka „Početna" vode na landing kroz `NEXT_PUBLIC_LANDING_URL`, a ne na `/`. **Pravne
+  strane ostaju ovde** i landing ih linkuje — menjaju se zajedno sa kodom, pa bi kopija na
+  landingu tiho zastarela.
+- **S26 (sandbox prolaz):** korak 9 iz R26 (povraćaj) sada ima i tekst uz sebe — proveri da se
+  ponašanje poklapa sa odeljkom 4 Politike povraćaja (krediti se skidaju i kad su potrošeni,
+  stanje sme u minus).
+- **Ako se ikad promeni put brisanja naloga**, menja se i odeljak 6 Politike privatnosti. To
+  je jedino mesto u dokumentaciji proizvoda gde je taj put opisan korisniku.
+
+---
+
+## Izmena posle S22 — dva domena, onboarding kao faza, O1 ☑
+
+**Doneto 27. avgusta 2026.** Bez migracije i bez ijedne izmene koda — ovo je izmena plana i
+dokumentacije. Menja `LANSIRANJE.md` §4 (P5), uvodi §1.7 i §1.8.
+
+### Šta se promenilo
+
+**1. Landing je napravljen van repoa.** `sajtoskop.com` je prodajna strana i **ne održava se
+ovde**; aplikacija ide na `app.sajtoskop.com`. Odluka **P5** („landing u istoj aplikaciji, `/`
+postaje prodajna strana, bez `app.` subdomena") time pada — ne zato što je bila pogrešna, nego
+zato što je posao odrađen drugim putem. `/` u aplikaciji **ostaje ekran za prijavu**, a
+`/prijava` i `/registracija` ostaju redirekcije.
+
+**2. S23 otpada, S24 se prepisuje.** Kopija landinga se ne piše u ovom repou, pa nema ni
+`docs/landing-kopi.md` ni ručnog koraka R20. S24 postaje **preokret na poddomen**: linkovi ka
+landingu kroz `NEXT_PUBLIC_LANDING_URL` i `/cenovnik` koji prima nameru sa prodajne strane
+(`?plan=&ciklus=`).
+
+**3. Pravne strane ostaju u aplikaciji**, landing ih linkuje (R36). Menjaju se zajedno sa
+kodom — grace period, dve kase, put brisanja naloga, ime merchant of record-a — pa bi kopija
+na landingu zastarela prvog dana, i to tiho.
+
+**4. Cene na landingu, checkout u aplikaciji.** Link nosi **slug plana, nikad `pri_` ID**:
+inače bi prelazak sandbox → produkcija tražio izmenu i na landingu, na mestu gde se greška ne
+vidi dok neko ne plati. Iznosi u evrima ostaju duplirani (landing + Paddle katalog) i to ide u
+ručnu proveru **R35**.
+
+**5. Onboarding postaje zasebna faza** — `LANSIRANJE.md` §1.8, sesije **S27** i **S28**:
+čarobnjak od tri pitanja iz keša, prvi rezultat bez čekanja, vođen prvi prolaz uz element,
+traka napretka **u bazi**, prazna stanja koja uče i vodič **na zahtev**. Nula Places poziva u
+celom toku.
+
+**6. O1 zatvoreno: prvi prospekt je besplatan.** `grant_credits(+1, 'onboarding')`,
+`ref_id = user_id`, i to **lenjo, pre prvog otključavanja** — ne na registraciji.
+
+### Odluke koje nisu bile doslovno u zahtevu
+
+- **Slug umesto `pri_` ID-ja u linku sa landinga.** Izabrana opcija je glasila „landing zna
+  price ID-jeve"; to je nepotrebno. Preslikavanje već postoji u `lib/cenovnik.ts` i tamo mu je
+  mesto — jedan izvor istine umesto dva koja moraju da se slažu baš u trenutku prelaska na
+  produkciju.
+- **Vodič postoji, ali samo na zahtev.** F8 §2 zabranjuje ture; zahtev je tražio „pun vodič".
+  Zabrana ostaje na snazi za sve što se **pokreće samo** — nema ture koja iskoči, nema
+  zatamnjenja, nema brojača „1 od 6". Vodič koji korisnik sam pozove nije ista stvar.
+- **Besplatan kredit se dodeljuje lenjo, a ne na registraciji.** Preporuka koju je Marko
+  prihvatio glasila je „na registraciji". Lenja dodela je **strogo bolja**: kredit završi na
+  otključavanju umesto na prvom „Brzo" skeniranju, nalog koji nikad ne stigne dotle ne košta
+  ništa, i dugme dobija kopiju koja prodaje. To je i doslovno ono što F8 §2 traži.
+- **Traka napretka u bazi, ne u `localStorage`-u.** Skuplje za jednu migraciju, ali čovek koji
+  nastavi sa telefona nastavlja gde je stao — i S25 iz iste kolone čita aktivaciju, bez drugog
+  merenja.
+
+### Usaglašena dokumentacija
+
+| Fajl | Šta je promenjeno |
+|---|---|
+| `LANSIRANJE.md` | nove §1.7 i §1.8; P5 nadjačan uz zadržan trag; mapa isporuka (S23 ⊘, S24 prepisan, S27/S28 novi); sesije S23, S24, S27, S28; R20 otpao, R32 prepisan, R33–R38 novi, R37 zatvoren; go/no-go i §9 |
+| `F8-landing.md` | tabela „Stanje na 27. avgust" na vrhu; baneri na §1 (beta ponuda je mrtva), §2 (nadjačano §1.8), §3 (isporučeno u S22) i §9 (otpalo sa S23) |
+| `00-kontekst.md` | §2 nadjačan (naplata od prvog dana, beta je ručna); §3 dobio „Dva domena"; §6 dobio spisak **nadjačanih tvrdnji u starijim PRD-ovima** |
+| `CLAUDE.md` | dva domena umesto jednog; landing nije u ovom repou; slug, ne `pri_` ID |
+| `PROVERA-VIZUELNA.md` | nova §7c (pravne strane i futer); ispravljena stara stavka „Pretplata nije uslov" i brzi prolaz |
+| `ROADMAP.md`, `REVIZIJA.md` | F8 i landing više nisu „nije rađeno" |
+
+### Ostaje na meni
+
+- **Ručni koraci R33–R38** — DNS za poddomen, Vercel domen i `NEXT_PUBLIC_LANDING_URL`, Clerk
+  instanca na `app.`, Paddle `successUrl` i payment link, linkovi sa landinga, provera cena.
+  **R38 (DNS) ide prvi** — Clerk i Paddle verifikuju domen koji već mora da odgovara.
+- **Starije PRD faze se ne prepravljaju.** Njihove nadjačane tvrdnje su popisane na jednom
+  mestu, u `00-kontekst.md` §6 — tamo se i gleda pre nego što se nešto iz F1–F12 primeni po
+  inerciji.

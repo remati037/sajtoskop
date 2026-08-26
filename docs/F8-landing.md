@@ -7,6 +7,24 @@ prvu pretragu bez tvoje pomoći.
 
 ---
 
+## ‼️ Stanje na 27. avgust 2026 — pročitaj pre svega ostalog
+
+Ovaj PRD je pisan pre nego što je model naplate donet i pre nego što je landing napravljen.
+Delovi su isporučeni, delovi nadjačani. **Operativni izvor istine je `docs/LANSIRANJE.md`.**
+
+| Sekcija | Stanje |
+|---|---|
+| §1 Landing ne prodaje pretplatu | **Isporučeno van repoa.** Landing je napravljen i stoji na `sajtoskop.com`; aplikacija je na `app.sajtoskop.com` (`LANSIRANJE.md` §1.7). Struktura i ton iz ove sekcije važe za taj sajt, ali **kopija se ne održava ovde**. Beta ponuda iz §1 je mrtva — v. napomenu na licu mesta. |
+| §2 Onboarding — prvih 90 sekundi | **Nadjačano `LANSIRANJE.md` §1.8.** Onboarding je od 27.8. zasebna faza od dve sesije (S27, S28) i mnogo je širi od četiri crtice odavde. Jedina stavka koja je preživela doslovno je besplatno prvo otključavanje (odluka O1). |
+| §3 Pravni tekstovi | **Isporučeno u S22**, 26.8. Tri strane žive u aplikaciji, landing ih linkuje. Ostali su `<POPUNITI: …>` markeri (korak R19). |
+| §4 Kanarinci | Nije rađeno — **S25**. |
+| §5 Merenje | Nije rađeno — **S25**. Metrike se od S27 čitaju iz `profiles.onboarding_steps`. |
+| §6 Otvaranje bete | Važi, uz jednu ispravku: beta više nije javna ponuda nego **ručni izuzetak** iz admin konzole, 50 kredita (`LANSIRANJE.md` §1.1). |
+| §8 Posle F8 | Nadjačano. Odluka „naplaćuj" je pala pre bete: naplata ide od prvog dana, kroz Paddle (`LANSIRANJE.md` §1.1). |
+| §9 Prompt za sesiju | **Otpalo** sa sesijom S23 — kopija landinga se ne piše u ovom repou. |
+
+---
+
 ## 1. Landing ne prodaje pretplatu
 
 Prodaje **ulazak u besplatnu betu**. Jedan CTA, ponovljen tri puta, uvek isti.
@@ -48,6 +66,12 @@ Ispod: *„Ovo nisu procene. To su brojevi iz stvarnih skeniranja."*
 > 30 kredita mesečno, bez kartice, bez obaveze.
 > Kad uvedem planove, javljam unapred i ljudi iz bete dobijaju cenu koja se ne ponavlja.
 
+> ⊘ **Nadjačano 27.8.** Ove tri rečenice **ne smeju** da stoje ni na landingu ni u
+> aplikaciji. Naplata ide od prvog dana (`LANSIRANJE.md` §1.1), beta je **ručni izuzetak**
+> koji se otvara iz admin konzole i nosi **50** kredita, a nov nalog dobija plan `dopuna` i
+> **nula** kredita — plus jedno besplatno otključavanje (O1). Umesto beta ponude, landing
+> pokazuje planove i vodi na `app.sajtoskop.com/cenovnik?plan=…`.
+
 **6. FAQ**
 - *Da li je legalno?* → Podaci su javni, sa Google Maps-a, preko zvaničnog API-ja. Ti si odgovoran za način na koji šalješ poruke; u alatu je uputstvo i opt-out šablon.
 - *Radi li za Hrvatsku i Bosnu?* → Ne još. Srbija prvo.
@@ -61,6 +85,15 @@ Ispod: *„Ovo nisu procene. To su brojevi iz stvarnih skeniranja."*
 
 ## 2. Onboarding — prvih 90 sekundi
 
+> ⊘ **Nadjačano 27. avgusta 2026 — v. `LANSIRANJE.md` §1.8.** Onboarding je postao zasebna
+> faza: čarobnjak od tri pitanja, prvi rezultat iz keša, vođen prvi prolaz uz element, traka
+> napretka u bazi, prazna stanja koja uče i vodič na zahtev — sesije **S27** i **S28**.
+>
+> Dve stvari odavde su preživele doslovno: **prvi rezultat je pogodak u kešu** (instant i
+> besplatan) i **prvo otključavanje je besplatno** kroz `grant_credits(+1, 'onboarding')`
+> **pre** unlocka — to je odluka **O1**, zatvorena 27.8. Zabrana tura i dalje važi za sve što
+> se pokreće samo; vodič koji korisnik sam pozove nije isto.
+
 Ovde se gubi većina korisnika i to je jedini deo landing posla koji stvarno menja brojke.
 
 - [ ] Posle registracije **ne vodi na prazan dashboard.** Vodi na pretragu sa unapred izabranim gradom i nišom koji su **već u kešu** — rezultat je instant i utisak je „ovo stvarno radi"
@@ -71,6 +104,12 @@ Ovde se gubi većina korisnika i to je jedini deo landing posla koji stvarno men
 ---
 
 ## 3. Pravni tekstovi
+
+> ☑ **Isporučeno u S22, 26. avgusta 2026.** `/uslovi`, `/privatnost` i `/povracaj` žive u
+> aplikaciji (`app.sajtoskop.com`), futer postoji, a landing ih linkuje (korak R36). Uz
+> obavezne klauzule odavde ušle su i one koje ovaj PRD nije mogao da zna: Paddle kao
+> merchant of record, pravilo o dve kase kredita i pristup posle isteka (30 dana čitanje i
+> izvoz). **Ostalo je 25 `<POPUNITI: …>` markera** — korak R19.
 
 Bez ovoga ne puštaš nijednog korisnika.
 
@@ -151,6 +190,9 @@ strane, `BillingProvider` interfejs iz F4 dobija drugu implementaciju.
 ---
 
 ## 9. Prompt za sesiju
+
+> ⊘ **Otpalo 27. avgusta 2026.** Sesija S23 je ukinuta: landing je napravljen van ovog
+> repozitorijuma, pa `docs/landing-kopi.md` ne nastaje. Prompt ispod ostaje kao trag.
 
 ```
 Radimo docs/F8-landing.md. Pročitaj CLAUDE.md i docs/00-kontekst.md prvo.
