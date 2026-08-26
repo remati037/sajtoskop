@@ -16,7 +16,7 @@ import { kupovinaZaPriceId } from "@sajtoskop/shared";
 import type { ProfileRow } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
 import { checkoutBodySchema } from "@/lib/billing-schema";
-import { paddleBetaDiscountId } from "@/lib/env";
+import { KonfigGreska, paddleBetaDiscountId } from "@/lib/env";
 import { paddleServer } from "@/lib/paddle-server";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import { adminSupabase } from "@/lib/supabase";
@@ -108,6 +108,21 @@ export async function POST(req: Request): Promise<Response> {
   } catch (err) {
     // Poruka u logu ne sme da nosi ključ. `ApiError` iz SDK-a ga ne prilaže, a
     // sopstveni tekstovi ga nikad ne sklapaju — v. `lib/paddle-server.ts`.
+    //
+    // ‼️ Nepodešena naplata se razdvaja od pravog kvara i to nije kozmetika.
+    //    „Pokušaj ponovo za koji minut" nad praznom env promenljivom je uputstvo
+    //    koje ne može da uspe — ni za minut ni za mesec. Razlog stoji u logu sa
+    //    imenima promenljivih; korisniku ide `503` i rečenica koja ga vodi na
+    //    podršku umesto u petlju osvežavanja.
+    if (err instanceof KonfigGreska) {
+      console.error("[api/billing/checkout] NAPLATA NIJE PODEŠENA:", err.message);
+      return greska(
+        "Naplata još nije podešena do kraja. Javi mi se na podrska@sajtoskop.com — " +
+          "ovo je moja greška, ne tvoja.",
+        503,
+      );
+    }
+
     console.error("[api/billing/checkout]", err);
     return greska("Plaćanje trenutno ne radi. Pokušaj ponovo za koji minut.", 502);
   }

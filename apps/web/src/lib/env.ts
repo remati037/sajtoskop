@@ -110,9 +110,28 @@ export type ServerEnv = z.infer<typeof serverSchema>;
 
 let cached: ServerEnv | null = null;
 
+/**
+ * Nedostaje ili je neispravno PODEŠAVANJE — ne kvar u radu.
+ *
+ * Postoji zbog jedne konkretne zablude koju je stara poruka pravila: ruta koja
+ * uhvati bilo koju grešku i kaže „pokušaj ponovo za koji minut" nad praznom env
+ * promenljivom laže. Ponavljanje neće pomoći ni za minut ni za mesec — fali
+ * vrednost u `.env`, i to piše samo u serverskom logu.
+ *
+ * Rute koje dodiruju naplatu je hvataju posebno (`instanceof`) i vraćaju drugu
+ * poruku i drugi status od one za pravi kvar. Sam tekst greške NIKAD ne ide
+ * korisniku — on nosi imena promenljivih, a to je mapa podešavanja servera.
+ */
+export class KonfigGreska extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "KonfigGreska";
+  }
+}
+
 function fail(err: z.ZodError): never {
   const lines = err.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
-  throw new Error(`Nedostaju ili su neispravne env promenljive:\n${lines}`);
+  throw new KonfigGreska(`Nedostaju ili su neispravne env promenljive:\n${lines}`);
 }
 
 export function serverEnv(): ServerEnv {

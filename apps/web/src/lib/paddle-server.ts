@@ -10,7 +10,7 @@
 
 import "server-only";
 import { Environment, Paddle } from "@paddle/paddle-node-sdk";
-import { paddleServerEnv } from "./env";
+import { KonfigGreska, paddleServerEnv } from "./env";
 import { PADDLE_OKRUZENJA, type PaddleOkruzenje } from "./paddle-okruzenje";
 
 /**
@@ -27,7 +27,7 @@ function okruzenje(): PaddleOkruzenje {
   const sirovo = process.env.NEXT_PUBLIC_PADDLE_ENV;
   const nadjeno = PADDLE_OKRUZENJA.find((o) => o === sirovo);
   if (!nadjeno) {
-    throw new Error(
+    throw new KonfigGreska(
       "NEXT_PUBLIC_PADDLE_ENV mora biti tačno `sandbox` ili `production`; " +
         "podrazumevane vrednosti nema jer bi značila naplatu u pogrešnu kasu.",
     );
@@ -55,7 +55,7 @@ export function paddleServer(): Paddle {
   const ocekivaniPrefiks = okr === "sandbox" ? "pdl_sdbx_" : "pdl_live_";
   if (!PADDLE_API_KEY.startsWith(ocekivaniPrefiks)) {
     // Poruka nosi PREFIKS, ne ključ. Ovaj tekst završi u logu.
-    throw new Error(
+    throw new KonfigGreska(
       `Paddle API ključ i okruženje se ne poklapaju: NEXT_PUBLIC_PADDLE_ENV je ` +
         `\`${okr}\`, a ključ ne počinje sa \`${ocekivaniPrefiks}\`.`,
     );

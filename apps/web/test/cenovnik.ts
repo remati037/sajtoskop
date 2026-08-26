@@ -111,6 +111,24 @@ console.log("\nportal");
     "nazad ide samo URL, ne ceo objekat sesije",
   );
   check(kod.includes("proveriIpTempo"), "ruta ima IP tempo kao i checkout");
+
+  // Nepodešena naplata NIJE prolazan kvar. Ruta koja na praznu env promenljivu
+  // kaže „pokušaj ponovo za koji minut" šalje čoveka u petlju osvežavanja nad
+  // nečim što neće proraditi samo od sebe — a pravi razlog ostane samo u logu.
+  for (const [ime, put] of [
+    ["portal", "app/api/billing/portal/route.ts"],
+    ["checkout", "app/api/billing/checkout/route.ts"],
+  ] as const) {
+    const r = izvor(put);
+    check(
+      r.includes("err instanceof KonfigGreska") && /503,?\s*\)/.test(r),
+      `${ime} razdvaja nepodešenu naplatu (503) od pravog kvara (502)`,
+    );
+    check(
+      !/greska\(\s*(err|String\(err)/.test(r),
+      `${ime} ne prosleđuje tekst greške korisniku (nosi imena env promenljivih)`,
+    );
+  }
   check(kod.includes('"nodejs"'), "runtime je nodejs — SDK ne radi na edge-u");
 
   const dugme = izvor("components/portal-dugme.tsx");

@@ -27,6 +27,7 @@
 import { NextResponse } from "next/server";
 import type { ProfileRow } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
+import { KonfigGreska } from "@/lib/env";
 import { paddleServer } from "@/lib/paddle-server";
 import { citajIdPretplata } from "@/lib/pretplata";
 import { proveriIpTempo } from "@/lib/rate-limit";
@@ -89,6 +90,16 @@ export async function POST(req: Request): Promise<Response> {
     // a `customerId` u odgovoru je podatak koji nikad nije morao da izađe.
     return NextResponse.json({ url: sesija.urls.general.overview }, { headers: HEADERS });
   } catch (err) {
+    // Isto razdvajanje kao u checkout ruti: nepodešeno nije isto što i pokvareno.
+    if (err instanceof KonfigGreska) {
+      console.error("[api/billing/portal] NAPLATA NIJE PODEŠENA:", err.message);
+      return greska(
+        "Naplata još nije podešena do kraja. Javi mi se na podrska@sajtoskop.com — " +
+          "ovo je moja greška, ne tvoja.",
+        503,
+      );
+    }
+
     console.error("[api/billing/portal]", err);
     return greska("Portal trenutno ne radi. Pokušaj ponovo za koji minut.", 502);
   }
