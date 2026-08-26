@@ -1305,6 +1305,17 @@ Ažuriraj docs/SESIJE.md i štikliraj S26.
 >    Ponavljanje ide iz Paddle-a (`notifications.replay`, potpisuje iznova) ili
 >    kroz `pnpm paddle:replay`.
 >
+> **Pre svake sandbox kupovine: `pnpm paddle:doktor`.** Prolazi kroz sve četiri karike
+> (`.env` → lokalni server → Paddle destination → ceo lanac spolja) i staje na prvoj koja ne
+> drži. Četvrta provera je jedina koja išta dokazuje: kuca na JAVNU adresu koju Paddle gađa i
+> gleda da li nazad stigne odgovor naše rute (`401 Nedostaje potpis.`). Ako odgovori Hookdeck
+> svojim `200 SUCCESS`, lanac je prekinut — i to je tačno stanje koje je 26.8. progutalo tri
+> plaćena paketa.
+>
+> **Preporučen tunel je ngrok sa stalnim domenom**, ne Hookdeck: dve karike umesto tri, a
+> odgovor koji dobiješ je odgovor tvoje aplikacije, ne posrednikov. Besplatan ngrok tarif daje
+> jedan stalan domen, pa se URL u Paddle destination upisuje samo jednom.
+>
 > **Tunel nije uslov za rad na naplati.** `pnpm paddle:replay --last` uzima
 > pravu `completed` transakciju iz Paddle-a, potpisuje je pravom tajnom i šalje
 > na lokalnu rutu — dakle ceo kod naplate se testira bez tunela. Tunel treba

@@ -15,6 +15,7 @@
     "probe:ai": "tsx scripts/probe-ai.ts",
     "rescore": "tsx scripts/rescore-audits.ts",
     "check:secrets": "bash scripts/check-secrets.sh",
+    "paddle:doktor": "tsx scripts/paddle-doktor.ts",
     "paddle:replay": "tsx scripts/paddle-replay.ts",
     "dev": "pnpm --filter @sajtoskop/web dev",
     "build": "pnpm --filter @sajtoskop/web build",
