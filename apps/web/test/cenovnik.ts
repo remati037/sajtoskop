@@ -138,6 +138,35 @@ console.log("\nportal");
   );
 }
 
+// ── 2b. profil pre novca ───────────────────────────────────
+console.log("\nprofil pre naplate");
+
+{
+  const kod = izvor("app/api/billing/checkout/route.ts");
+
+  // Izmereno na pravoj kupovini: webhook je stigao 14 s PRE nego što je red u
+  // `profiles` nastao, jer se gost registrovao na `/cenovnik` — a ta strana je
+  // izvan grupe `(app)`, pa `ensureProfile()` iz layouta nikad nije ni pozvan.
+  // Bez profila `nadjiKorisnika()` vrati `null`, webhook to prijavi kao TRAJAN
+  // neuspeh (200, bez ponavljanja) i naplaćeni krediti se izgube.
+  check(kod.includes("ensureProfile("), "checkout pravi profil pre transakcije");
+
+  // Redosled je cela poenta: `ensureProfile` mora da bude PRE `transactions.create`.
+  const iProfil = kod.indexOf("ensureProfile(");
+  const iTxn = kod.indexOf("transactions.create(");
+  check(
+    iProfil > 0 && iTxn > 0 && iProfil < iTxn,
+    "ensureProfile ide PRE nego što transakcija nastane",
+  );
+
+  // Webhook, nasuprot tome, NE sme da pravi profile: identitet mu dolazi iz
+  // Paddle payload-a, ne iz verifikovane sesije (pravilo 8).
+  check(
+    !izvor("app/api/billing/webhook/route.ts").includes("ensureProfile"),
+    "webhook NE pravi profile (identitet mu nije iz sesije)",
+  );
+}
+
 // ── 3. paketi na cenovniku ─────────────────────────────────
 console.log("\npaketi kredita");
 

@@ -14,10 +14,12 @@
 import { NextResponse } from "next/server";
 import { kupovinaZaPriceId } from "@sajtoskop/shared";
 import type { ProfileRow } from "@sajtoskop/shared";
+import { currentUser } from "@clerk/nextjs/server";
 import { requireUserId } from "@/lib/auth";
 import { checkoutBodySchema } from "@/lib/billing-schema";
 import { KonfigGreska, paddleBetaDiscountId } from "@/lib/env";
 import { paddleServer } from "@/lib/paddle-server";
+import { ensureProfile } from "@/lib/profile";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import { adminSupabase } from "@/lib/supabase";
 
@@ -71,11 +73,36 @@ export async function POST(req: Request): Promise<Response> {
   if (!kupovina) return greska("Nepoznat plan ili paket.", 400);
 
   try {
+    // ── profil MORA da postoji pre nego što novac krene ──────
+    // ‼️ Ovo nije udobnost nego uslov ispravnosti naplate, i naučeno je skupo.
+    //
+    // Webhook vezuje kupovinu za nalog kroz `custom_data.user_id`, ali TEK ako
+    // red u `profiles` postoji (`nadjiKorisnika` → `profilPostoji`). Ako ga
+    // nema, `transaction.completed` završi kao „transakcija nije vezana ni za
+    // jedan profil" — a to je TRAJAN neuspeh: ruta vrati `200`, Paddle ne
+    // ponavlja, i novac je naplaćen bez ijednog kredita.
+    //
+    // Do S21 se to nije moglo desiti: kupovina je počinjala iz aplikacije, a
+    // `(app)/layout.tsx` je profil već napravio. S21 je otvorio put koji tu
+    // pretpostavku ruši — gost sa `/cenovnik` se registruje i odmah kupuje, a
+    // `/cenovnik` je namerno IZVAN grupe `(app)`, pa taj layout nikad nije ni
+    // izvršen. Izmereno na pravoj kupovini: webhook je stigao **14 sekundi pre**
+    // nego što je red u `profiles` nastao.
+    //
+    // Zato ovde, a ne u webhooku: webhook ne sme da pravi profile (identitet mu
+    // dolazi iz Paddle payload-a, ne iz sesije), a ovo je poslednja tačka na
+    // kojoj se zna ko kupuje I još se ništa nije naplatilo. RPC je idempotentan
+    // (`credit_ledger_grant_idem_idx`), pa ponovljen poziv ne radi ništa.
+    //
+    // Baca ako ne uspe — i to je namerno: bolje „plaćanje trenutno ne radi"
+    // nego naplata koju niko neće moći da veže za nalog.
+    const korisnik = await currentUser().catch(() => null);
+    await ensureProfile(userId, korisnik?.primaryEmailAddress?.emailAddress ?? null);
+
     // `plan` je za popust, `paddle_customer_id` za vezivanje ponovljene
     // kupovine za istog Paddle kupca. Admin klijent jer se čita TUĐ red? Ne —
     // čita se sopstveni, ali `profiles` politika pušta samo `select` kroz
-    // korisnički token, a ovde nam treba i profil koji Clerk webhook još nije
-    // stigao da napravi (tada je `null`, i to je uredno).
+    // korisnički token.
     const { data: profil, error: greskaProfila } = await adminSupabase()
       .from("profiles")
       .select("plan, paddle_customer_id")
