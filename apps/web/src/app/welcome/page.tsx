@@ -17,6 +17,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CircleCheck } from "lucide-react";
 import { getCurrentUserId } from "@/lib/auth";
+import { Futer } from "@/components/futer";
 import { Button } from "@/components/ui/button";
 import { ZnakSaImenom } from "@/components/znak";
 
@@ -83,6 +84,8 @@ export default async function Page() {
           — imaj pri ruci broj računa iz mejla.
         </p>
       </main>
+
+      <Futer />
     </div>
   );
 }

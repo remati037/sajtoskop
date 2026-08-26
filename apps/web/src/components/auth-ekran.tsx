@@ -15,6 +15,7 @@
 // u `globals.css` da ne budu dva prekidača za istu stvar.
 
 import { useState } from "react";
+import Link from "next/link";
 import { SignIn, SignUp } from "@clerk/nextjs";
 import { cn } from "@/lib/cn";
 
@@ -126,6 +127,30 @@ export function AuthEkran({
           />
         )}
       </div>
+
+      {/* Pravni linkovi stoje SAMO uz registraciju, jer se tu ugovor i zaključuje
+          (F8 §3). Na prijavi bi bili šum — čovek koji se vraća u alat već je
+          prihvatio uslove. U futeru ispod postoje na obe kartice, kao i sva tri
+          teksta zajedno. */}
+      {rezim === "registracija" && (
+        <p className="max-w-[25rem] text-center text-xs leading-relaxed text-fg-muted">
+          Otvaranjem naloga prihvataš{" "}
+          <Link
+            href="/uslovi"
+            className="font-medium text-accent-text underline underline-offset-4"
+          >
+            Uslove korišćenja
+          </Link>{" "}
+          i{" "}
+          <Link
+            href="/privatnost"
+            className="font-medium text-accent-text underline underline-offset-4"
+          >
+            Politiku privatnosti
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 }

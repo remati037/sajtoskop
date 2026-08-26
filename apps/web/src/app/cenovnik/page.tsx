@@ -16,6 +16,7 @@ import { smeDaKupiPaket } from "@sajtoskop/shared";
 import { getCurrentUserId } from "@/lib/auth";
 import { citajPristup } from "@/lib/pristup";
 import { CenovnikEkran } from "@/components/cenovnik-ekran";
+import { Futer } from "@/components/futer";
 import { PrekidacTemeDugme } from "@/components/prekidac-teme";
 import { ZnakSaImenom } from "@/components/znak";
 
@@ -69,7 +70,9 @@ export default async function Page() {
   const prijavljen = userId !== null;
 
   return (
-    <div className="relative min-h-screen">
+    // `flex flex-col` + `flex-1` na `<main>`: bez toga futer stoji odmah ispod
+    // sadržaja, a ne na dnu ekrana, na kratkim prozorima.
+    <div className="relative flex min-h-screen flex-col">
       <div aria-hidden className="pozadina-aure pointer-events-none absolute inset-0 h-[32rem]" />
 
       <header className="relative mx-auto flex h-[68px] w-full max-w-[1160px] items-center justify-between px-5 sm:px-7 lg:px-8">
@@ -87,7 +90,7 @@ export default async function Page() {
         </div>
       </header>
 
-      <main className="relative mx-auto w-full max-w-[1160px] px-5 pb-[clamp(4.5rem,9vw,8rem)] pt-[clamp(2.5rem,6vw,5rem)] sm:px-7 lg:px-8">
+      <main className="relative mx-auto w-full max-w-[1160px] flex-1 px-5 pb-[clamp(4.5rem,9vw,8rem)] pt-[clamp(2.5rem,6vw,5rem)] sm:px-7 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <p className="eyebrow">Cenovnik</p>
           <h1 className="h1 mt-3">Plati po tome koliko tražiš</h1>
@@ -110,6 +113,8 @@ export default async function Page() {
           />
         </div>
       </main>
+
+      <Futer />
     </div>
   );
 }
