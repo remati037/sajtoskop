@@ -12,7 +12,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
+import { smeDaKupiPaket } from "@sajtoskop/shared";
 import { getCurrentUserId } from "@/lib/auth";
+import { citajPristup } from "@/lib/pristup";
 import { CenovnikEkran } from "@/components/cenovnik-ekran";
 import { PrekidacTemeDugme } from "@/components/prekidac-teme";
 import { ZnakSaImenom } from "@/components/znak";
@@ -23,7 +25,7 @@ export const metadata: Metadata = {
   title: "Cenovnik",
   description:
     "Tri plana za pronalaženje prospekata u Srbiji, mesečno ili godišnje — i dva paketa " +
-    "kredita bez pretplate, čiji krediti ne ističu.",
+    "kredita kao dopuna uz plan, čiji krediti ne ističu.",
 };
 
 /**
@@ -45,7 +47,7 @@ function drzavaIzZaglavlja(vrednost: string | null): string | null {
 }
 
 export default async function Page() {
-  const [zaglavlja, userId] = await Promise.all([
+  const [zaglavlja, userId, { pristup }] = await Promise.all([
     headers(),
     // `getCurrentUserId()`, ne `currentUser()`: treba nam samo POSTOJANJE sesije,
     // a `currentUser()` za to ide na Clerk API. Mejl se od S18 nigde ne koristi
@@ -53,6 +55,13 @@ export default async function Page() {
     getCurrentUserId().catch((err: unknown) => {
       console.error("[cenovnik] čitanje Clerk sesije:", err);
       return null;
+    }),
+    // Stanje naloga određuje da li se paketi uopšte mogu kupiti (odluka 26.8.).
+    // Gost nema sesiju, pa ovo vrati `pristup: null` bez ijednog upita — a
+    // `smeDaKupiPaket(null)` je `false`, što je za gosta i tačno.
+    citajPristup().catch((err: unknown) => {
+      console.error("[cenovnik] čitanje pristupa:", err);
+      return { pristup: null };
     }),
   ]);
 
@@ -85,16 +94,20 @@ export default async function Page() {
           <p className="lede mx-auto mt-4 max-w-xl">
             Kredit je jedan otključan prospekt ili jedna stranica skeniranja — do 20 rezultata.
             Pretraga po onome što je već skenirano ne troši ništa i neograničena je na svim
-            planovima. Ako ti pretplata ne treba,{" "}
+            planovima. Kad ti plan ne bude dovoljan,{" "}
             <a href="#paketi" className="font-medium text-accent-text underline underline-offset-4">
               paket kredita
             </a>{" "}
-            se kupuje i sam.
+            ga dopunjuje.
           </p>
         </div>
 
         <div className="mt-10 sm:mt-12">
-          <CenovnikEkran drzava={drzava} prijavljen={prijavljen} />
+          <CenovnikEkran
+            drzava={drzava}
+            prijavljen={prijavljen}
+            smePaket={smeDaKupiPaket(pristup ?? null)}
+          />
         </div>
       </main>
     </div>

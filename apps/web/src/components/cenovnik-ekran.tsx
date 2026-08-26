@@ -41,7 +41,7 @@ import {
   type PricePreviewParams,
   type PricePreviewResponse,
 } from "@paddle/paddle-js";
-import { Check, Coins, Infinity as Beskonacno, Loader2, TriangleAlert } from "lucide-react";
+import { Check, Coins, Infinity as Beskonacno, Loader2, Lock, TriangleAlert } from "lucide-react";
 import {
   CIKLUS_LABELA,
   CIKLUS_SUFIKS,
@@ -76,6 +76,7 @@ const NA_REGISTRACIJU = "/?nalog=nov&nazad=%2Fcenovnik";
 export function CenovnikEkran({
   drzava,
   prijavljen,
+  smePaket,
 }: {
   /**
    * ISO 3166-1 alpha-2, izveden na serveru iz `x-vercel-ip-country`.
@@ -88,6 +89,14 @@ export function CenovnikEkran({
   drzava: string | null;
   /** Ima li posetilac Clerk sesiju. Bez nje nema `user_id`, dakle ni kupovine. */
   prijavljen: boolean;
+  /**
+   * Sme li ovaj nalog da kupi PAKET (odluka 26.8.: paket je dopuna, ne ulaz).
+   *
+   * Izvedeno na serveru kroz `smeDaKupiPaket()` iz shared paketa — istu funkciju
+   * zove i `/api/billing/checkout`. Ovde je samo prikaz: dugme koje se ne vidi
+   * nije kapija, pa provera koja stvarno drži stoji u ruti.
+   */
+  smePaket: boolean;
 }) {
   const { tema } = useTema();
   const [ciklus, setCiklus] = useState<Ciklus>("month");
@@ -300,6 +309,8 @@ export function CenovnikEkran({
         cene={cene}
         spremno={spremno}
         uToku={uToku}
+        smePaket={smePaket}
+        prijavljen={prijavljen}
         naKlik={(priceId) => void otvoriCheckout(priceId)}
       />
 
@@ -312,7 +323,18 @@ export function CenovnikEkran({
 }
 
 // ── paketi kredita ──────────────────────────────────────────
-// LANSIRANJE §1.4. Sekundaran blok, namerno DRUGAČIJEG oblika od tri kartice
+// LANSIRANJE §1.4, izmenjen 26.8.: paket je DOPUNA uz postojeći pristup, ne
+// ulaz u proizvod. Kupuju ga `aktivan`, `otkazan` i `beta` (v. `smeDaKupiPaket`
+// u shared paketu); svi ostali, uključujući gosta, vide sekciju ali sa
+// objašnjenjem umesto dugmeta.
+//
+// ── zašto se sekcija i dalje VIDI onome ko ne sme ───────────
+// Sakriti je značilo bi da posetilac ne zna da paketi postoje, pa ni da mu se
+// otključavaju uz plan — a to je razlog više da uzme plan, ne manje. Skrivena
+// ponuda ne prodaje ništa; zaključana ponuda sa jednom rečenicom objašnjenja
+// prodaje plan iznad sebe.
+//
+// Sekundaran blok, namerno DRUGAČIJEG oblika od tri kartice
 // iznad: da su paketi četvrta i peta kartica u istom redu, čitali bi se kao
 // jeftiniji planovi — a oni su po kreditu SKUPLJI od svakog plana, i to je
 // cela poenta ponude. Zato jedna površina (`--bg-subtle`), dva reda unutar nje,
@@ -323,11 +345,15 @@ function SekcijaPaketa({
   cene,
   spremno,
   uToku,
+  smePaket,
+  prijavljen,
   naKlik,
 }: {
   cene: Cene;
   spremno: boolean;
   uToku: string | null;
+  smePaket: boolean;
+  prijavljen: boolean;
   naKlik: (priceId: string) => void;
 }) {
   return (
@@ -348,8 +374,17 @@ function SekcijaPaketa({
           </div>
 
           <p className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-bg-elev px-3 py-2 text-xs font-medium text-fg-muted">
-            <Beskonacno className="h-3.5 w-3.5 text-accent-text" aria-hidden />
-            Bez roka trajanja
+            {smePaket ? (
+              <>
+                <Beskonacno className="h-3.5 w-3.5 text-accent-text" aria-hidden />
+                Bez roka trajanja
+              </>
+            ) : (
+              <>
+                <Lock className="h-3.5 w-3.5 text-fg-faint" aria-hidden />
+                Traži aktivan plan
+              </>
+            )}
           </p>
         </div>
 
@@ -362,28 +397,30 @@ function SekcijaPaketa({
               spremno={spremno}
               ceka={uToku === paket.priceId}
               zakljucano={uToku !== null}
+              smePaket={smePaket}
+              prijavljen={prijavljen}
               naKlik={() => naKlik(paket.priceId)}
             />
           ))}
         </div>
 
-        {/* Dve rečenice koje moraju da stoje, i to ovim redom (§1.4):
+        {/* Dve rečenice koje moraju da stoje, i to ovim redom:
             1. paket NIJE jeftinija zamena za plan — po kreditu je skuplji;
-            2. paket se sme kupiti i BEZ pretplate, i to je podržan slučaj.
+            2. paket TRAŽI plan ili betu (odluka 26.8.).
             Bez prve, paket kanibalizuje pretplatu i cenovnik laže o tome šta je
-            povoljnije. Bez druge, beta korisnik koji neće mesečnu karticu misli
-            da za njega nema izlaza. */}
+            povoljnije. Bez druge, neko kupi plan očekujući da mu paket sam po
+            sebi produžava pristup — pa se to otkrije tek kad plan istekne. */}
         <div className="mt-6 space-y-2 border-t border-border pt-5 text-xs leading-relaxed text-fg-muted">
           <p>
             <strong className="font-semibold text-fg">Paket nije zamena za plan.</strong> Po
             kreditu je skuplji od svake pretplate — ko radi redovno, prolazi jeftinije sa planom.
-            Paket je tu za povremenu potrebu i za mesec u kome posao krene jače nego što je plan
-            predviđao.
+            Paket je tu za mesec u kome posao krene jače nego što je plan predviđao.
           </p>
           <p>
-            <strong className="font-semibold text-fg">Pretplata nije uslov.</strong> Paket se
-            kupuje i bez plana; krediti iz njega sami vraćaju pun pristup aplikaciji, sa Starter
-            dnevnim limitima.
+            <strong className="font-semibold text-fg">Paket traži aktivan plan ili betu.</strong>{" "}
+            Kupuje se kao dopuna postojećem pristupu, ne umesto njega. Krediti iz paketa ne ističu
+            i ostaju ti i kad plan istekne — ali se novi paket tada ne može kupiti dok se plan ne
+            obnovi.
           </p>
         </div>
       </div>
@@ -397,6 +434,8 @@ function KarticaPaketa({
   spremno,
   ceka,
   zakljucano,
+  smePaket,
+  prijavljen,
   naKlik,
 }: {
   paket: Paket;
@@ -404,6 +443,8 @@ function KarticaPaketa({
   spremno: boolean;
   ceka: boolean;
   zakljucano: boolean;
+  smePaket: boolean;
+  prijavljen: boolean;
   naKlik: () => void;
 }) {
   return (
@@ -435,26 +476,40 @@ function KarticaPaketa({
         <span className="sr-only">{cena ? "" : "Cena se učitava"}</span>
       </div>
 
-      <Button
-        variant="secondary"
-        className="mt-4 w-full"
-        disabled={!spremno || !cena || zakljucano}
-        onClick={naKlik}
-      >
-        {ceka ? (
-          <>
-            <Loader2 className="animate-spin" />
-            Otvaram plaćanje
-          </>
-        ) : spremno && cena ? (
-          `Uzmi ${paket.name}`
-        ) : (
-          <>
-            <Loader2 className="animate-spin" />
-            Učitavanje
-          </>
-        )}
-      </Button>
+      {/* Ko ne sme, ne dobija ugašeno dugme nego rečenicu i put dalje.
+          Ugašeno dugme ne kaže ZAŠTO je ugašeno, pa ostavlja čoveka da nagađa
+          je li kvar ili pravilo — a ovde je pravilo, i ono vodi na plan iznad. */}
+      {smePaket ? (
+        <Button
+          variant="secondary"
+          className="mt-4 w-full"
+          disabled={!spremno || !cena || zakljucano}
+          onClick={naKlik}
+        >
+          {ceka ? (
+            <>
+              <Loader2 className="animate-spin" />
+              Otvaram plaćanje
+            </>
+          ) : spremno && cena ? (
+            `Uzmi ${paket.name}`
+          ) : (
+            <>
+              <Loader2 className="animate-spin" />
+              Učitavanje
+            </>
+          )}
+        </Button>
+      ) : (
+        <p className="mt-4 flex items-start gap-2 rounded-lg bg-bg-subtle px-3 py-2.5 text-xs leading-relaxed text-fg-muted">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-faint" aria-hidden />
+          <span>
+            {prijavljen
+              ? "Otključava se čim uzmeš plan ili dobiješ betu."
+              : "Dostupno uz aktivan plan ili betu — uzmi plan iznad."}
+          </span>
+        </p>
+      )}
     </div>
   );
 }

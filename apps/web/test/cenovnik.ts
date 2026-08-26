@@ -27,6 +27,10 @@ import {
   CREDIT_PACKS,
   PLAN_PRICE_IDS,
   sledecaDodelaKredita,
+  smeDaKupiPaket,
+  stanjePristupa,
+  STANJA_ZA_PAKET,
+  type StanjeId,
 } from "@sajtoskop/shared";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -185,8 +189,15 @@ console.log("\npaketi kredita");
     "kopija kaže da krediti iz paketa ne ističu",
   );
   check(
-    ekran.includes("Paket nije zamena za plan") && ekran.includes("Pretplata nije uslov"),
-    "kopija kaže i da paket nije zamena za plan i da se kupuje bez pretplate",
+    ekran.includes("Paket nije zamena za plan") &&
+      ekran.includes("Paket traži aktivan plan ili betu"),
+    "kopija kaže i da paket nije zamena za plan i da traži plan",
+  );
+  // Stara kopija je tvrdila SUPROTNO od pravila koje ruta sada sprovodi. Ostavka
+  // takvog teksta na ekranu je obećanje koje checkout odbija sa `403`.
+  check(
+    !/Pretplata nije uslov|kupuje se i bez plana|se kupuje i sam/.test(ekran),
+    "nigde ne piše da se paket kupuje bez plana",
   );
   // Jedno primarno dugme po ekranu (§7.1): ono je na istaknutom planu, pa
   // paketi moraju da ostanu sekundarni.
@@ -205,6 +216,100 @@ console.log("\npaketi kredita");
     ALL_PRICE_IDS.length === Object.values(PLAN_PRICE_IDS).length * 2 + 2,
     `ALL_PRICE_ID ima 8 cena (${ALL_PRICE_IDS.length})`,
   );
+}
+
+// ── 3b. ko sme da kupi paket (odluka 26.8.) ────────────────
+console.log("\npaket traži pristup");
+
+{
+  const SADA = Date.parse("2026-08-26T12:00:00.000Z");
+  const DAN = 24 * 60 * 60 * 1000;
+  const zaDana = (n: number) => new Date(SADA + n * DAN).toISOString();
+
+  /** Najmanji profil koji daje traženo stanje. */
+  const stanje = (id: StanjeId) => {
+    switch (id) {
+      case "beta":
+        return stanjePristupa(
+          { plan: "beta", betaExpiresAt: null, planExpiresAt: null, creditsTopup: 0 },
+          null,
+          SADA,
+        );
+      case "aktivan":
+        return stanjePristupa(
+          { plan: "pro", betaExpiresAt: null, planExpiresAt: zaDana(10), creditsTopup: 0 },
+          { status: "active", currentPeriodEnd: zaDana(10), canceledAt: null },
+          SADA,
+        );
+      case "otkazan":
+        return stanjePristupa(
+          { plan: "pro", betaExpiresAt: null, planExpiresAt: zaDana(10), creditsTopup: 0 },
+          { status: "canceled", currentPeriodEnd: zaDana(10), canceledAt: zaDana(-1) },
+          SADA,
+        );
+      case "dopuna":
+        return stanjePristupa(
+          { plan: "dopuna", betaExpiresAt: null, planExpiresAt: null, creditsTopup: 50 },
+          null,
+          SADA,
+        );
+      case "grace":
+        return stanjePristupa(
+          { plan: "pro", betaExpiresAt: null, planExpiresAt: zaDana(-5), creditsTopup: 0 },
+          null,
+          SADA,
+        );
+      case "zakljucan":
+        return stanjePristupa(
+          { plan: "pro", betaExpiresAt: null, planExpiresAt: zaDana(-90), creditsTopup: 0 },
+          null,
+          SADA,
+        );
+    }
+  };
+
+  for (const id of ["aktivan", "otkazan", "beta"] as StanjeId[]) {
+    const p = stanje(id);
+    check(p.stanje === id && smeDaKupiPaket(p), `${id} SME da kupi paket`);
+  }
+  for (const id of ["dopuna", "grace", "zakljucan"] as StanjeId[]) {
+    const p = stanje(id);
+    check(p.stanje === id && !smeDaKupiPaket(p), `${id} NE sme da kupi paket`);
+  }
+
+  // Gost i kvar veze. Namerno suprotno od `odbijenica()`, koja nepoznato stanje
+  // propušta: tamo bi zatvaranje značilo da kvar baze izgleda kao istekla
+  // pretplata, a ovde bi otvaranje značilo uzet novac mimo pravila.
+  check(!smeDaKupiPaket(null), "nepoznato stanje (gost, kvar veze) NE sme — pada zatvoreno");
+
+  check(
+    STANJA_ZA_PAKET.length === 3 && !STANJA_ZA_PAKET.includes("dopuna"),
+    `spisak stanja je tri člana (${STANJA_ZA_PAKET.join(", ")})`,
+  );
+
+  // ‼️ Kapija koja stvarno drži. Skriveno dugme nije zaštita — telo zahteva se
+  //    sastavlja u pregledaču, pa bez ove grane svako ko pošalje `pri_` paketa
+  //    dobije transakciju bez obzira na stanje naloga (isti princip kao
+  //    pravilo 9: CSS blur nije bezbednost).
+  const ruta = izvor("app/api/billing/checkout/route.ts");
+  check(
+    ruta.includes("smeDaKupiPaket(") && /kupovina\.kind === "pack"/.test(ruta),
+    "checkout ruta sprovodi pravilo na serveru, ne samo na ekranu",
+  );
+  check(/403,?\s*\)/.test(ruta), "odbijenica je 403 (stanje naloga), ne 402 (novčanik)");
+
+  // Ekrani koji su paket nudili kao izlaz ne smeju da ga nude onome ko ne sme.
+  check(
+    !izvor("app/zakljucano/page.tsx").includes("#paketi"),
+    "/zakljucano više ne nudi paket (zaključan nalog ga ne može kupiti)",
+  );
+  for (const f of [
+    "components/pristup-provider.tsx",
+    "components/pretplata-blok.tsx",
+    "components/okvir-aplikacije.tsx",
+  ]) {
+    check(izvor(f).includes("smeDaKupiPaket"), `${f} pita sme li nalog da kupi paket`);
+  }
 }
 
 // ── 4. obe kase i linkovi ka cenovniku ─────────────────────

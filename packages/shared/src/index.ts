@@ -184,6 +184,7 @@ export {
 
 // ── pristup: šest stanja naloga (LANSIRANJE §1.5) ──────────
 export type { Pristup, PretplataZaPristup, ProfilZaPristup, StanjeId } from "./pristup";
+export { smeDaKupiPaket, STANJA_ZA_PAKET } from "./pristup";
 export { citanjeDoZa, stanjePristupa } from "./pristup";
 
 // ── naplata: interfejs bez implementacije (F4 §6) ──────────

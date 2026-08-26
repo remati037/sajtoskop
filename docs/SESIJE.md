@@ -2818,3 +2818,63 @@ pao na sopstveno objašnjenje. Provera koja pada na komentar uči te da je ignor
   nazad kao `canceled_at` i da baner „traje do \<datum\>" iskoči sam.
 - **Ako se ikad zatraži iznos na `/krediti`:** to je migracija koja u `subscriptions` dodaje
   naplaćen iznos i valutu iz `transaction.completed`, plus grana za popust. Ne PricePreview.
+
+---
+
+## Izmena posle S21 — paket kredita traži plan ili betu ☑
+
+**Doneto i isporučeno 26. avgusta 2026.** Bez migracije. Menja `LANSIRANJE.md` §1.4 i §1.5.
+
+**Šta se promenilo:** paket kredita više nije ulaz u proizvod nego **dopuna postojećem
+pristupu**. Kupuju ga `aktivan`, `otkazan` i `beta`; `dopuna`, `grace`, `zakljucan` i gost ne
+mogu. S21 je isporučio suprotno („paket se kupuje i bez pretplate; to je podržan slučaj, ne
+izuzetak") — to je bila odluka §1.4 i sada je povučena.
+
+### Šta je urađeno
+
+- **`smeDaKupiPaket()` i `STANJA_ZA_PAKET`** u `packages/shared/src/pristup.ts`. Jedno mesto,
+  isto za server i za pregledač — dva spiska bi značila dugme koje se vidi a ne radi.
+- **`/api/billing/checkout` sprovodi pravilo sa `403`.** Ovo je kapija; ekran je prikaz.
+  Telo zahteva se sastavlja u pregledaču, pa bi bez ove grane svako ko pošalje `pri_` paketa
+  dobio transakciju. `403`, ne `402`: stanje naloga nije stanje novčanika.
+- **Ekran cena i dalje POKAZUJE pakete** onome ko ne sme, sa katancem i jednom rečenicom.
+  Sakriti ih značilo bi da posetilac ne zna ni da postoje ni da se otključavaju uz plan — a to
+  je razlog više da uzme plan, ne manje.
+- **Uklonjen izlaz „Samo dokupi kredite" sa `/zakljucano`.** Zaključan nalog paket ne može da
+  kupi, pa bi to dugme vodilo pravo u `403`.
+- **Uslovljena tri CTA-a:** modal pristupa, primarno dugme na `/krediti` i poziv na
+  dokupljivanje u bočnoj traci. Svaki od njih sada pita `smeDaKupiPaket()` i nudi plan kad
+  paket nije opcija.
+
+### Odluke koje nisu bile doslovno u zahtevu
+
+- **Beta SME**, iako beta nalog nema pretplatu. Zahtev je glasio „samo korisnici koji imaju
+  pretplatu", a beta bukvalno nije pretplata — ali beta nalozi su prvih dvadeset korisnika i
+  §1.4 je paket zvao „jedini put za beta korisnika koji neće pretplatu". Oduzeti im i to
+  značilo bi da im je jedini način da plate pun plan, pre nego što su odlučili vredi li.
+  **Potvrđeno pitanjem pre pisanja koda.**
+- **`smeDaKupiPaket(null)` je `false`** — nepoznato stanje (gost, kvar veze sa bazom) ne sme.
+  Ovo je NAMERNO suprotno od `odbijenica()` u `apps/web/src/lib/pristup.ts`, koja kvar veze
+  propušta. Razlika ide po tome šta je šteta u svakom smeru: tamo bi zatvaranje značilo da kvar
+  baze izgleda kao istekla pretplata korisniku koji je platio, ovde bi otvaranje značilo uzet
+  novac mimo pravila. Naplata pada zatvoreno.
+- **`dopuna` NE sme**, iako je to stanje sa punim pristupom. Doslovno čitanje zahteva: ko nema
+  plan, ne kupuje paket. Posledica je da se iz `dopuna` izlazi samo planom.
+
+### Šta je test pokrio
+
+Prošireno `apps/web/test/cenovnik.ts`: svih šest stanja kroz `stanjePristupa()` pa kroz
+`smeDaKupiPaket()` (tri smeju, tri ne), `null` pada zatvoreno, spisak stanja ima tačno tri
+člana, checkout ruta stvarno zove funkciju i vraća `403`, `/zakljucano` više ne pominje
+`#paketi`, i sva tri CTA fajla pitaju za dozvolu. Uz to provera da stara kopija („Pretplata
+nije uslov") više ne postoji — tekst koji obećava suprotno od onoga što ruta radi je obećanje
+koje se odbija sa `403`.
+
+### Ostaje na meni
+
+- **Tvoj nalog je trenutno `dopuna`** (150 dokupljenih kredita, bez pretplate), pa po novom
+  pravilu **više ne može da kupi paket**. Za dalje testiranje paketa treba ti aktivna
+  pretplata ili beta nalog iz konzole.
+- **Kopija landinga (S23/S24)** ne sme da obeća paket bez pretplate.
+- **`docs/PROVERA-VIZUELNA.md` §7b** ima novu podsekciju „Ko sme da kupi", uključujući
+  `fetch` iz konzole koji dokazuje da kapija nije samo kozmetika.

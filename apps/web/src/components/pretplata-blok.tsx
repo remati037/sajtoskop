@@ -23,7 +23,7 @@
 
 import Link from "next/link";
 import { ArrowRight, Coins, Wallet } from "lucide-react";
-import { sledecaDodelaKredita, type Pristup } from "@sajtoskop/shared";
+import { sledecaDodelaKredita, smeDaKupiPaket, type Pristup } from "@sajtoskop/shared";
 import { formatDatum, imePlana } from "@/lib/ui-tekst";
 import type { PretplataZaEkran } from "@/lib/pretplata";
 import { Alert } from "@/components/ui/alert";
@@ -56,6 +56,9 @@ export function PretplataBlok({
   mesecnaDodela: number;
 }) {
   const ciklus = pretplata?.ciklus ? CIKLUS_REC[pretplata.ciklus] : null;
+  // Odluka 26.8.: paket traži aktivan plan ili betu. Ko ne sme, ne dobija dugme
+  // koje bi ga odvelo u `403` — dobija ono koje ga vodi na planove.
+  const smePaket = smeDaKupiPaket(pristup);
 
   return (
     <section className="rounded-2xl border border-border bg-bg-elev shadow-sm">
@@ -74,13 +77,12 @@ export function PretplataBlok({
           </p>
         </div>
 
-        {/* „Dokupi kredite" je jedino primarno dugme na ovom ekranu (§7.1):
-            ono je jedina radnja koja nešto pokreće. Portal je sekundaran — on
-            vodi napolje, kod Paddle-a. */}
+        {/* Jedno primarno dugme na ekranu (§7.1). Šta ono nudi zavisi od toga
+            šta nalog SME: dopunu, ili plan koji dopunu otključava. */}
         <div className="flex shrink-0 flex-wrap items-start gap-2">
           <Button asChild variant="primary">
-            <Link href="/cenovnik#paketi">
-              Dokupi kredite
+            <Link href={smePaket ? "/cenovnik#paketi" : "/cenovnik"}>
+              {smePaket ? "Dokupi kredite" : "Pogledaj planove"}
               <ArrowRight aria-hidden />
             </Link>
           </Button>
@@ -103,7 +105,7 @@ export function PretplataBlok({
             <span className="text-fg-muted">
               Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da otvaraš
               svoje prospekte, vodiš pipeline i izvezeš oba CSV-a. Skeniranje i otključavanje ne
-              rade dok ne uzmeš plan ili paket kredita — krediti koje vidiš ispod te čekaju.
+              rade dok ne uzmeš plan — krediti koje vidiš ispod te čekaju.
             </span>
           </Alert>
         </div>
@@ -155,7 +157,8 @@ export function PretplataBlok({
             objasnjenje={
               <>
                 <strong className="font-medium text-fg">Ne ističu.</strong> Krediti iz paketa
-                stoje dok ih ne potrošiš i mesečna dodela ih ne dira.
+                stoje dok ih ne potrošiš i mesečna dodela ih ne dira. Nov paket se kupuje uz
+                aktivan plan ili betu.
               </>
             }
           />

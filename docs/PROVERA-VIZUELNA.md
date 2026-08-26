@@ -328,11 +328,30 @@
 - [ ] **Jedno primarno dugme na celom ekranu** — ono je na istaknutom planu (Pro). Dugmad
       paketa su sekundarna.
 
+### Ko sme da kupi (izmena 26.8. — paket traži plan ili betu)
+- [ ] **Gost** (odjavljen): sekcija paketa se **vidi**, ali umesto dugmeta stoji katanac i
+      „Dostupno uz aktivan plan ili betu — uzmi plan iznad". Bedž gore desno kaže **„Traži
+      aktivan plan"**, ne „Bez roka trajanja".
+- [ ] **Nalog bez plana** (`dopuna` — ima kupljene kredite, nema pretplatu): isto zaključano,
+      ali tekst glasi „Otključava se čim uzmeš plan ili dobiješ betu".
+- [ ] **Beta nalog**: dugmad **rade**.
+- [ ] **Aktivna i otkazana pretplata**: dugmad rade.
+- [ ] **`grace`**: zaključano.
+- [ ] ‼️ **Serverska provera, ne samo ekran.** Iz konzole naloga koji NE sme:
+      `fetch("/api/billing/checkout",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({priceId:"pri_01m0ffx0j4pyxenvfxrjwz55pf"})}).then(r=>r.status)`
+      → mora da vrati **`403`**, ne 200. Ako vrati 200, kapija je samo kozmetika.
+- [ ] Nigde na `/cenovnik` ne piše „Pretplata nije uslov" ni „kupuje se i sam".
+- [ ] `/zakljucano` ima **jedno** dugme („Pogledaj planove") — „Samo dokupi kredite" je
+      uklonjeno, jer bi vodilo u `403`.
+- [ ] Modal „Ostao si bez kredita" nalogu koji SME nudi dva dugmeta, a onome ko NE sme samo
+      „Uzmi plan".
+- [ ] Blok na `/krediti`: primarno dugme je „Dokupi kredite" onome ko sme, „Pogledaj planove"
+      onome ko ne sme.
+- [ ] Bočna traka na niskom stanju: red kaže „Dokupi kredite" ili „Uzmi plan", zavisno od stanja.
+
 ### Kupovina
 - [ ] Prijavljen korisnik klikne „Uzmi Dopuna 50" → dugme pređe u **„Otvaram plaćanje"**, ostala
       dugmad (i planovi i paketi) se **ugase**, pa se otvori Paddle modal u temi aplikacije.
-- [ ] **Bez pretplate** — nalog koji nikad nije imao plan kupuje paket bez ijedne prepreke. To je
-      podržan slučaj, ne izuzetak.
 - [ ] **Gost** klikne bilo koje dugme → vodi ga na registraciju sa povratkom na `/cenovnik`.
 - [ ] Popust `BETA2026` **ne** hvata pakete (ograničen je na tri proizvoda pretplate) — beta
       nalog koji kupuje paket vidi punu cenu, i to je tačno.

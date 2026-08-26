@@ -16,7 +16,7 @@ import { usePathname } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { UserButton } from "@clerk/nextjs";
 import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Menu, ShieldCheck, X } from "lucide-react";
-import type { MotorStanje, Pristup, Uslovi } from "@sajtoskop/shared";
+import { smeDaKupiPaket, type MotorStanje, type Pristup, type Uslovi } from "@sajtoskop/shared";
 import { cn } from "@/lib/cn";
 import { NAVIGACIJA, naslovZaPutanju, type NavStavka } from "@/lib/navigacija";
 import { PrekidacTeme, PrekidacTemeDugme } from "./prekidac-teme";
@@ -139,6 +139,7 @@ export function OkvirAplikacije({
           krediti={krediti}
           mesecniKrediti={mesecniKrediti}
           admin={admin}
+          smePaket={smeDaKupiPaket(pristup)}
         />
 
         {/* Dugme za skupljanje stoji na ivici trake, u visini zaglavlja, i tu
@@ -182,6 +183,7 @@ export function OkvirAplikacije({
               krediti={krediti}
               mesecniKrediti={mesecniKrediti}
               admin={admin}
+              smePaket={smeDaKupiPaket(pristup)}
             />
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
@@ -254,12 +256,15 @@ function SadrzajTrake({
   krediti,
   mesecniKrediti,
   admin,
+  smePaket,
 }: {
   skupljen: boolean;
   putanja: string;
   krediti: number | null;
   mesecniKrediti: number;
   admin: boolean;
+  /** Sme li nalog da kupi paket — određuje kuda vodi poziv na dokupljivanje. */
+  smePaket: boolean;
 }) {
   return (
     <>
@@ -302,7 +307,12 @@ function SadrzajTrake({
             konzole. */}
         {admin && <LinkKonzole skupljen={skupljen} />}
 
-        <KarticaKredita krediti={krediti} mesecni={mesecniKrediti} skupljen={skupljen} />
+        <KarticaKredita
+          krediti={krediti}
+          mesecni={mesecniKrediti}
+          skupljen={skupljen}
+          smePaket={smePaket}
+        />
 
         {skupljen ? (
           <div className="flex justify-center">
@@ -488,22 +498,27 @@ function KarticaKredita({
   krediti,
   mesecni,
   skupljen,
+  smePaket,
 }: {
   krediti: number | null;
   mesecni: number;
   skupljen: boolean;
+  smePaket: boolean;
 }) {
   const imaDodelu = mesecni > 0;
   const procenat =
     krediti === null || !imaDodelu ? 0 : Math.min(100, Math.round((krediti / mesecni) * 100));
   const nisko = niskoStanje(krediti, mesecni);
+  // Od 26.8. paket traži aktivan plan ili betu, pa poziv na akciju mora da vodi
+  // tamo gde nalog stvarno može nešto da uradi — inače je to link do odbijenice.
+  const cilj = smePaket ? "/cenovnik#paketi" : "/cenovnik";
 
   if (skupljen) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
-            href={nisko ? "/cenovnik#paketi" : "/krediti"}
+            href={nisko ? cilj : "/krediti"}
             className="flex flex-col items-center gap-0.5 rounded-lg border border-border-strong bg-bg-elev py-2 text-center transition-colors hover:border-fg-muted"
           >
             <Coins className={cn("h-4 w-4", nisko ? "text-warn-text" : "text-accent-text")} />
@@ -512,7 +527,7 @@ function KarticaKredita({
         </TooltipTrigger>
         <TooltipContent side="right">
           {nisko
-            ? `Ostalo ti je ${krediti ?? "—"} kredita — dokupi`
+            ? `Ostalo ti je ${krediti ?? "—"} kredita — ${smePaket ? "dokupi" : "uzmi plan"}`
             : imaDodelu
               ? `${krediti ?? "—"} od ${mesecni} kredita`
               : `${krediti ?? "—"} kredita, bez roka`}
@@ -564,10 +579,10 @@ function KarticaKredita({
           njih. Pojavljuje se tek kad je stvarno nisko, inače je stalna reklama. */}
       {nisko && (
         <Link
-          href="/cenovnik#paketi"
+          href={cilj}
           className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-[11px] font-medium text-accent-text transition-colors hover:bg-bg-hover"
         >
-          Dokupi kredite
+          {smePaket ? "Dokupi kredite" : "Uzmi plan"}
           <ChevronRight className="h-3.5 w-3.5" aria-hidden />
         </Link>
       )}

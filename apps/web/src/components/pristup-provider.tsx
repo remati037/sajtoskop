@@ -32,7 +32,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Coins, Timer } from "lucide-react";
-import type { Pristup } from "@sajtoskop/shared";
+import { smeDaKupiPaket, type Pristup } from "@sajtoskop/shared";
 import { formatDatum } from "@/lib/ui-tekst";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -124,12 +124,18 @@ export function PristupProvider({
 }
 
 /**
- * Objašnjenje + dva izlaza, oba na `/cenovnik`.
+ * Objašnjenje i put dalje, uvek na `/cenovnik`.
  *
- * Dva dugmeta, a ne jedno: „uzmi plan" nije jedini izlaz i ne sme da izgleda
- * kao jedini. Beta korisnik koji neće pretplatu ima pravo na paket kredita
- * (§1.4), a to je i jedini put kojim se iz `grace` stanja izlazi bez kartice
- * koja se naplaćuje svakog meseca.
+ * ── zašto ponekad dva dugmeta, a ponekad jedno ──────────────
+ * Do 26.8. su ovde uvek stajala dva („uzmi plan" i „dokupi kredite"), jer je
+ * paket bio ravnopravan izlaz. Od odluke tog dana paket traži aktivan plan ili
+ * betu, pa drugo dugme sme da se pojavi SAMO onome ko sme i da ga iskoristi:
+ *
+ *   · nema kredita, a plan traje  → oba (dopuna je tačno ono što mu treba)
+ *   · pristup istekao (`grace`)   → samo plan; paket bi vodio u odbijenicu
+ *
+ * Odluku donosi `smeDaKupiPaket()`, ista funkcija koju zove i checkout ruta.
+ * Dugme koje vodi u `403` gore je od dugmeta kog nema.
  */
 function ModalPristupa({
   razlog,
@@ -144,6 +150,7 @@ function ModalPristupa({
 
   const jeIstek = razlog === "istek";
   const Ikona = jeIstek ? Timer : Coins;
+  const smePaket = smeDaKupiPaket(pristup);
 
   return (
     <Dialog open onOpenChange={(otvoren) => !otvoren && zatvori()}>
@@ -171,22 +178,32 @@ function ModalPristupa({
             <p>Sve što si već otključao ostaje ti i dalje, zajedno sa pipeline-om.</p>
           )}
 
-          <p>
-            Dva puta dalje: <strong className="font-semibold text-fg">plan</strong>, ako radiš
-            redovno, ili <strong className="font-semibold text-fg">paket kredita</strong>, ako ti
-            treba samo dopuna. Krediti iz paketa ne ističu.
-          </p>
+          {smePaket ? (
+            <p>
+              Dva puta dalje: <strong className="font-semibold text-fg">veći plan</strong>, ako ti
+              se ovo ponavlja svakog meseca, ili{" "}
+              <strong className="font-semibold text-fg">paket kredita</strong>, ako je ovaj mesec
+              bio izuzetak. Krediti iz paketa ne ističu.
+            </p>
+          ) : (
+            <p>
+              Put dalje je <strong className="font-semibold text-fg">plan</strong>. Paketi kredita
+              se kupuju samo uz aktivan plan ili betu — oni dopunjuju pristup, ne zamenjuju ga.
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-border px-5 py-3 sm:flex-row sm:justify-end">
-          <Button variant="ghost" asChild>
-            <Link href="/cenovnik#paketi" onClick={zatvori}>
-              Dokupi kredite
-            </Link>
-          </Button>
+          {smePaket && (
+            <Button variant="ghost" asChild>
+              <Link href="/cenovnik#paketi" onClick={zatvori}>
+                Dokupi kredite
+              </Link>
+            </Button>
+          )}
           <Button variant="primary" asChild>
             <Link href="/cenovnik" onClick={zatvori}>
-              Uzmi plan
+              {smePaket ? "Pogledaj planove" : "Uzmi plan"}
             </Link>
           </Button>
         </div>

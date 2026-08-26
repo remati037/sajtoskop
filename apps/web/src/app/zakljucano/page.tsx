@@ -87,21 +87,22 @@ export default async function Page() {
             istom trenutku u kom nalog ponovo dobije pristup.
           </p>
 
-          <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          {/* Jedan izlaz, ne dva. Do 26.8. je ovde stajalo i „Samo dokupi
+              kredite" — a od odluke tog dana paket traži aktivan plan ili betu
+              (`smeDaKupiPaket`), pa zaključan nalog tim putem ne može da prođe.
+              Dugme koje vodi u odbijenicu je gore nego dugme kog nema. */}
+          <div className="mt-6">
             <Button asChild variant="primary">
               <Link href="/cenovnik">
                 Pogledaj planove
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
             </Button>
-            <Button asChild variant="ghost">
-              <Link href="/cenovnik#paketi">Samo dokupi kredite</Link>
-            </Button>
           </div>
 
           <p className="mt-6 border-t border-border pt-4 text-xs leading-relaxed text-fg-muted">
-            Paket kredita je dovoljan — ne moraš na pretplatu. Krediti iz paketa ne ističu i sami
-            po sebi vraćaju pun pristup, sa Starter dnevnim limitima.
+            Krediti koje si ranije dokupio nisu nestali — oni ne ističu i čekaju te. Paket kredita
+            se, međutim, kupuje samo uz aktivan plan ili betu, pa se pristup vraća planom.
           </p>
         </div>
       </main>

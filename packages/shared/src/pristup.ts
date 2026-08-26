@@ -249,3 +249,49 @@ export function stanjePristupa(
 
   return { stanje: "zakljucan", pun: false, cita: false, planLimita: plan, punDo, citanjeDo };
 }
+
+// ═══════════════════════════════════════════════════════════
+// KO SME DA KUPI PAKET KREDITA
+// ═══════════════════════════════════════════════════════════
+// ‼️ OVO JE IZMENA ODLUKE iz LANSIRANJE §1.4, doneta 26. avgusta 2026.
+//
+// Do sada je važilo: „paket se kupuje i bez pretplate; to je podržan slučaj, ne
+// izuzetak". Sada važi suprotno — paket je DOPUNA postojećem pristupu, ne ulaz
+// u proizvod. Ko nema plan ni betu, uzima plan.
+//
+// ── zašto je to promena, a ne sitnica ───────────────────────
+// Paket je bio jedini put kojim je neko mogao da uđe (i vrati se) bez mesečne
+// kartice. Time što ga uslovljava, proizvod dobija jedan ulaz umesto dva:
+// `/zakljucano` više nema drugu ponudu, a `dopuna` prestaje da bude stanje u
+// koje se ULAZI kupovinom — postaje samo ono u koje se ISPADA kad pretplata
+// prestane, a kupljeni krediti ostanu.
+//
+// `dopuna` zato NIJE mrtvo stanje i ostaje u uniji: pretplatnik koji kupi paket
+// pa otkaže plan i dočeka istek perioda i dalje završi u njemu, sa kreditima
+// koji ne ističu. Samo više ne može da ga dopuni bez novog plana.
+//
+// ── zašto beta SME ──────────────────────────────────────────
+// §1.4 je paket zvao „jedini put za beta korisnika koji neće pretplatu", a beta
+// nalozi su prvih dvadeset korisnika. Oduzeti im i tu mogućnost značilo bi da
+// jedini način da mi plate bude pun plan — pre nego što su uopšte odlučili
+// vredi li. Beta zato ostaje uz `aktivan` i `otkazan`.
+
+/** Stanja iz kojih se paket kredita sme kupiti. Jedini spisak, nema drugog. */
+export const STANJA_ZA_PAKET: readonly StanjeId[] = ["aktivan", "otkazan", "beta"];
+
+/**
+ * Sme li ovaj nalog da kupi paket kredita.
+ *
+ * `null` (nepoznato stanje — profil nije pročitan) vraća `false`, i to je
+ * suprotno od `odbijenica()` u `apps/web/src/lib/pristup.ts`, koja kvar veze
+ * namerno PROPUŠTA. Razlika je namerna i ide po tome šta je šteta u svakom
+ * smeru: tamo bi zatvaranje značilo da kvar baze izgleda kao istekla pretplata
+ * korisniku koji je platio; ovde bi otvaranje značilo da se novac uzme mimo
+ * pravila. Naplata pada zatvoreno.
+ *
+ * Na serveru se uz to profil garantuje PRE ove provere (`ensureProfile()` u
+ * checkout ruti), pa `null` tamo znači stvaran kvar, ne trku.
+ */
+export function smeDaKupiPaket(pristup: Pristup | null): boolean {
+  return pristup !== null && STANJA_ZA_PAKET.includes(pristup.stanje);
+}

@@ -215,8 +215,29 @@ kredite bace na skeniranje**, ili realno **60–100 korisnika** u normalnom rež
 
 **Zašto su skuplji po kreditu od pretplate:** paket ne sme da kanibalizuje pretplatu. Oba su
 iznad Starter cene po kreditu (€0,290), pa je pretplata uvek povoljnija za nekoga ko troši
-redovno — a paket ostaje pošten izlaz za nekoga ko troši povremeno, i jedini put za beta
-korisnika koji neće pretplatu.
+redovno — a paket ostaje pošten izlaz za mesec u kome posao krene jače nego što je plan
+predviđao.
+
+> ‼️ **IZMENJENO 26. avgusta 2026: paket TRAŽI aktivan plan ili betu.**
+>
+> Ranije je ovde stajalo da se paket kupuje i bez pretplate i da je to „podržan slučaj, ne
+> izuzetak". **Više ne stoji.** Paket je od sada **dopuna postojećem pristupu**, ne ulaz u
+> proizvod: kupuju ga stanja `aktivan`, `otkazan` i `beta`; `dopuna`, `grace`, `zakljucan` i
+> gost ne mogu.
+>
+> **Zašto beta i dalje sme:** beta nalozi su prvih dvadeset korisnika. Da im se oduzme i
+> paket, jedini način da mi plate bio bi pun plan — pre nego što su odlučili vredi li.
+>
+> **Šta ovo košta:** proizvod gubi drugi ulaz. `/zakljucano` više nema alternativu pretplati
+> i sve vodi na tri plana; korisnik u `grace` stanju ne može da se vrati paketom.
+>
+> **Šta ovo NE menja:** stanje `dopuna` ostaje u `stanjePristupa()` i i dalje je dostižno —
+> pretplatnik koji kupi paket, pa otkaže plan i dočeka istek perioda, završava u njemu sa
+> kreditima koji ne ističu. Samo više ne može da ga dopuni bez novog plana.
+>
+> Pravilo je jedna funkcija: `smeDaKupiPaket()` u `packages/shared/src/pristup.ts`. Sprovodi
+> ga **`/api/billing/checkout` sa `403`**, a ekran cena je samo prikazuje — skriveno dugme
+> nije kapija (isti princip kao pravilo 9).
 
 **Zašto nema trećeg, većeg paketa:** da bi ostao iznad Startera, paket od 400 kredita bi
 morao ~€120 — više od Advanced plana (€119) koji daje 800 kredita. Veliki paket je
@@ -254,6 +275,10 @@ layout-u, i API rute, i baneri, i modal. Nikad dva mesta koja zaključuju razli�
 | **`zakljucan`** | grace istekao | ništa — ulaz vodi na `/cenovnik` |
 
 **Pristup ima ko ispunjava bar jedno:** aktivna pretplata · beta koja traje · `credits_topup > 0`.
+
+**Paket kredita, međutim, sme da KUPI samo `aktivan`, `otkazan` ili `beta`** (izmena od
+26.8., v. §1.4). `dopuna` je time stanje u koje se ISPADA, ne stanje u koje se ulazi
+kupovinom — i iz njega se izlazi planom, ne novim paketom.
 
 **Grace je 30 dana i to je namerno.** Korisnik koji prestane da plaća dobija mesec dana da
 izvuče svoj rad. Otključani prospekti su plaćeni, pipeline je njegov rad — oduzeti mu ih
@@ -1426,6 +1451,7 @@ Ne radi se pre, ali je zapisano da se ne izgubi:
 
 | Datum | Izmena |
 |---|---|
+| 2026-08-26 | **Paket kredita više nije ulaz u proizvod — traži aktivan plan ili betu.** Izmena §1.4 i §1.5 donesena posle S21, na zahtev. Pravilo je jedna funkcija `smeDaKupiPaket()` (`packages/shared/src/pristup.ts`): kupuju `aktivan`, `otkazan` i `beta`; `dopuna`, `grace`, `zakljucan` i gost ne mogu. **Sprovodi ga `/api/billing/checkout` sa `403`**, jer se telo zahteva sastavlja u pregledaču — skriveno dugme nije kapija. Ekran cena i dalje POKAZUJE pakete onome ko ne sme, sa objašnjenjem umesto dugmeta: skrivena ponuda ne prodaje ništa, a zaključana prodaje plan iznad sebe. Uklonjen izlaz „Samo dokupi kredite" sa `/zakljucano` i uslovljena dva CTA-a (modal pristupa, blok na `/krediti`, bočna traka) — dugme koje vodi u `403` gore je od dugmeta kog nema. **Cena odluke:** proizvod gubi drugi ulaz, a korisnik u `grace` stanju se ne može vratiti paketom. **`dopuna` ostaje dostižno stanje** — u njega se ispada kad pretplata prestane a kupljeni krediti ostanu. |
 | 2026-08-23 | **S21 isporučen — cenovnik ima pakete, nalog ima stanje, otkazivanje ima gde da se desi.** Bez migracije. `POST /api/billing/portal` pravi jednokratnu Paddle portal sesiju iz Clerk sesije i vraća **samo** `urls.general.overview`; telo zahteva se ne čita, pa `customerId` ne može ni da stigne spolja. Nalog bez Paddle kupca dobija `404`. Sekcija „Paketi kredita" na `/cenovnik` sa sidrom `#paketi` — sekundaran panel, ne četvrta kartica, cene iz **istog** `PricePreview()` poziva, kopija kaže i da krediti ne ističu i da paket nije jeftinija zamena za plan. Blok „Pretplata" na `/krediti` sa obe kase odvojeno i tačnim datumom obnove (`sledecaDodelaKredita()`, beogradski kalendar, isti kao ključ idempotencije mesečne dodele). **Najvažnija ispravka nije bila u opsegu:** četiri mesta su prikazivala samo `credits_balance` dok naplata ide iz zbira obe kase — nevidljivo dok `credits_topup` nije mogao da bude različit od nule, a od S18 može. **Iznosa u evrima na `/krediti` nema, namerno:** `PricePreview()` daje cenovničku cenu, a beta korisnik ima 33% popust, pa bi mu pisalo €59 nad računom od €39,53; `subscriptions` naplaćen iznos ne čuva. Futer je jedina tačka iz prompta koja nije isporučena — nastaje u S22. |
 | 2026-08-21 | **S20 isporučen — beta nalog je ručna radnja, i to jedina.** Migracija `0024`: nov razlog u knjizi `beta_grant` (i u `check`, i u indeksu, i u telu `grant_credits`), `profiles.plan default 'dopuna'` + `profiles_plan_valid`, triger `profiles_beta_guard` i `admin_open_beta` kao jedini put kroz njega — plan, rok i krediti u **jednoj** transakciji. `admin_users_page` vraća ulaze za `stanjePristupa()` i prima `p_ids`. `POST`/`PATCH /api/admin/korisnici/[id]/beta`, dve radnje u reviziji (`user.beta_open`, `user.beta_expiry`). Lista korisnika ima kolonu i filter po stanju i prikazuje **zbir obe kase**; detalj ima blok „Pristup" sa oba upisana i oba izvedena datuma. **Uz to je zatvorena rupa iz S19:** `DEFAULT_PLAN` više nije `beta` i registracija dodeljuje **0 kredita**, pa nov nalog ide na `/cenovnik` umesto u doživotnu betu. Filter po stanju se računa u TS-u i u SQL šalje spisak ID-jeva — druga implementacija šest stanja u bazi bi se razišla tiho. |
 | 2026-08-20 | Prva verzija. |

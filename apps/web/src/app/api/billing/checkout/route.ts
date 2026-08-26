@@ -12,13 +12,14 @@
 // korisnik beta. Zbog toga popust može da se primeni sam, bez kucanja koda.
 
 import { NextResponse } from "next/server";
-import { kupovinaZaPriceId } from "@sajtoskop/shared";
+import { kupovinaZaPriceId, smeDaKupiPaket, stanjePristupa } from "@sajtoskop/shared";
 import type { ProfileRow } from "@sajtoskop/shared";
 import { currentUser } from "@clerk/nextjs/server";
 import { requireUserId } from "@/lib/auth";
 import { checkoutBodySchema } from "@/lib/billing-schema";
 import { KonfigGreska, paddleBetaDiscountId } from "@/lib/env";
 import { paddleServer } from "@/lib/paddle-server";
+import { citajPretplatu } from "@/lib/pristup";
 import { ensureProfile } from "@/lib/profile";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import { adminSupabase } from "@/lib/supabase";
@@ -105,11 +106,52 @@ export async function POST(req: Request): Promise<Response> {
     // korisnički token.
     const { data: profil, error: greskaProfila } = await adminSupabase()
       .from("profiles")
-      .select("plan, paddle_customer_id")
+      .select("plan, paddle_customer_id, beta_expires_at, plan_expires_at, credits_topup")
       .eq("id", userId)
-      .maybeSingle<Pick<ProfileRow, "plan" | "paddle_customer_id">>();
+      .maybeSingle<
+        Pick<
+          ProfileRow,
+          "plan" | "paddle_customer_id" | "beta_expires_at" | "plan_expires_at" | "credits_topup"
+        >
+      >();
 
     if (greskaProfila) throw new Error(`profiles: ${greskaProfila.message}`);
+
+    // ── paket traži postojeći pristup ────────────────────────
+    // Odluka od 26.8.: paket kredita je DOPUNA, ne ulaz u proizvod. Sme ga
+    // kupiti `aktivan`, `otkazan` i `beta`; ko nema ništa od toga, uzima plan.
+    // Spisak stanja živi u `smeDaKupiPaket()` u shared paketu — isti koji čita
+    // i ekran cena, jer bi dva spiska značila dugme koje se vidi a ne radi.
+    //
+    // ‼️ Provera je OVDE, ne samo na ekranu. Ekran cena skriva dugme, ali telo
+    //    zahteva se sastavlja u pregledaču: bez ove grane bi svako ko pošalje
+    //    `pri_` paketa dobio transakciju bez obzira na stanje naloga. Skriveno
+    //    dugme nije kapija, isto kao što CSS blur nije bezbednost (pravilo 9).
+    if (kupovina.kind === "pack") {
+      const pretplata = await citajPretplatu(userId);
+      const pristup = profil
+        ? stanjePristupa(
+            {
+              plan: profil.plan,
+              betaExpiresAt: profil.beta_expires_at,
+              planExpiresAt: profil.plan_expires_at,
+              creditsTopup: profil.credits_topup,
+            },
+            pretplata,
+            Date.now(),
+          )
+        : null;
+
+      if (!smeDaKupiPaket(pristup)) {
+        // `403`, ne `402`: ovo nije stanje novčanika nego stanje naloga —
+        // isti razlog iz kog `odbijenica()` u `lib/pristup.ts` bira 403.
+        return greska(
+          "Paket kredita je dopuna uz aktivan plan ili betu. Uzmi plan na /cenovnik — " +
+            "paketi se otključavaju čim plan bude aktivan.",
+          403,
+        );
+      }
+    }
 
     // ── kupon za betu (LANSIRANJE §1.6) ────────────────────
     // Popust je u Paddle-u ograničen na proizvode pretplata i podešen kao
