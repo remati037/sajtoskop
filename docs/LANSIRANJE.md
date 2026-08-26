@@ -363,7 +363,7 @@ ostaje kao rezerva za nekoga ko kupuje pre nego što se uloguje. Isti popust, dv
 | **S23** | kopi landinga | **otpada** |
 | **S24** | landing + onboarding | **postaje preokret na poddomen**; onboarding se seli u **S27/S28** |
 | Clerk | jedna izmena URL-a | **nov domen instance** (v. R32) |
-| Paddle `successUrl` i default payment link | bez izmene | **menjaju se na `app.` poddomen** (R34) |
+| Paddle default payment link | bez izmene | **menja se na `app.` poddomen** (R34); `successUrl` se sklapa iz `window.location.origin` i ne dira se |
 | CSP | bez izmene | **bez izmene** — landing je drugi origin i aplikaciju ne uokviruje |
 
 #### Pravne strane ostaju u aplikaciji
@@ -403,8 +403,12 @@ dugme na landingu  →  https://app.sajtoskop.com/cenovnik?plan=pro&ciklus=godis
 
 Baza, worker, red poslova, budžet, RLS i kapije pristupa ne znaju za domen. Preokret je
 **mrežni i konfiguracioni, ne arhitektonski.** U kodu se menjaju samo **linkovi ka landingu**:
-logo u futeru i u zaglavljima javnih strana danas vodi na `/`, a treba na `sajtoskop.com`.
-Domen ide kroz `NEXT_PUBLIC_LANDING_URL`, nikad zakucan u JSX-u.
+logo u futeru i u zaglavljima javnih strana danas vodi na `/`, a treba na landing. Domen ide
+kroz `NEXT_PUBLIC_LANDING_URL`, nikad zakucan u JSX-u.
+
+‼️ **Kanonski oblik je `https://www.sajtoskop.com`** — provereno 27.8.: goli `sajtoskop.com`
+odgovara `308` i preusmerava na `www`. `NEXT_PUBLIC_LANDING_URL` zato nosi **www oblik**, da
+svaki klik iz aplikacije ne plaća suvišan skok.
 
 ### 1.8 Onboarding — prvih pet minuta (D8)
 
@@ -464,23 +468,50 @@ Bez ove odluke nov nalog ima nula kredita (S20), pa bi ga vođen prolaz doveo do
 „Otključaj" koje ne radi — i onboarding bi se završio na katancu, jedan korak pre trenutka u
 kome se vrednost proizvoda prvi put vidi.
 
-**Kredit se dodeljuje lenjo, pre prvog otključavanja — ne na registraciji.** Razlika je mala u
-kodu i velika u ishodu:
+**Kredit ide u `credits_topup` i dodeljuje se NA REGISTRACIJI.**
 
-| | Na registraciji | **Pre prvog otključavanja** |
-|---|---|---|
-| Gde kredit završi | gde god korisnik klikne prvo — jedno „Brzo" skeniranje ga pojede | **na otključavanju**, jedinom mestu gde se vrednost vidi |
-| Nalog koji nikad ne stigne do otključavanja | plaćen | **ne košta ništa** |
-| Šta piše na dugmetu | ništa posebno | **„Prvi prospekt je besplatan"** — kopija koja sama prodaje |
+> ‼️ **Ispravka od 27.8., posle provere koda.** Ovde je najpre pisalo da se kredit dodeljuje
+> *lenjo, pre prvog otključavanja*. **To ne može da radi**, i razlog je kapija pristupa:
+>
+> `stanjePristupa()` pušta unutra samo nalog koji ima **pretplatu, betu ili
+> `credits_topup > 0`**. Nov nalog nema nijedno od toga, pa je **`zakljucan`** — ne može ni da
+> uđe na `/pretraga`, a kamoli da stigne do dugmeta „Otključaj". Lenja dodela pretpostavlja da
+> je korisnik već unutra; on nije.
+>
+> Uz to, `grant_credits` bira kasu **po razlogu**: samo `credit_pack` puni `credits_topup`, a
+> sve ostalo `credits_balance` (migracija `0022`). Kredit dodeljen kao `onboarding` u
+> `credits_balance` **ne otvara pristup** — nalog ostaje zaključan i sa njim.
 
-To je i doslovno ono što F8 §2 traži: *„`grant_credits(+1, 'onboarding')` **pre** unlocka"*.
+Zato:
 
-**Trošak:** ~€0,02 po nalogu koji stvarno otključa (Claude vision, PageSpeed, dva snimka
-ekrana), **nula Places poziva**. Na dvadeset beta korisnika to je manje od pola evra.
+- dodela ide **pri kreiranju profila**, u istoj putanji u kojoj profil i nastaje
+  (`create_profile_with_grant`), sa `ref_id = user_id`;
+- kredit se upisuje u **`credits_topup`**, dakle migracija `0025` dopisuje `onboarding` u
+  granu koja puni tu kasu;
+- nalog time ulazi u stanje **`dopuna`** — pun pristup, Starter dnevni limiti (§1.3), i i
+  dalje **ne sme da kupi paket kredita** (§1.4), što je i tačno.
 
-**Šta ovo NE rešava, namerno:** nalog i dalje ima nula kredita za **skeniranje**, pa svaka
-pretraga van keširanih kombinacija traži plan. Čarobnjak zato i vodi na kombinaciju koja je u
-kešu — onboarding se završava na poruci spremnoj za slanje, ne na cenovniku.
+**Šta se dobija:** nov korisnik uopšte može da uđe u aplikaciju i prođe kroz onboarding. Bez
+ovoga registracija vodi pravo na `/zakljucano`.
+
+**Šta se gubi:** kredit više nije vezan za otključavanje — sme da ode i na jedno „Brzo"
+skeniranje. Onboarding to ublažava time što vodi na **keširanu** kombinaciju (besplatnu) i
+odatle pravo na otključavanje, ali garancije nema.
+
+> ‼️ **Ovo POVEĆAVA broj Places poziva**, prijavljeno po pravilu iz `CLAUDE.md`: u najgorem
+> slučaju **jedan poziv po registrovanom nalogu** (€0,032), ako besplatan kredit ode na
+> skeniranje umesto na otključavanje. Globalni dnevni i mesečni cap i dalje stoje i
+> ograničavaju štetu, ali na dan objave sa mnogo registracija to je stvaran trošak.
+
+**Trošak:** ~€0,02 po nalogu koji otključa (Claude vision, PageSpeed, dva snimka ekrana), ili
+~€0,032 ako kredit ode na skeniranje. Na dvadeset korisnika ispod jednog evra.
+
+Dugme za otključavanje i dalje treba da kaže **„Prvi prospekt je besplatan"** dok kredit stoji
+neiskorišćen — kopija koja prodaje ostaje, samo mehanizam iza nje nije lenj.
+
+**Kad se kredit potroši**, nalog pada nazad u `zakljucan` i ulaz vodi na `/zakljucano` — stranu
+čiji naslov glasi „Pristup je istekao". Za nekoga ko je upravo iskoristio besplatno
+otključavanje to je pogrešna rečenica, pa **S27 mora da doda tu granu u kopiju** te strane.
 
 **Odbijeno i zašto:** *(b) demo prospekt otključan svima* — plaća se izuzetkom u **pravilu 9**,
 jedinom pravilu koje čuva zaključan podatak, i to zbog ugođaja; *(c) ništa* — onboarding bi
@@ -1476,11 +1507,18 @@ Ne radi vođen prvi prolaz, prazna stanja ni vodič na zahtev — to je S28.
 5. PRVO OTKLJUČAVANJE JE BESPLATNO (odluka O1, sekcija 1.8)
    - grant_credits(+1, 'onboarding') sa ref_id = user_id, dakle jednom po nalogu zauvek.
      Razlog 'onboarding' postoji u migraciji 0022 od S16 i čeka baš ovo.
-   - dodeljuje se LENJO, PRE PRVOG OTKLJUČAVANJA — ne na registraciji. Na registraciji bi
-     ga jedno „Brzo" skeniranje pojelo pre nego što čovek vidi ijedan pun prospekt.
-   - dodela i trošenje NISU u istoj transakciji i ne moraju da budu: grant je idempotentan
-     po ref_id, pa je najgori ishod dodeljen kredit koji nije potrošen. Trošenje i dalje
-     ide isključivo kroz spend_credit_and_unlock (pravilo 3) — ne dodaji novu putanju.
+   - kredit ide u credits_topup, NE u credits_balance, i dodeljuje se PRI KREIRANJU PROFILA
+     (create_profile_with_grant). Razlog je kapija: stanjePristupa() pušta unutra samo
+     pretplatu, betu ili credits_topup > 0 — nov nalog je inače `zakljucan` i ne može ni da
+     uđe na /pretraga. Migracija 0025 zato dopisuje 'onboarding' u granu grant_credits-a
+     koja puni credits_topup (danas je tamo samo 'credit_pack').
+   - nalog time ulazi u stanje `dopuna`: pun pristup, Starter dnevni limiti, i i dalje NE
+     sme da kupi paket (smeDaKupiPaket) — proveri da to i dalje važi posle izmene.
+   - trošenje i dalje ide isključivo kroz spend_credit_and_unlock (pravilo 3) — ne dodaji
+     novu putanju.
+   - ‼️ kad se kredit potroši, nalog pada u `zakljucan` i završi na /zakljucano, čiji naslov
+     kaže „Pristup je istekao". Za nekoga ko je upravo iskoristio besplatno otključavanje to
+     je pogrešno — dodaj granu u kopiju te strane.
    - dugme mora da kaže „Prvi prospekt je besplatan" dok kredit stoji neiskorišćen
    - ne važi za nalog u grace ili zakljucan stanju, ni za nalog koji ga je već iskoristio
    - napiši mi SQL kojim proveravam koliko je naloga iskoristilo taj kredit
@@ -1644,9 +1682,9 @@ nije potvrđen.**
 | **R28** | **Puna vizuelna provera** po `docs/PROVERA-VIZUELNA.md` + novi ekrani: `/cenovnik` sa paketima na 390 px, Paddle overlay **u svetloj temi**, `/welcome`, tri pravne strane, landing, blok pretplate na `/krediti`, grace baner, modal. Obe teme svuda. | 2 h |
 | **R32** | **Clerk: instanca na `app.sajtoskop.com`.** ‼️ Prepisano 27.8. — stara verzija je tražila `/prijava` i `/registracija`, što je bilo vezano za P5. Sada: produkcijski domen instance je **poddomen**, sign-in i sign-up URL ostaju `/` (tamo forma i jeste), a `user.created` / `user.updated` / `user.deleted` webhook destination mora da pokazuje na **`app.` URL**. Ako domen ostane goli, prijava sa landinga vodi u krug ili u tuđ origin. | 30 min |
 | **R33** | **Vercel: dodaj domen `app.sajtoskop.com`** i postavi `NEXT_PUBLIC_LANDING_URL=https://sajtoskop.com`. Proveri da goli domen **ne** pokazuje na Vercel projekat aplikacije — tamo je landing. | 20 min |
-| **R34** | **Paddle: `successUrl` i default payment link na `app.` poddomen.** Oba danas pokazuju na goli domen. Payment link mora da bude **verifikovan i odobren domen**, inače naplata pada (§9). | 15 min |
+| **R34** | **Paddle: default payment link na `app.sajtoskop.com`.** Mora da bude verifikovan i odobren domen, inače naplata pada (§9). ‼️ Ispravka 27.8.: **`successUrl` NE traži ništa** — sklapa se u pregledaču iz `window.location.origin` (`cenovnik-ekran.tsx`), pa je već `app.sajtoskop.com/welcome`. | 10 min |
 | **R35** | **Provera da se cene na landingu poklapaju sa Paddle katalogom.** Iznosi u evrima stoje na dva mesta (§1.7) i to se ne može ukloniti. Radi se uz **svaku** izmenu cene i **obavezno** posle prelaska sandbox → produkcija. | 10 min |
-| **R36** | **Linkovi sa landinga:** Uslovi, Privatnost i Povraćaj na `app.sajtoskop.com/...` (Paddle ih traži vidljive, R21), a svaki CTA za plan nosi **slug**, ne `pri_` ID — `app.sajtoskop.com/cenovnik?plan=pro&ciklus=godisnje`. | 30 min |
+| **R36** | **Linkovi sa landinga** — gotov prompt za Claude Code u landing repou stoji u `docs/prompt-landing-veze.md`. Ukratko: Uslovi, Privatnost i Povraćaj na `app.sajtoskop.com/...` (Paddle ih traži vidljive, R21), a svaki CTA za plan nosi **slug**, ne `pri_` ID — `app.sajtoskop.com/cenovnik?plan=pro&ciklus=godisnje`. | 30 min |
 | **R38** | **DNS zapis za `app.` poddomen** po uputstvu Vercela, pa sačekaj propagaciju pre R32 i R34 — Clerk i Paddle verifikuju domen koji mora već da odgovara. | 15 min + čekanje |
 | **R29** | **`/api/cron/utisci-slike` rukom** — nije zakazan (Hobby ima dva slota, oba zauzeta): `curl -X POST -H "x-cron-secret: $CRON_SECRET" https://sajtoskop.com/api/cron/utisci-slike` | 2 min |
 
@@ -1755,7 +1793,7 @@ Ne radi se pre, ali je zapisano da se ne izgubi:
 
 | Datum | Izmena |
 |---|---|
-| 2026-08-27 | **O1 zatvoreno: prvi prospekt je besplatan — i dokumentacija usaglašena.** Varijanta (a): `grant_credits(+1, 'onboarding')`, `ref_id = user_id`, dakle jednom po nalogu zauvek. **Dodela je lenja, pre prvog otključavanja, ne na registraciji** — na registraciji bi kredit pojelo prvo „Brzo" skeniranje, a nalog koji nikad ne stigne do otključavanja ovako ne košta ništa; uz to dugme dobija kopiju koja prodaje („Prvi prospekt je besplatan"). To je i doslovno ono što F8 §2 traži. Odbijeno: demo prospekt (plaća se izuzetkom u **pravilu 9**, jedinom koje čuva zaključan podatak) i „ništa" (onboarding bi postao reklama). Trošak ~€0,02 po nalogu koji otključa, **nula Places poziva**. Uz odluku su usaglašeni `F8-landing.md` (§1, §2, §3 i §9 nose oznaku šta je isporučeno a šta nadjačano), `00-kontekst.md` (§2 model lansiranja, §3 arhitektura sa dva domena, §6 faze, plus spisak nadjačanih tvrdnji u starijim PRD-ovima), `CLAUDE.md` (dva domena), `ROADMAP.md`, `REVIZIJA.md`, `PROVERA-VIZUELNA.md` (§7c: pravne strane i futer) i `SESIJE.md`. |
+| 2026-08-27 | **O1 zatvoreno: prvi prospekt je besplatan — i dokumentacija usaglašena.** Varijanta (a): `grant_credits(+1, 'onboarding')`, `ref_id = user_id`, dakle jednom po nalogu zauvek. **Kredit ide u `credits_topup` i dodeljuje se pri kreiranju profila** — prvo je bilo zapisano „lenjo, pre prvog otključavanja", pa ispravljeno istog dana posle provere koda: `stanjePristupa()` pušta unutra samo pretplatu, betu ili `credits_topup > 0`, pa je nov nalog **`zakljucan`** i ne može ni da uđe, a `grant_credits` puni `credits_topup` samo za razlog `credit_pack`. Migracija `0025` zato dopisuje `onboarding` u tu granu. **Ovo povećava Places pozive** za najviše jedan po registrovanom nalogu (€0,032), ako kredit ode na skeniranje umesto na otključavanje. Odbijeno: demo prospekt (plaća se izuzetkom u **pravilu 9**, jedinom koje čuva zaključan podatak) i „ništa" (onboarding bi postao reklama). Trošak ~€0,02 po nalogu koji otključa, **nula Places poziva**. Uz odluku su usaglašeni `F8-landing.md` (§1, §2, §3 i §9 nose oznaku šta je isporučeno a šta nadjačano), `00-kontekst.md` (§2 model lansiranja, §3 arhitektura sa dva domena, §6 faze, plus spisak nadjačanih tvrdnji u starijim PRD-ovima), `CLAUDE.md` (dva domena), `ROADMAP.md`, `REVIZIJA.md`, `PROVERA-VIZUELNA.md` (§7c: pravne strane i futer) i `SESIJE.md`. |
 | 2026-08-27 | **P5 je pao: dva domena, i onboarding postaje zasebna faza.** Landing je napravljen **van repoa** i stoji na `sajtoskop.com`; aplikacija ide na `app.sajtoskop.com`. Nova §1.7 vodi tu odluku: `/` u aplikaciji **ostaje ekran za prijavu**, `/prijava` i `/registracija` ostaju redirekcije, **S23 otpada** (nema kopija landinga u repou, pa ni R20), a **S24 postaje preokret na poddomen** — linkovi ka landingu kroz `NEXT_PUBLIC_LANDING_URL` i `/cenovnik` koji prima nameru sa landinga. **Pravne strane ostaju u aplikaciji**, landing ih linkuje (R36): menjaju se zajedno sa kodom, pa bi kopija na landingu tiho zastarela. **Cene se prikazuju na landingu, checkout je u aplikaciji**, a link nosi **slug plana, nikad `pri_` ID** — inače bi prelazak sandbox → produkcija tražio izmenu i na landingu, na mestu gde se greška ne vidi dok neko ne plati. Nova §1.8 opisuje onboarding kao fazu od dve sesije (**S27**, **S28**): čarobnjak od tri pitanja, prvi rezultat iz keša bez čekanja, vođen prvi prolaz uz element, traka napretka **u bazi** (ne u `localStorage`-u) i prazna stanja koja uče; vodič postoji ali **samo na zahtev** — odstupanje od F8 §2 objašnjeno na licu mesta. **Nula Places poziva u celom onboardingu.** Uz ovo je otvoreno **O1** (nov nalog ima nula kredita, pa vođen prolaz staje na katancu) — **zatvoreno istog dana**, v. red iznad. Novi ručni koraci R32 (prepisan), R33–R38. |
 | 2026-08-26 | **S22 isporučen — proizvod ima pravne tekstove i futer.** Bez migracije. Tri javne strane izvan grupe `(app)`: `/uslovi`, `/privatnost`, `/povracaj`, sve tri **statične** jer zaglavlje ne dira Clerk sesiju. Zajednički okvir je `components/pravni-okvir.tsx` (`PravniOkvir`, `Odeljak`, `Lista`, `TekstLink`, `Popuniti`, `NacrtBaner`) — ne markdown, jer bi to značilo ili `dangerouslySetInnerHTML` na strani koju čita Paddle recenzent ili paket više u bundle-u. **Futer nastaje sada** (`components/futer.tsx`) i stoji na `/`, `/cenovnik`, `/welcome` i tri nove strane, nikad u `(app)`. Uz dugme za registraciju stoji rečenica sa linkovima na Uslove i Privatnost, **samo na kartici „Registracija"** — na prijavi bi bila šum. **Tekstovi su iz šablona i nisu pravno provereni:** ostalo je **25 `<POPUNITI: …>` markera**, svaki vidljiv na objavljenoj strani kao žuta kapsula, uz baner „Ovo je nacrt". Dva od njih su odluka iz **R17** (rok povraćaja, prag potrošenih kredita) i ne mogu da se izvedu iz koda. Politika privatnosti opisuje **postojeći** put brisanja (Clerk → `user.deleted` → kaskada nad `profiles`, pravilo 15) i izričito kaže da su kontakti firmi podaci o ličnosti preduzetnika; Politika povraćaja izričito priznaje da **Paddle sme sam da odobri povraćaj u 60 dana** i objašnjava da se krediti skidaju i kad su potrošeni, pa stanje ide u minus. |
 | 2026-08-26 | **Paket kredita više nije ulaz u proizvod — traži aktivan plan ili betu.** Izmena §1.4 i §1.5 donesena posle S21, na zahtev. Pravilo je jedna funkcija `smeDaKupiPaket()` (`packages/shared/src/pristup.ts`): kupuju `aktivan`, `otkazan` i `beta`; `dopuna`, `grace`, `zakljucan` i gost ne mogu. **Sprovodi ga `/api/billing/checkout` sa `403`**, jer se telo zahteva sastavlja u pregledaču — skriveno dugme nije kapija. Ekran cena i dalje POKAZUJE pakete onome ko ne sme, sa objašnjenjem umesto dugmeta: skrivena ponuda ne prodaje ništa, a zaključana prodaje plan iznad sebe. Uklonjen izlaz „Samo dokupi kredite" sa `/zakljucano` i uslovljena dva CTA-a (modal pristupa, blok na `/krediti`, bočna traka) — dugme koje vodi u `403` gore je od dugmeta kog nema. **Cena odluke:** proizvod gubi drugi ulaz, a korisnik u `grace` stanju se ne može vratiti paketom. **`dopuna` ostaje dostižno stanje** — u njega se ispada kad pretplata prestane a kupljeni krediti ostanu. |

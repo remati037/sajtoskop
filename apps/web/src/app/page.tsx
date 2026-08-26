@@ -9,6 +9,7 @@
 // Raspored: levo brend i jedna rečenica šta alat radi, desno forma. Na telefonu
 // ostaje samo desna kolona sa znakom iznad forme.
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Filter, MessageSquareText, Phone } from "lucide-react";
 import { getCurrentUserId } from "@/lib/auth";
@@ -131,8 +132,25 @@ export default async function Page({
 
           <AuthEkran key={pocetni} pocetni={pocetni} {...(posle ? { posle } : {})} />
 
+          {/* ‼️ Do 27.8. je ovde stajalo „Beta je besplatna dok traje. 30 kredita
+              mesečno, bez kartice." — netačno od S16 i S20: naplata ide od prvog
+              dana, beta je RUČAN izuzetak iz konzole, a nov nalog dobija plan
+              `dopuna` i nula kredita.
+
+              Iznos u evrima se namerno ne pominje: katalog ga ne drži (Paddle je
+              jedini izvor), a beta korisnik ima 33% popust — ista odluka kao za
+              `/krediti` u S21. Cena stoji na `/cenovnik`, gde i dolazi iz
+              `PricePreview()`. */}
           <p className="relative max-w-[25rem] text-center text-xs leading-relaxed text-fg-muted">
-            Beta je besplatna dok traje. 30 kredita mesečno, bez kartice.
+            Nalog otvaraš odmah i besplatno. Za skeniranje i otključavanje prospekata treba
+            plan —{" "}
+            <Link
+              href="/cenovnik"
+              className="font-medium text-accent-text underline underline-offset-4"
+            >
+              pogledaj cenovnik
+            </Link>
+            .
           </p>
         </main>
       </div>

@@ -3023,7 +3023,7 @@ traka napretka **u bazi**, prazna stanja koja uče i vodič **na zahtev**. Nula 
 celom toku.
 
 **6. O1 zatvoreno: prvi prospekt je besplatan.** `grant_credits(+1, 'onboarding')`,
-`ref_id = user_id`, i to **lenjo, pre prvog otključavanja** — ne na registraciji.
+`ref_id = user_id`, upisan u **`credits_topup`** i dodeljen **pri kreiranju profila**.
 
 ### Odluke koje nisu bile doslovno u zahtevu
 
@@ -3034,10 +3034,15 @@ celom toku.
 - **Vodič postoji, ali samo na zahtev.** F8 §2 zabranjuje ture; zahtev je tražio „pun vodič".
   Zabrana ostaje na snazi za sve što se **pokreće samo** — nema ture koja iskoči, nema
   zatamnjenja, nema brojača „1 od 6". Vodič koji korisnik sam pozove nije ista stvar.
-- **Besplatan kredit se dodeljuje lenjo, a ne na registraciji.** Preporuka koju je Marko
-  prihvatio glasila je „na registraciji". Lenja dodela je **strogo bolja**: kredit završi na
-  otključavanju umesto na prvom „Brzo" skeniranju, nalog koji nikad ne stigne dotle ne košta
-  ništa, i dugme dobija kopiju koja prodaje. To je i doslovno ono što F8 §2 traži.
+- **Besplatan kredit ide u `credits_topup`, pri kreiranju profila.** ‼️ Ovo je **ispravka
+  greške od istog dana**: prvo je zapisano „lenjo, pre prvog otključavanja", jer tako traži
+  F8 §2 i jer kredit tada ne može da ode na skeniranje. Provera koda pokazala je da to ne
+  može da radi — `stanjePristupa()` pušta unutra samo pretplatu, betu ili
+  `credits_topup > 0`, pa je nov nalog **`zakljucan`** i ne stiže ni do jednog dugmeta.
+  Uz to `grant_credits` puni `credits_topup` isključivo za razlog `credit_pack`, pa bi
+  kredit dodeljen kao `onboarding` završio u `credits_balance` i **ne bi otvorio pristup**.
+  Cena ispravke: kredit sme da ode i na skeniranje, dakle **najviše jedan Places poziv po
+  registrovanom nalogu** (€0,032) — prijavljeno po pravilu iz `CLAUDE.md`.
 - **Traka napretka u bazi, ne u `localStorage`-u.** Skuplje za jednu migraciju, ali čovek koji
   nastavi sa telefona nastavlja gde je stao — i S25 iz iste kolone čita aktivaciju, bez drugog
   merenja.
