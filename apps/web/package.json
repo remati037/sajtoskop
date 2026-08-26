@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/ide-odmah.ts && tsx test/dubina.ts && tsx test/naplata.ts && tsx test/pristup.ts && tsx test/admin-beta.ts && tsx test/cenovnik.ts",
+    "test": "tsx test/ide-odmah.ts && tsx test/dubina.ts && tsx test/naplata.ts && tsx test/pristup.ts && tsx test/admin-beta.ts && tsx test/cenovnik.ts && tsx test/csp.ts",
     "lint": "eslint ."
   },
   "dependencies": {

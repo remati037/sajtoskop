@@ -55,6 +55,35 @@ const clerk = clerkDomains().map((d) => `https://${d}`).join(" ");
 const clerkWss = clerkDomains().map((d) => `wss://${d}`).join(" ");
 
 /**
+ * Clerk-ova bot-zaštita pri registraciji.
+ *
+ * ── kako se kvar vidi ───────────────────────────────────────
+ * „Registracija neuspešna zbog neuspelog sigurnosnog proveravanja." Poruka
+ * zvuči kao da je server odbio nalog; u stvari se u pregledaču nikad nije
+ * učitao Cloudflare Turnstile widget koji Clerk traži pre `signUp.create()`.
+ * Prijava radi normalno — captcha stoji samo na registraciji, pa se greška
+ * javlja tačno na jednom ekranu i deluje kao problem sa Clerk nalogom.
+ *
+ * ── zašto CSP ──────────────────────────────────────────────
+ * `challenges.cloudflare.com` nije Clerk-ov domen, pa ga `clerkDomains()` ne
+ * izvlači iz publishable ključa — a `default-src 'self'` obara i skriptu i
+ * iframe. Kvar je zato bio tu od prvog dana ovog CSP-a i NIJE posledica nijedne
+ * naplatne sesije; otkriven je tek kad je neko prošao kroz SVEŽU registraciju,
+ * što je do sada bilo retko — postojeći nalog se samo prijavljuje, a prijava
+ * captchu ne traži.
+ *
+ * ── šta tačno traži (Clerk CSP docs) ────────────────────────
+ *   script-src   challenges.cloudflare.com   učitava Turnstile
+ *                *.protect.clerk.com         Clerk-ova zaštita od zloupotrebe
+ *   frame-src    oba ista                    widget je iframe
+ *   connect-src  *.protect.clerk.com:*       ‼️ `:*` je OBAVEZAN — ti hostovi
+ *                                            se serviraju i van porta 443, a
+ *                                            izvor bez porta po CSP specifikaciji
+ *                                            poklapa SAMO podrazumevani port.
+ */
+const clerkCaptcha = "https://challenges.cloudflare.com https://*.protect.clerk.com";
+
+/**
  * Paddle (naplata, F-naplata) — jedan wildcard umesto šest imena hostova.
  *
  * Ovo je spisak koji je STVARNO izmeren, ne prepisan iz dokumentacije (Paddle
@@ -114,18 +143,24 @@ const unsafeEval = dev ? " 'unsafe-eval'" : "";
 // `frame-ancestors 'none'` je CSP ekvivalent `X-Frame-Options: DENY`; stoje oba.
 const CSP = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${unsafeEval} ${clerk} ${paddle}`,
+  `script-src 'self' 'unsafe-inline'${unsafeEval} ${clerk} ${clerkCaptcha} ${paddle}`,
   // Clerk pravi Web Worker iz blob: URL-a (pollovanje tokena) — bez eksplicitnog
   // worker-src-a bi palo na script-src i bilo blokirano.
   "worker-src 'self' blob:",
   `style-src 'self' 'unsafe-inline' ${paddle}`,
   `img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev ${clerk} ${paddle}`,
   "font-src 'self' data:",
-  `connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com ${clerk} ${paddle}`,
+  // `https://*.protect.clerk.com:*` stoji ODVOJENO od `https://*.clerk.com`
+  // iznad, iako ga po imenu pokriva: izvor bez porta poklapa samo 443, a ovi
+  // hostovi se serviraju i na drugim portovima. Bez `:*` captcha tiho padne.
+  `connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com https://*.protect.clerk.com:* ${clerk} ${paddle}`,
   // Checkout overlay je iframe ka `sandbox-buy.paddle.com` / `buy.paddle.com`.
   // Bez ovoga direktiva pada na `default-src 'self'` i modal ostane prazan —
   // Paddle.js pri tome NE javlja grešku, samo se ništa ne pojavi.
-  `frame-src 'self' ${paddle}`,
+  // Uz Paddle overlay ovde je i Turnstile widget — on je iframe ka
+  // `challenges.cloudflare.com`, pa bez njega registracija pada na
+  // „neuspelo sigurnosno proveravanje".
+  `frame-src 'self' ${clerkCaptcha} ${paddle}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
