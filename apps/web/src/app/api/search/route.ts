@@ -9,6 +9,7 @@
 // Svaka provera koja može da odbije zahtev stoji PRE naplate, i nijedna posle:
 //
 //   1. `requireUserId()`         — bez sesije nema ničega (pravilo 8)
+//   1a. `odbijenica()`           — [S19] istekao pristup: ni besplatan keš
 //   2. registar keša             — možda je besplatno, pa nema šta da se naplati
 //   3. `pay !== true`            — cena se vraća klijentu, kredit se ne dira
 //   4. pre-flight budžet         — da se ne plati posao koji čeka Googleovu kvotu
@@ -42,7 +43,7 @@ import {
   spendCreditAndScan,
   zivPlacenPosao,
 } from "@/lib/jobs";
-import { getOwnProfile } from "@/lib/profile";
+import { citajPristup, odbijenica } from "@/lib/pristup";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import { searchCachedLeads } from "@/lib/search";
 import { besplatno, COUNTRY, stanjeKesa } from "@/lib/search-cache";
@@ -94,6 +95,18 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const { city, niche, filters, page, pay, force, dubina } = parsed.data;
+
+  // [S19] Kapija pristupa, pre svega ostalog i pre ijednog upita o kešu.
+  //
+  // Odbija se i BESPLATNA pretraga po kešu, ne samo plaćeno skeniranje: §1.5
+  // daje `grace` nalogu „samo čitanje postojećih prospekata", a pretraga je
+  // pronalaženje novih. Izvoz i pipeline prolaze — to je ono što grace čuva.
+  //
+  // Profil se čita ovde jednom, kroz `citajPristup()`, i koristi se i niže za
+  // balans i plan. `cache()` u toj funkciji drži da je to jedan upit po zahtevu.
+  const { pristup, profile } = await citajPristup();
+  const odbijen = odbijenica(pristup, pay ? "skeniranje" : "pretraga");
+  if (odbijen) return odbijen;
 
   // Ponuda → rezultati → stranice → cena. Jedan lanac, jedan izvor (shared), i
   // baza ga u `spend_credit_and_scan` prelazi ponovo nad istim `maxResults`.
@@ -163,8 +176,6 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     // ── nije besplatno: koliko košta ────────────────────────
-    const profile = await getOwnProfile();
-
     // Prikazano stanje kredita je ZBIR obe kase (0022): potrošnja prazni prvo
     // `credits_balance`, pa `credits_topup`, i provera je nad zbirom. Prikazati
     // samo balans značilo bi reći „nemaš dovoljno" čoveku koji ima kupljen paket.
@@ -216,7 +227,12 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
-    const claim = await claimCacheMiss(userId, profile?.plan ?? DEFAULT_PLAN);
+    // Dnevni osigurač po planu iz KAPIJE, ne po `profiles.plan`: stanje `dopuna`
+    // ima svoje limite (§1.3), a plan koji mu je istekao bi mu dao tuđe.
+    const claim = await claimCacheMiss(
+      userId,
+      pristup?.planLimita ?? profile?.plan ?? DEFAULT_PLAN,
+    );
 
     if (!claim.ok) {
       if (claim.reason === "no_user") {

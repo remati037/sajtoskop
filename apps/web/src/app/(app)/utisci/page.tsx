@@ -18,6 +18,7 @@ import { Inbox } from "lucide-react";
 import type { FeedbackStatus } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
 import { citajMojePrijave, oznaciVidjeno, type MojaPrijava } from "@/lib/moje-prijave";
+import { zahtevajCitanje } from "@/lib/pristup";
 import { cn } from "@/lib/cn";
 import { formatDatum } from "@/lib/ui-tekst";
 import { PraznoStanje, ZaglavljeStranice } from "@/components/ui/stranica";
@@ -59,6 +60,11 @@ function prikazStatusa(
 export default async function Page() {
   // Prva linija svake zaštićene stranice (pravilo 8).
   const userId = await requireSession();
+
+  // S19: kapija pristupa uz podatak, ne u layout-u — layout se ne izvršava
+  // ponovo pri klijentskoj navigaciji. Zaključan nalog ide na `/zakljucano`;
+  // `grace` PROLAZI, jer je čitanje svog rada ceo smisao grace perioda (§1.5).
+  await zahtevajCitanje();
 
   let prijave: MojaPrijava[] = [];
   try {

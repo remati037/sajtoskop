@@ -1710,6 +1710,121 @@ async function main(): Promise<void> {
   check((await kes("zajecar", "stari-plitki"))?.pages === 1,
     "backfill: red sa 12 rezultata ostaje plitak");
 
+
+  // ── S20: beta nalog je ručna radnja (migracija 0024) ─────
+  // Odluka D1 iz LANSIRANJE §1.1 je do S20 bila samo rečenica u dokumentu:
+  // `profiles.plan` je imao `default 'beta'`, a `beta_expires_at` NULL znači
+  // NEOGRANIČENO — dakle svaka registracija je otvarala doživotan nalog.
+  // Ove provere drže tri sloja zatvorena: default, triger i jedini put kroz njega.
+
+  console.log("\nS20: plan `beta` samo iz konzole");
+
+  await db.exec(`insert into profiles (id, email) values ('beta1', 'b1@x.rs')`);
+  const nov = await one<{ plan: string }>(`select plan from profiles where id='beta1'`);
+  check(nov?.plan === "dopuna", `nov profil dobija plan '${nov?.plan}', ne 'beta'`);
+
+  await mustFail(
+    `update profiles set plan='beta' where id='beta1'`,
+    "goli UPDATE ne može da dodeli plan `beta`",
+  );
+  await mustFail(
+    `insert into profiles (id, email, plan) values ('beta9','b9@x.rs','beta')`,
+    "goli INSERT ne može da dodeli plan `beta`",
+  );
+  await mustFail(
+    `insert into profiles (id, email, plan) values ('beta9','b9@x.rs','izmisljen')`,
+    "plan van spiska iz PLANS odbijen (profiles_plan_valid)",
+  );
+
+  type Beta = { ok: boolean; reason: string; granted: number; balance: number };
+  const ROK = "2026-12-31T22:59:59Z";
+
+  const b1 = await one<Beta>(
+    `select * from admin_open_beta('beta1', 50, $1::timestamptz, 'adm:b-1')`, [ROK]);
+  check(b1?.ok === true && b1.reason === "opened" && b1.granted === 50,
+    "admin_open_beta → opened, 50 kredita");
+
+  const posle = await one<{ plan: string; rok: string | null; bal: number }>(
+    `select plan, beta_expires_at::text as rok, credits_balance as bal
+       from profiles where id='beta1'`);
+  check(posle?.plan === "beta", "admin_open_beta postavlja plan `beta`");
+  check(posle?.rok !== null, "admin_open_beta postavlja beta_expires_at");
+  check(posle?.bal === 50, `krediti su na nalogu (${posle?.bal})`);
+
+  const izKnjige = await one<{ n: number }>(
+    `select count(*)::int as n from credit_ledger where user_id='beta1' and reason='beta_grant'`);
+  check(izKnjige?.n === 1, "dodela je u knjizi sa razlogom `beta_grant`");
+
+  // Dvostruki klik na „Otvori beta nalog". Plan i rok se ponovo upisuju (to je
+  // postavljanje, ne sabiranje), krediti NE — inače bi drugi klik dao 100.
+  const b2 = await one<Beta>(
+    `select * from admin_open_beta('beta1', 50, $1::timestamptz, 'adm:b-1')`, [ROK]);
+  check(b2?.reason === "already_granted" && b2.granted === 0,
+    "isti ref_id drugi put → already_granted, bez kredita");
+  check((await one<{ bal: number }>(`select credits_balance as bal from profiles where id='beta1'`))
+    ?.bal === 50, "dvostruki klik ne daje 100 kredita");
+
+  // Zastavica je transakcijska. Da „ostane upaljena", sledeći goli UPDATE bi
+  // prošao — i cela brana bi bila jednokratna.
+  await db.exec(`insert into profiles (id, email) values ('beta2', 'b2@x.rs')`);
+  await mustFail(
+    `update profiles set plan='beta' where id='beta2'`,
+    "zastavica iz admin_open_beta ne curi u sledeću transakciju",
+  );
+
+  // Produženje roka nad nalogom koji VEĆ jeste u beti ne traži konzolni put:
+  // plan se time ne dodeljuje. Bez ovoga se beta ne bi mogla ni ugasiti.
+  await db.exec(`update profiles set plan='beta', beta_expires_at = now() - interval '1 day' where id='beta1'`);
+  check(true, "beta → beta prolazi (gašenje bete rokom u prošlosti)");
+
+  const b3 = await one<Beta>(
+    `select * from admin_open_beta('beta2', 0, null::timestamptz, 'adm:b-2')`);
+  check(b3?.ok === true && b3.granted === 0, "admin_open_beta sa 0 kredita prolazi");
+  check((await one<{ rok: string | null }>(
+    `select beta_expires_at::text as rok from profiles where id='beta2'`))?.rok === null,
+    "NULL rok = neograničena beta (§1.5)");
+
+  check((await one<Beta>(`select * from admin_open_beta('nema_ga', 50, null, 'adm:b-3')`))
+    ?.reason === "no_user", "admin_open_beta nad nepostojećim nalogom → no_user");
+  check((await one<Beta>(`select * from admin_open_beta('beta2', 501, null, 'adm:b-4')`))
+    ?.reason === "invalid_amount", "admin_open_beta preko 500 kredita → invalid_amount");
+  check((await one<Beta>(`select * from admin_open_beta('beta2', 50, null, '')`))
+    ?.reason === "missing_ref_id", "admin_open_beta bez ref_id → missing_ref_id");
+
+  // Registracija: profil bez plana i bez kredita. `existing` mora da radi i kad
+  // dodele nema — do 0024 se izvodio iz postojanja `monthly_grant` reda.
+  console.log("\nS20: registracija ne dodeljuje kredite");
+  const cpg0 = (u: string) =>
+    one<Rpc>(`select * from create_profile_with_grant($1,'n@x.rs',0,$2)`, [u, `signup:${u}`]);
+  check((await cpg0("reg1"))?.reason === "created", "nov nalog bez kredita → created");
+  check((await cpg0("reg1"))?.reason === "existing", "ponovljen webhook bez kredita → existing");
+  const reg1 = await one<{ plan: string; bal: number }>(
+    `select plan, credits_balance as bal from profiles where id='reg1'`);
+  check(reg1?.plan === "dopuna" && reg1.bal === 0,
+    `registracija: plan '${reg1?.plan}', ${reg1?.bal} kredita`);
+
+  // ── kolone i sužavanje po ID-jevima u listi korisnika ────
+  console.log("\nadmin_users_page: ulazi za stanjePristupa()");
+  type StranaB = {
+    id: string; credits_topup: number; beta_expires_at: string | null;
+    plan_expires_at: string | null; sub_status: string | null; ukupno: string;
+  };
+  const redBeta = (await db.query<StranaB>(
+    `select * from admin_users_page('b1@',null,null,'created_at','desc',25,0)`)).rows[0];
+  check(redBeta?.id === "beta1" && redBeta.beta_expires_at !== null,
+    "lista vraća beta_expires_at, plan_expires_at i obe kase");
+
+  const suzeno = await db.query<StranaB>(
+    `select * from admin_users_page(null,null,null,'created_at','desc',25,0,'{}'::text[],$1::text[])`,
+    [["beta1", "beta2"]]);
+  check(suzeno.rows.length === 2 && Number(suzeno.rows[0]?.ukupno) === 2,
+    "p_ids sužava listu i ukupan broj (filter po stanju)");
+
+  const prazno = await db.query<StranaB>(
+    `select * from admin_users_page(null,null,null,'created_at','desc',25,0,'{}'::text[],'{}'::text[])`);
+  check(prazno.rows.length === 0,
+    "prazan p_ids je nijedan pogodak, ne bez ograničenja");
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
@@ -1721,7 +1836,7 @@ async function main(): Promise<void> {
                     "grant_feedback_credits",
                     "apply_subscription", "apply_credit_pack",
                     "claim_ai_rewrite", "release_ai_rewrite",
-                    "admin_adjust_credits", "admin_users_page",
+                    "admin_adjust_credits", "admin_users_page", "admin_open_beta",
                     "admin_set_role", "admin_overview",
                     "claim_request", "zabelezi_utisak", "dopuni_utisak",
                     "get_job_for_user", "inkrementiraj_analizu", "search_listing"]) {

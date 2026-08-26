@@ -5,7 +5,15 @@
 // Terminologija je iz tabele u CLAUDE.md: lead → prospekt, unlock → otključaj,
 // band → Solidan / Osrednji / Ružan / Katastrofa, Ugly Score se ne prevodi.
 
-import type { AiSeverity, CreditReason, NicheGroup, SiteStatus, UglyBand } from "@sajtoskop/shared";
+import type {
+  AiSeverity,
+  CreditReason,
+  NicheGroup,
+  PlanId,
+  SiteStatus,
+  StanjeId,
+  UglyBand,
+} from "@sajtoskop/shared";
 import type { SearchSummary } from "./search-types";
 
 /**
@@ -33,7 +41,79 @@ export const RAZLOG_KREDITA: Record<CreditReason, string> = {
   // „Dopuna": izvod mora da kaže odakle su krediti, ne šta rade.
   credit_pack: "Kupljen paket",
   onboarding: "Dobrodošlica",
+  // S20 (0024). Paket koji ide uz otvaranje beta naloga — odvojen od „Ručne
+  // izmene", jer je „koliko je otišlo na betu" drugo pitanje od „koliko je
+  // dodeljeno rukom".
+  beta_grant: "Beta paket",
 };
+
+/**
+ * Šest stanja pristupa (LANSIRANJE §1.5) u obliku u kom ih čita čovek.
+ *
+ * Koristi ih ISKLJUČIVO admin konzola: kolona na `/admin/korisnici` i blok
+ * „Pristup" na detalju. Korisnik svoje stanje nikad ne vidi kao ime — njemu ide
+ * baner sa datumom i rečenicom šta može, jer „ti si u stanju grace" nije
+ * odgovor ni na jedno pitanje koje on postavlja.
+ *
+ * `opis` ide u `title`: ime stanja bez objašnjenja je isto što i šifra.
+ */
+export const STANJE_PRISTUPA: Record<
+  StanjeId,
+  { label: string; variant: "primary" | "success" | "info" | "neutral" | "warning" | "danger"; opis: string }
+> = {
+  beta: {
+    label: "Beta",
+    variant: "primary",
+    opis: "Beta nalog — pun pristup dok rok traje. Prazan rok znači neograničeno.",
+  },
+  aktivan: { label: "Aktivan", variant: "success", opis: "Pretplata je aktivna." },
+  otkazan: {
+    label: "Otkazan",
+    variant: "info",
+    opis: "Pretplata je otkazana, ali plaćeni period još traje — pun pristup do tog datuma.",
+  },
+  dopuna: {
+    label: "Dopuna",
+    variant: "neutral",
+    opis: "Bez pretplate, ali ima kupljene kredite — pun pristup sa Starter dnevnim limitima.",
+  },
+  // „Grace" ostaje neprevedeno namerno: tako se stanje zove u LANSIRANJE §1.5 i u
+  // svakom komentaru u kodu, a ovaj ekran čita samo onaj ko te dokumente i piše.
+  // Prevod ovde bi značio dva imena za istu stvar.
+  grace: {
+    label: "Grace",
+    variant: "warning",
+    opis: "Rok je istekao — može da čita svoje i izvozi još 30 dana, ne može da troši.",
+  },
+  zakljucan: {
+    label: "Zaključan",
+    variant: "danger",
+    opis: "I grace je istekao — ulaz vodi na cenovnik. Ništa nije obrisano.",
+  },
+};
+
+/**
+ * Ime plana onako kako ga vidi KORISNIK (S21).
+ *
+ * Razlikuje se od `profiles.plan` na tačno jednom mestu, i to namerno:
+ * `dopuna` je interno ime stanja „nema pretplatu, ima kupljene kredite", a
+ * korisniku „Dopuna" ne znači ništa — on nikad nije kupio proizvod koji se tako
+ * zove. Vidi „Bez pretplate", što je tačan opis njegovog naloga.
+ *
+ * Ostala četiri imena su ista kao u katalogu, jer su to imena koja je i kupio.
+ */
+export const PLAN_IME: Record<PlanId, string> = {
+  beta: "Beta",
+  dopuna: "Bez pretplate",
+  starter: "Starter",
+  pro: "Pro",
+  advanced: "Advanced",
+};
+
+/** Nepoznata vrednost iz baze ne sme da ispiše praznu ćeliju. */
+export function imePlana(plan: string | null | undefined): string {
+  return plan && plan in PLAN_IME ? PLAN_IME[plan as PlanId] : "Bez pretplate";
+}
 
 export const STATUS_LABEL: Record<SiteStatus, string> = {
   nema_sajt: "NEMA SAJT",

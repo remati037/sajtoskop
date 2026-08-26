@@ -157,6 +157,19 @@ export const RADNJE = {
   /** Kaskada iz webhooka `user.deleted` — jedini red bez aktera. */
   KASKADA: "user.delete.cascade",
 
+  // ── S20: beta nalozi ─────────────────────────────────────
+  // Dve radnje, a ne jedna `user.beta`, iz istog razloga iz kog su `user.ban` i
+  // `user.unban` razdvojeni: filter na `/admin/revizija` je po `action`, a
+  // „kome sam otvorio betu" i „kome sam pomerio rok" su dva različita pitanja.
+  /**
+   * Otvaranje beta naloga: plan, rok i krediti u JEDNOM auditovanom pozivu
+   * (LANSIRANJE §1.1). Jedina radnja u konzoli koja menja tri stvari odjednom —
+   * i to je namerno, jer je pola otvorenog beta naloga gore nego nijedan.
+   */
+  BETA: "user.beta_open",
+  /** Samo rok. Rok u prošlosti je legitiman — tako se beta gasi (§1.5). */
+  BETA_ROK: "user.beta_expiry",
+
   // ── F12.3 ────────────────────────────────────────────────
   /** Pozivnica kroz Clerk. `target_user` je prazan — naloga još nema. */
   POZIVNICA: "invite.create",

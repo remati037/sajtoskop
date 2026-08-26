@@ -3,8 +3,22 @@
 
 import "server-only";
 import type { ProfileRow, RpcResult } from "@sajtoskop/shared";
-import { PLANS } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
+
+/**
+ * Koliko kredita dobija nov nalog: NIJEDAN.
+ *
+ * ‼️ Do S20 je ovde stajalo `PLANS.beta.monthlyCredits`, dakle 50 — a
+ *    `create_profile_with_grant` je uz to ostavljao `profiles.plan` na tadašnjem
+ *    `default 'beta'`. Registracija je time otvarala neograničen beta nalog sa
+ *    punim paketom kredita, što odluka D1 (LANSIRANJE §1.1) izričito zabranjuje:
+ *    beta se dodeljuje isključivo iz admin konzole.
+ *
+ * Nov nalog od S20 nema ni plan ni kredite i ide na `/cenovnik`. Kredit
+ * dobrodošlice ima svoj razlog u knjizi (`onboarding`, 0022) i svoju sesiju
+ * (S24) — kad se uvede, menja se OVAJ broj, ne plan.
+ */
+const KREDITI_NA_REGISTRACIJI = 0;
 
 /**
  * Profil ulogovanog korisnika, kroz RLS.
@@ -62,7 +76,7 @@ export async function ensureProfile(userId: string, email: string | null): Promi
   const { error } = await adminSupabase().rpc("create_profile_with_grant", {
     p_user: userId,
     p_email: email,
-    p_credits: PLANS.beta.monthlyCredits,
+    p_credits: KREDITI_NA_REGISTRACIJI,
     p_ref_id: `signup:${userId}`,
   });
 
@@ -154,7 +168,7 @@ export async function createProfileFromWebhook(
   const { data, error } = await adminSupabase().rpc("create_profile_with_grant", {
     p_user: userId,
     p_email: email,
-    p_credits: PLANS.beta.monthlyCredits,
+    p_credits: KREDITI_NA_REGISTRACIJI,
     p_ref_id: refId,
   });
 

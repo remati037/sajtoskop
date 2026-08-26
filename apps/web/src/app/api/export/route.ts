@@ -13,7 +13,7 @@ import { CITY_SLUGS, NICHE_SLUGS, planFor } from "@sajtoskop/shared";
 import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
 import { exportUnlockedCsv } from "@/lib/export";
-import { getOwnProfile } from "@/lib/profile";
+import { citajPristup, odbijenicaCitanja } from "@/lib/pristup";
 import type { ApiError } from "@/lib/search-types";
 import { formatDatum } from "@/lib/ui-tekst";
 
@@ -44,6 +44,16 @@ export async function GET(req: Request): Promise<Response> {
     return greska("Nisi prijavljen.", 401);
   }
 
+  // [S19] Izvoz je ono što grace period PODRAZUMEVA (§1.5): mesec dana da čovek
+  // izvuče svoj rad. Zato ovde stoji `odbijenicaCitanja`, koja pada samo na
+  // `zakljucan` — nikad na `grace`.
+  //
+  // Da je ovde stajala kapija za trošenje, grace bi bio prazna reč: korisnik bi
+  // video svoje prospekte na ekranu, a ne bi mogao da ih iznese.
+  const { pristup, profile } = await citajPristup();
+  const odbijen = odbijenicaCitanja(pristup);
+  if (odbijen) return odbijen;
+
   const url = new URL(req.url);
   const parsed = querySchema.safeParse({
     city: url.searchParams.get("city") ?? undefined,
@@ -60,8 +70,6 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   try {
-    const profile = await getOwnProfile();
-
     // Bez profila kroz RLS ne znamo ni plan ni da li je lista stvarno prazna —
     // `getMojaLista()` čita `unlocks` istim klijentom i istom politikom, pa bi
     // vratila prazno i korisnik bi dobio „nemaš nijedan otključan prospekt" iako
@@ -78,7 +86,10 @@ export async function GET(req: Request): Promise<Response> {
       );
     }
 
-    const plan = profile.plan;
+    // Dnevni cap se računa po `planLimita` iz kapije, ne po `profiles.plan`:
+    // korisnik u stanju `dopuna` ima plan koji mu je istekao, a limite Startera
+    // (§1.3). `profiles.plan` bi mu dao limite plana koji više ne plaća.
+    const plan = pristup?.planLimita ?? profile.plan;
 
     const rezultat = await exportUnlockedCsv({
       userId,

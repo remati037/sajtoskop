@@ -29,6 +29,12 @@ sledeću sesiju.
 | S13 | Faza 5 — dizajn sistem | `PLAN-IZMENA.md` | — | 0,5–1 dan | ☑ |
 | S14 | Faza 6 — baza, zadržavanje, higijena | `PLAN-IZMENA.md` | `0021` | 1 dan | ☑ |
 | S15 | Faza 7 — testovi i kvalitet | `PLAN-IZMENA.md` | — | 1 dan | ☑ |
+| S16 | Novčanik, planovi i paketi kredita | `LANSIRANJE.md` | `0022` | 1,5 dana | ☑ |
+| S17 | Dubina skeniranja i cena po stranici | `LANSIRANJE.md` | `0023` | 1 dan | ☑ |
+| S18 | Paddle webhook, serverski checkout, kupon | `LANSIRANJE.md` | — | 1,5 dana | ☑ |
+| S19 | Životni ciklus pristupa | `LANSIRANJE.md` | — | 1,5 dana | ☑ |
+| S20 | Admin konzola: beta nalozi | `LANSIRANJE.md` | `0024` | 0,75 dana | ☑ |
+| S21 | Cenovnik sa paketima, stanje pretplate, portal, linkovi | `LANSIRANJE.md` | — | 1 dan | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -2212,3 +2218,603 @@ plitko skeniranje.
 - **`SCAN_DEEP=1` je jedini preostali put do skeniranja dubljeg od plaćenog.** Nije u
   payloadu i web ga ne može poslati, ali NIKAD ne sme da se uključi na mašini koja vrti
   poslove iz weba. Zapisano i u zaglavlju `apps/worker/src/jobs/scan.ts`.
+
+---
+
+## S18 — Paddle webhook, serverski checkout, kupon ☑
+
+**Isporučeno 21. avgusta 2026.** Izvor: `docs/LANSIRANJE.md` §1.6 i §6, `docs/naplata-paddle.md`
+§5, sesija S18. **Bez migracije** — `0022` je dao sve tabele i sve RPC-je. Kapije pristupa
+(S19), admin konzola (S20) i UI cenovnika/pretplate (S21) nisu dirani.
+
+**Cilj, ispunjen:** novac koji stigne u Paddle završi kao krediti na pravom nalogu, tačno
+jednom, i to bez ijednog podatka o identitetu koji je prošao kroz pregledač.
+
+### Šta je urađeno
+
+1. **`packages/shared/src/plans.ts`** — dodat `kupovinaZaPriceId()` i tip `Kupovina`.
+   `pri_` → `{ kind: "subscription", plan, ciklus, credits }` ili `{ kind: "pack", paket,
+   credits }`, `null` za tuđ katalog. Postojali su `planForPriceId` i `creditsForPriceId`,
+   ali je svaki pozivalac sam sklapao „ako nije plan, valjda je paket" — a to „valjda" je
+   na novčanoj putanji. Sada checkout i webhook granaju nad istim spiskom.
+2. **`apps/web/src/lib/env.ts`** — `paddleServerEnv()` (baca; `PADDLE_API_KEY` i
+   `PADDLE_WEBHOOK_SECRET` u jednoj šemi, oba sa proverom prefiksa) i
+   `paddleBetaDiscountId()` (**ne baca nikad**). Promenljive su već stajale u `.env` i
+   `.env.example`; dopisano je samo čitanje.
+3. **`apps/web/src/lib/paddle-server.ts`** — `paddleServer()`, jedini fajl u kome serverski
+   ključ postoji u procesu. `server-only`, singleton po procesu, i **ukrštena provera
+   `pdl_sdbx_` / `pdl_live_` prema `NEXT_PUBLIC_PADDLE_ENV`** — isti kvar koji
+   `paddleKonfig()` hvata na klijentu, samo skuplji: nespareni par ne puca, nego otvori
+   transakciju u drugom Paddle nalogu.
+4. **`POST /api/billing/checkout`** — `runtime: "nodejs"`, `dynamic: "force-dynamic"`,
+   IP tempo, `requireUserId()`, telo `{ priceId }` validirano Zodom protiv `ALL_PRICE_IDS`.
+   Pravi Paddle transakciju sa `custom_data: { user_id, kind }`, vraća `{ transactionId }`.
+   Beta nalog dobija `discountId` **bez kucanja koda**; paketi ga namerno ne dobijaju, jer
+   je popust u Paddle-u ograničen na proizvode pretplata i uz paket bi bio odbijen.
+5. **`POST /api/billing/webhook`** — sirovo telo kroz `req.text()`, potpis kroz
+   `paddle.webhooks.unmarshal` **uvek**, pa insert u `billing_events` (duplikat → 200 i
+   stop), pa obrada. Nepoznat tip se upiše i dobije 200.
+6. **`apps/web/src/lib/billing.ts` + `billing-skladiste.ts`** — odluke odvojene od upita.
+   Interfejs `NaplataSkladiste` ima devet metoda, svaka jedan upit ili jedan RPC.
+7. **`components/cenovnik-ekran.tsx`** — `Checkout.open({ transactionId })` umesto
+   `{ items, customer }`. Gost ide na `/?nalog=nov&nazad=%2Fcenovnik`; `app/page.tsx` taj
+   parametar **proverava** (mora interna putanja) i prosleđuje `AuthEkran`-u kao `posle`.
+8. **`apps/web/test/naplata.ts` + `lazno-skladiste.ts`** — **43 provere**, sve offline.
+
+### Mapa događaja
+
+| Događaj | Radnja |
+|---|---|
+| `transaction.completed` | grana po katalogu: pretplata → `apply_subscription` (plan + krediti), paket → `apply_credit_pack`. **Ovo je i okidač mesečne obnove** — cron ne postoji. |
+| `subscription.created` / `.updated` / `.activated` / `.trialing` / `.paused` / `.resumed` | osveži ogledalo (`apply_subscription`, `credits: 0`) |
+| `subscription.canceled` | `canceled_at` upisan, **pristup ostaje** do `current_period_end` |
+| `subscription.past_due` | samo obeleži stanje, ništa se ne oduzima |
+| `adjustment.created` / `.updated` | pun odobren povraćaj → `admin_adjust_credits(p_kind => 'povracaj')` |
+| sve ostalo | upiši i vrati 200 |
+
+### Odstupanja od PRD-a — namerna
+
+1. **Grananje `transaction.completed` ide po `pri_`, ne po `custom_data.kind`.**
+   Prompt je tražio `kind`. Katalog se ionako mora pročitati (bez njega se ne zna ni plan
+   ni broj kredita), a `pri_` je na transakciji uvek — i za onu napravljenu ručno u Paddle
+   panelu, kojoj `custom_data` fali. `kind` je zadržan kao **ukrštena provera**: neslaganje
+   se loguje, a odluku donosi ono što je stvarno plaćeno. Test 10 to i tvrdi.
+2. **Posao se radi PRE odgovora, ne posle njega.** Prompt je predlagao „vrati 200, pa radi
+   ostalo". To bi značilo da pad obrade niko ne vidi: Paddle pamti uspeh, ponavljanja nema,
+   korisnik ima naplaćenu karticu i nula kredita. Ceo posao su dva do tri upita — daleko
+   ispod budžeta od 5 sekundi. Umesto toga je razdvojeno po mehanizmu: **trajan** neuspeh
+   (nema profila, tuđ `pri_`, pokušaj bete) → 200 i log; **prolazan** (skladište baca) →
+   marker se briše i vraća se 500, pa Paddle pokuša ponovo. Isti obrazac kao Clerk webhook.
+3. **`adjustment.updated` se takođe hvata.** Prompt navodi samo `created`. Povraćaj koji
+   traži kupac stiže kao `pending_approval` i sme da bude odbijen; skidanje kredita pre
+   odluke bilo bi skidanje kredita bez povraćaja. Trenutak odobrenja je često tek `updated`.
+4. **Delimičan povraćaj ne dira kredite automatski.** Srazmera bi tražila iznos originalne
+   transakcije, a njega ne čuvamo — knjiga je kod Paddle-a, koji je merchant of record.
+   Loguje se i rešava iz admin konzole, gde ista funkcija stoji sa iznosom koji čovek unese.
+5. **Povraćaj se deli na komade od najviše 500 kredita.** `admin_adjust_credits` odbija
+   veći iznos (0012), a Advanced daje 800. Komadi nose različit `ref_id`
+   (`povracaj:adj_…`, pa `#2`), jer bi isti drugi komad bio proglašen duplikatom.
+6. **`subscriptions.country_code` ostaje `null`.** Nijedan Paddle notification payload ne
+   nosi zemlju — samo `address_id`. Dovlačenje adrese je još jedan mrežni poziv unutar
+   budžeta od 5 sekundi, za podatak koji trenutno niko ne čita. Kolona postoji (pravilo 11);
+   puni se kad se prvi put nekome zatreba.
+7. **`supabaseSkladiste()` je u zasebnom fajlu.** Ne zbog urednosti nego zato što testovi
+   ovog repozitorijuma module menjaju resolve hookom, koji radi po specifikatoru. Alternativa
+   bi bio prekidač „ako je test" u samoj naplati — tačno ono što `route-harness.ts` odbija.
+8. **Email prefil u checkout-u je otpao.** Uz `transactionId` kupca određuje transakcija, a
+   ne `Checkout.open`. Ne gubi se ništa bitno: vezivanje ide po `user_id`, pa kupovina sa
+   druge adrese svejedno završi na pravom nalogu — što je i bila poenta pravila 2.
+   Povratnom kupcu se prosleđuje `customerId` sa profila, pa on i dalje vidi svoje podatke.
+
+### Šta je test pokrio
+
+43 provere, sve bez mreže i bez baze. **Potpis se ne lažira** — telo se potpisuje pravim
+HMAC-SHA256 nad `"<ts>:<telo>"` i verifikuje ga pravi `unmarshal`; lažna je samo baza.
+
+Pet slučajeva iz prompta: isti `event_id` dvaput → jedna stavka u knjizi · pogrešan potpis
+→ 401 i nijedan upis · `transaction.completed` bez ijednog traga o korisniku → 200, događaj
+upisan, greška javljena · paket → `credits_topup`, ne `credits_balance` · plan `beta` iz
+webhooka → odbijen (i kroz `transaction.completed` i kroz `subscription.updated`).
+
+Uz njih: otkazivanje ne dira ni kredite ni plan · povraćaj prolazi i kad su krediti
+potrošeni (balans ide na −50) i ne skida dvaput na drugi `event_id` · nepoznat tip događaja
+dobija 200 · `pri_` van kataloga je odbijen · pogrešan `kind` ne odvodi paket u pogrešnu
+kasu · prolazna greška daje 500 **i briše marker**, pa retry prođe i tek on donese kredite.
+
+### Ostaje na meni
+
+- **R3, R4, R7, R8** — bez njih webhook ne dobija ni jedan zahtev: payment link u
+  **Paddle > Checkout > Checkout settings** (bez njega `Checkout.open()` puca sa „Something
+  went wrong"), tunel do localhosta, i notification destination na
+  `/api/billing/webhook`. Destinacija mora da bude pretplaćena bar na:
+  `transaction.completed`, `subscription.created`, `subscription.updated`,
+  `subscription.canceled`, `subscription.past_due`, `adjustment.created`,
+  `adjustment.updated`.
+- **Prolaz kroz Paddle simulator** za `subscription_creation` i za povraćaj — to je S26.
+- **Provera da su sve tri `PADDLE_*` promenljive na Vercelu**, ne samo u `.env`.
+- `pnpm check:f4` nad pravom bazom nije potreban: S18 nije dirao nijednu SQL funkciju.
+
+### Preneto dalje
+
+- **S19 (kapija pristupa):** `plan_expires_at` i `subscriptions.status` sada stvarno imaju
+  ko da ih puni. `canceled` NAMERNO ne obara `profiles.plan` — granicu drži datum, i to je
+  pretpostavka na kojoj `stanjePristupa()` treba da se gradi.
+- **S21 (ekran pretplate i portal):** tabela `subscriptions` je popunjena i čita se bez
+  mreže. Sekcija sa paketima na `/cenovnik` i dalje ne postoji, iako se njihove cene već
+  učitavaju i njihov checkout već radi kroz istu rutu.
+- **S21 (portal):** `paddle.customerPortalSessions` postoji u SDK-u, a
+  `profiles.paddle_customer_id` se od S18 puni pri svakoj kupovini — dakle preduslov za
+  samouslužno otkazivanje je namiren.
+- **S26 (Sentry):** jedina mesta na kojima pad naplate danas završava su `console.error` u
+  webhook ruti. Dok Sentry ne stigne, tih 500-ica se vidi samo u Vercel logovima.
+
+---
+
+## S19 — Životni ciklus pristupa ☑
+
+**Isporučeno 21. avgusta 2026.** Izvor: `docs/LANSIRANJE.md` §1.5 i §6, sesija S19.
+**Bez migracije** — `0022` je dao obe kolone (`beta_expires_at`, `plan_expires_at`), a S18 je
+dao ko će ih puniti. Admin konzola (S20) i ekran cenovnika/pretplate (S21) nisu dirani.
+Mejlova nema — odloženi su i nisu bili deo ove sesije.
+
+**Cilj, ispunjen:** aplikacija prvi put zna da pristup može da istekne, i zna to na **jednom**
+mestu.
+
+### Gde je `stanjePristupa()` i zašto tamo
+
+**`packages/shared/src/pristup.ts`**, ne `apps/web/src/lib`. Tri razloga, redom po težini:
+
+1. **`GRACE_DAYS` je već u `plans.ts`.** Funkcija koja od njega izvodi datum ne sme da živi u
+   drugom paketu od broja koji koristi — to je prvi korak ka dva broja.
+2. **Odluku čita i server i pregledač.** Baner i modal su klijentske komponente; sve u
+   `apps/web/src/lib` što dodiruje bazu nosi `server-only`. Da je funkcija tamo, klijentska
+   polovina bi dobila kopiju — dakle drugu računicu, tačno ono što je sesija trebalo da
+   spreči.
+3. **Obrazac je već dokazan** na `feedback-motor.ts`: čiste funkcije, trenutak se
+   **prosleđuje** (`sada: number` je obavezan argument, nema `Date.now()` u telu odluke), pa
+   se ista pravila proveravaju u testu, u ruti i u komponenti.
+
+Web polovina — upiti, odbijenice, preusmeravanja — je u `apps/web/src/lib/pristup.ts` i ne
+donosi nijednu odluku.
+
+### Šta je urađeno
+
+1. **`packages/shared/src/pristup.ts`** — `stanjePristupa(profil, pretplata, sada)` vraća
+   diskriminisanu uniju sa šest stanja (`beta`, `aktivan`, `otkazan`, `dopuna`, `grace`,
+   `zakljucan`). Uz svako idu `pun` (sme da troši), `cita` (sme da čita svoje), `planLimita`
+   i oba datuma. Unija, a ne `{ stanje, pun, cita }` sa opcionim datumima: baner u `grace`
+   **mora** da ispiše tačan datum, a sa `punDo?: string` bi svaki prikaz imao svoje
+   `?? "uskoro"`.
+2. **`apps/web/src/lib/pristup.ts`** — `citajPretplatu()` i `citajPristup()` (oba kroz React
+   `cache()`, dakle jedan par upita po zahtevu za layout + stranu + kapiju),
+   `pristupZaProfil()` za layout koji profil već ima, `zahtevajCitanje()` za strane, i
+   `odbijenica()` / `odbijenicaCitanja()` za rute.
+3. **Kapije uz podatak** — svih šest strana u `(app)` i osam API ruta (devet kapija: `/api/poruke` ima i `GET` i `POST`). Layout ima svoju,
+   ali ona **nije** zaštita: ne izvršava se ponovo pri klijentskoj navigaciji.
+4. **`/zakljucano`** — nova strana izvan grupe `(app)`, sa oba datuma, rečenicom „Ništa nije
+   obrisano" i dva dugmeta ka cenovniku. Sama preusmerava nazad u aplikaciju čim nalog
+   ponovo ima pristup, pa nije slepa ulica posle kupovine.
+5. **`components/pristup-baner.tsx`** — trajna traka za `grace` (žuta, `--warn-wash`) i za
+   otkazanu pretplatu koja još traje (plava, `--info-wash`). Stoji ispod trake o kvaru veze
+   sa bazom: pokvarena veza je hitnija vest, i uz nju stanje pristupa ionako nije pouzdano.
+6. **`components/pristup-provider.tsx`** — modal sa dva izlaza na `/cenovnik` („Uzmi plan",
+   „Dokupi kredite") i pamćenje da je viđen.
+7. **`packages/shared/test/pristup.ts` (28 provera) i `apps/web/test/pristup.ts` (31)** —
+   odluka i žice, sve offline.
+
+### Tabela stanja, onako kako je kod stvarno čita
+
+| Stanje | Kad | `pun` | `cita` | Šta se vidi |
+|---|---|---|---|---|
+| `beta` | plan `beta`, rok u budućnosti ili `NULL` | ✔ | ✔ | ništa |
+| `aktivan` | `plan_expires_at` u budućnosti, pretplata nije otkazana | ✔ | ✔ | ništa |
+| `otkazan` | isto, ali `status = canceled` **ili** `canceled_at` postoji | ✔ | ✔ | plav baner „traje do <datum>" |
+| `dopuna` | nema roka koji traje, ali `credits_topup > 0` | ✔ | ✔ | ništa, Starter limiti |
+| `grace` | rok istekao, unutar `GRACE_DAYS` | ✘ | ✔ | žut baner + modal jednom |
+| `zakljucan` | i grace istekao | ✘ | ✘ | `/zakljucano` |
+
+### Odluke koje nisu bile doslovno u promptu
+
+1. **`null` u `beta_expires_at` je „neograničeno" SAMO uz plan `beta`.** Uz plaćen plan
+   znači „bete nema". Drugo čitanje ne postoji: kad bi `null` uvek bio neograničen, svaki
+   pretplatnik kome pretplata istekne dobio bi večan pristup. Ovo je jedina zamka u celoj
+   funkciji i zato stoji i u komentaru tipa i u testu.
+2. **Odbijenica je `403`, ne `402`.** U ovom kodu `402` znači tačno jednu stvar — „nemaš
+   dovoljno kredita" — i klijent na njega nudi „vidi kredite". Istekao pristup nije stanje
+   novčanika: u `grace` stanju kupovina kredita **jeste** izlaz, ali dva različita razloga
+   sa istim statusom bi značila jedno pogrešno dugme. Modal razdvaja ta dva slučaja tekstom.
+3. **`dopuna` pretiče `grace`.** Redosled provera je deo odluke: čovek koji je maločas kupio
+   paket ne sme da vidi baner „pristup ti ističe" nad kreditima koje je upravo platio.
+   Zato i `/zakljucano` sam preusmerava nazad.
+4. **Besplatna pretraga po kešu se u `grace` stanju TAKOĐE odbija.** §1.5 daje grace nalogu
+   „samo čitanje **postojećih** prospekata", a pretraga je pronalaženje novih. Odbijeni su i
+   `/api/search` i `/api/search/kes` — lista koja radi ispod forme koja ne radi je samo
+   zbunjujuća.
+5. **`/api/poruke/ai` dobija kapiju za TROŠENJE, iako ne troši kredit.** Prompt nabraja
+   pretragu, skeniranje i otključavanje. „Ne troši kredit" nije isto što i „ne košta": svaka
+   AI varijanta je plaćen Anthropic poziv. Same poruke (`GET /api/poruke`) rade i u `grace`
+   stanju — sklapaju se iz podataka koje je korisnik već platio, bez ijednog spoljnog poziva.
+6. **`/api/uvoz` isto.** Uvoz pipeline CSV-a ume da **otključava** redove, dakle troši
+   kredite. Bez ove kapije bi grace nalog imao rupu širu od `/api/unlock`.
+7. **`/api/job/[id]` NEMA kapiju, namerno.** To je pollovanje posla koji je već plaćen, na
+   svakih 3–10 sekundi. Dva dodatna upita po krugu, za svakog korisnika, radi podatka koji
+   se ne može dobiti bez `pun` pristupa — cena bez koristi. Posao se ne može ni pokrenuti
+   bez kapije na `/api/search`.
+8. **Dnevni limiti se od sada računaju po `planLimita` iz kapije**, ne po `profiles.plan`.
+   Bez toga stanje `dopuna` nikad ne bi dobilo limite koje mu §1.3 obećava: `profiles.plan`
+   posle isteka i dalje piše `starter` (ili `beta`), jer `apply_subscription` plan nikad ne
+   spušta. Promenjeno na tri mesta: `/api/search` (`claim_cache_miss`), `/api/export` i
+   tekst uz dugme za izvoz na `/lista`.
+9. **Nepoznato stanje ne zaključava.** `pristup === null` znači da profil nije pročitan
+   (pokvarena Clerk↔Supabase veza), i sve kapije tada **propuštaju**. Kvar veze ne sme da
+   izgleda kao istekla pretplata, a svaka putanja koja stvarno troši novac ionako pada niže,
+   u `no_user` granu SQL funkcije.
+10. **Modal pamti u pregledaču, ne u bazi.** `localStorage` sa **potpisom stanja**
+    (`grace:2026-08-20T…`) za istek — obnovi li se pa ponovo istekne, potpis je drugi i
+    prozor se javi opet. `sessionStorage` za „nema kredita", dakle jednom po tabu, jer je to
+    stanje novčanika koje se menja kupovinom. Nova kolona u `profiles` bi bila migracija
+    zbog jednog `boolean`-a, a isto stanje ionako stoji u trajnom baneru.
+11. **`/pretraga` u `grace` stanju ne crta onemogućenu formu nego objašnjenje.** Onemogućen
+    combobox uz ugašeno dugme uz mrtav prekidač dubine je tri mrtve kontrole i nijedna
+    rečenica o tome zašto. Ovo je ionako jedini ekran na kome se troše krediti.
+
+### Popravljeno usput
+
+- **`/pretraga` je klijentu slao samo `credits_balance`.** Prikazano stanje je zbir obe kase
+  (0022), a `/api/search` proverava zbir — pa je modal umeo da kaže „nemaš dovoljno" čoveku
+  koji ima kupljen paket, dok bi mu server isto skeniranje mirno naplatio. Sada ide zbir.
+
+### Šta je test pokrio
+
+**`packages/shared/test/pristup.ts`** — odluka, nad čistom funkcijom i sa prosleđenim
+trenutkom, pa se „istekla juče" i „za 31 dan" proveravaju bez laganja sistemskog sata. Pet
+slučajeva iz prompta: `beta_expires_at NULL` → uvek pun pristup, i sa nula kredita · beta
+istekla juče → `grace`, za 31 dan → `zakljucan` · otkazana pretplata sa periodom u
+budućnosti → pun pristup, ne grace · `credits_topup > 0` bez pretplate → `dopuna`. Uz njih:
+granica grace-a je zatvorena (u sekundi isteka je već zaključan) · `past_due` unutar
+plaćenog perioda i dalje radi · zakazano otkazivanje (`status active` + `canceled_at`) čita
+se isto kao otkazano · `null` uz plaćen plan **nije** neograničena beta · nepoznat plan i
+neispravan datum ne ruše kapiju i nikad ne daju pristup.
+
+**`apps/web/test/pristup.ts`** — prevod stanja u odbijenicu (koji status, koja rečenica,
+sadrži li tačan datum i `/cenovnik`) i **žice**: statička provera da svaka ruta koja troši
+zove `odbijenica()`, a svaka koja čita `odbijenicaCitanja()` — i da nijedna od tri koje
+čitaju **ne** koristi onu strožu. Kapija koja postoji a nije pozvana je gora od kapije koje
+nema: izgleda kao zaštita. Peti slučaj iz prompta — „grace → izvoz prolazi, skeniranje ne" —
+stoji ovde kao jedna provera, jer je to par koji grace period čini smislenim.
+
+### Ostaje na meni
+
+- **R27** (prolaz kroz životni ciklus rukom) sada ima šta da testira. Ceo scenario je u
+  `docs/PROVERA-VIZUELNA.md` §7, sa gotovim `update` naredbama — **ne traži ni Paddle, ni
+  tunel, ni pravu uplatu.**
+- **Registracija i dalje otvara `beta` nalog sa neograničenim rokom.** `create_profile_with_grant`
+  postavlja plan `beta` i 50 kredita, a `beta_expires_at` ostaje `NULL` — dakle večan pristup.
+  To je namerno ostavljeno: §1.1 kaže da beta plan sme da nastane isključivo iz admin
+  konzole, a konzola je **S20**. Do tada je svaka registracija besplatan neograničen nalog.
+  **Ovo je jedina stvar iz S19 koja mora da se zatvori pre otvaranja registracije.**
+- Prekidač teme i `.num` provere na dve nove strane su u §7 liste vizuelne provere.
+
+### Preneto dalje
+
+- **S20 (admin konzola):** `stanjePristupa()` je gotov i vraća baš ono što traži kolona
+  „stanje" i filter po njoj. Uvozi se iz `@sajtoskop/shared`; drugu računicu ne pisati.
+  Detalj korisnika ima gotove izvedene datume — `punDo` i `citanjeDo` — i ne treba da ih
+  sabira sam. Radnja „otvori beta nalog" treba da postavi `beta_expires_at`; sve ostalo
+  kapija već čita.
+- **S20 (zatvaranje registracije):** v. „Ostaje na meni" — `create_profile_with_grant` i
+  `DEFAULT_PLAN` su mesta na kojima beta nastaje sama.
+- **S21 (cenovnik i pretplata):** `/cenovnik#paketi` je usidren na **tri** mesta
+  (`/zakljucano`, modal, ekran pretrage u grace stanju). Sekcija sa paketima mora da dobije
+  `id="paketi"`, inače ta tri dugmeta vode na vrh strane. Ekran stanja pretplate treba da
+  čita `citajPristup()`, ne da zove Paddle.
+- **S24 (onboarding):** onboarding ne sme da se pokrene za nalog u `grace` ili zaključanom
+  stanju — `pristup.pun` je provera, i stoji na dohvat ruke u svakoj server komponenti.
+- **S26 (Sentry):** kapije ne loguju odbijenice. To je namerno — odbijenica je očekivano
+  ponašanje, ne greška. Ako ikad zatreba brojanje, mesto je `odbijenica()`, jedna funkcija.
+
+
+---
+
+## S20 — Admin konzola: beta nalozi ☑
+
+**Isporučeno 21. avgusta 2026.** Izvor: `docs/LANSIRANJE.md` §1.1 (odluka D1) i §1.4/§1.5,
+sesija S20. Migracija **`0024_beta_nalozi.sql`**. Naplata i ekran cenovnika nisu dirani.
+
+**Cilj, ispunjen:** beta nalog se otvara **jednim** obrascem, `/admin/korisnici` pokazuje
+stanje pristupa i filtrira po njemu — i, što je ispalo najvažnije, **plan `beta` više ne može
+da nastane sam**.
+
+### Ovo je bila i sesija u kojoj se zatvara registracija
+
+S19 je ostavio jednu rečenicu u „Ostaje na meni": *„Registracija i dalje otvara `beta` nalog
+sa neograničenim rokom… Ovo je jedina stvar iz S19 koja mora da se zatvori pre otvaranja
+registracije."* Prompt S20 je to tražio kao tačku 4 („proveri da nijedan drugi put ne može da
+ga dodeli"), a provera je pokazala da **dva puta jesu mogla**:
+
+1. **`profiles.plan default 'beta'`** (0001) uz `beta_expires_at IS NULL`, što po §1.5 znači
+   NEOGRANIČENO — svaka registracija je bila doživotan besplatan nalog. Uz to i 50 kredita,
+   jer je `ensureProfile()` slao `PLANS.beta.monthlyCredits`.
+2. **`DEFAULT_PLAN = "beta"`** — pad za nepoznatu vrednost u koloni. Tipfeler u `profiles.plan`
+   je davao isti doživotan pristup, i to bez ijednog traga o tome kako.
+
+Oba su zatvorena. Nov nalog od sada dobija plan **`dopuna`** i **nula kredita**, dakle stanje
+`zakljucan`, dakle `/zakljucano` → `/cenovnik`. To je ono što §1.1 traži: „Nema besplatnog
+plana za javnost."
+
+### Tri sloja koja drže odluku D1
+
+Jedan sloj bi bio dogovor, ne brana. Tri su:
+
+| Sloj | Gde | Šta drži |
+|---|---|---|
+| spisak planova | `PLAN_OPCIJE`, `planBodySchema` | padajući spisak `beta` ne nudi, telo sa `beta` odbija `400` |
+| radnja | `promeniPlan()` | odbija `beta` sa rečenicom, **pre** baze — da poruka ne bude izuzetak iz Postgresa |
+| **triger** | `profiles_beta_guard` (0024) | odbija svaki prelazak plana u `beta` mimo `admin_open_beta` — **i kad se aplikacija zaobiđe** |
+
+Triger propušta samo transakciju koja je postavila `set_config('sajtoskop.beta', 'konzola',
+true)`, a to piše tačno jedna funkcija u celom projektu. Zastavica je **transakcijska**, pa
+ne postoji način da „ostane upaljena" za sledeći zahtev — `pnpm check:sql` to i proverava
+golim `update`-om odmah posle otvaranja bete.
+
+Prelazak `beta` → `beta` prolazi bez zastavice: plan se time ne dodeljuje, a bez toga se beta
+ne bi mogla ni ugasiti (gašenje je rok u prošlosti, ne promena plana).
+
+### Šta je urađeno
+
+1. **`supabase/migrations/0024_beta_nalozi.sql`**
+   - nov razlog u knjizi **`beta_grant`** — i u `check` ograničenju, i u parcijalnom
+     idempotentnom indeksu, i **u telu `grant_credits`** (zamka koju 0011 i 0022 imenuju:
+     bez trećeg mesta svaki poziv tiho vrati `invalid_reason`). Puni `credits_balance` —
+     beta je pretplata koju ne naplaćujem, ne kupljen paket, pa ti krediti **ističu**.
+   - `profiles.plan`: `default 'dopuna'` + `profiles_plan_valid` check nad pet vrednosti
+   - triger `profiles_beta_guard` + `admin_open_beta(p_user, p_credits, p_expires, p_ref_id)`
+   - `create_profile_with_grant`: „created" vs „existing" se više ne izvodi iz postojanja
+     `monthly_grant` reda (sa nula kredita ga nikad nema) nego iz `xmax = 0` na `returning`
+   - `admin_users_page`: šest novih kolona (obe kase, oba roka, najsvežija pretplata kroz
+     `lateral`) i nov parametar `p_ids`
+2. **`POST` i `PATCH /api/admin/korisnici/[id]/beta`** — otvaranje naloga i sam rok. Dva
+   metoda, jedan resurs; dve radnje u dnevniku (`user.beta_open`, `user.beta_expiry`), obe
+   kroz `pripremiRadnju` → `saAuditom`, dakle trag i na uspeh i na pad (pravilo 14).
+3. **`otvoriBetaNalog()` i `postaviBetaRok()`** u `lib/admin-radnje.ts`, po obrascu
+   `korigujKredite` / `promeniPlan`: RPC nosi brave, ovaj sloj prevodi razlog u status kod i
+   u jednu rečenicu.
+4. **Obrazac „Otvori beta nalog"** u desnoj koloni detalja — kredita + rok (datum ili
+   „neograničeno"), predlog **50 / 30 dana** (odluka P6), i dugme „Samo rok" pored njega.
+5. **Kolona „Stanje" i filter po stanju** na `/admin/korisnici`, uz nov `PadajuciFilter`.
+   Kolona kredita od sada prikazuje **zbir obe kase**, sa delom iz paketa u zagradi.
+6. **Blok „Pristup"** na detalju korisnika: stanje, oba upisana roka, oba **izvedena**
+   (`pun pristup do`, `čitanje do`) i stanje pretplate. Blok „Krediti" razbijen na
+   „Ukupno / Iz pretplate / Dokupljeni".
+7. **`apps/web/test/admin-beta.ts` (38 provera)** i **24 nove provere u `pnpm check:sql`**.
+
+### Odluke koje nisu bile doslovno u promptu
+
+1. **Nov nalog dobija `dopuna`, a ne šesti plan „nema plana".** `dopuna` po §1.3 već znači
+   „korisnik bez pretplate", a sa nula kredita ga `stanjePristupa()` čita kao `zakljucan`.
+   Čim kupi paket, `credits_topup > 0` ga vraća u pun pristup — **bez ijedne izmene plana**.
+   Šesta vrednost bi bila šesta grana u svakoj mapi plan → limiti, i to zbog stanja koje
+   traje do prve kupovine.
+2. **`beta` je izbačen iz padajućeg spiska planova.** Beta nije plan nego tri stvari
+   odjednom. Spisak koji je nudi dozvolio bi pola otvorenog naloga — plan bez roka, dakle
+   neograničenu betu. To je ista greška koju je sesija došla da zatvori, samo iz konzole.
+3. **Filter po stanju se rešava u TS-u, pa se u SQL šalje spisak ID-jeva** (`p_ids`).
+   Alternativa je bila druga implementacija šest stanja u SQL-u — `max` od dva roka, grace
+   prozor, `dopuna` koja pretiče grace, `NULL` koji je neograničen samo uz plan `beta`. Ta
+   kopija bi se razišla sa TS-om prvog dana kad se pravilo promeni, i razišla bi se **tiho**,
+   jer bi obe strane radile. Ovako paginacija ostaje u bazi i ostaje tačna. Granica je 5.000
+   naloga, dokumentovana na mestu — red veličine iznad svakog broja iz §1.3.
+4. **`admin_open_beta` ne piše svoj red u dnevniku**, za razliku od `admin_adjust_credits`.
+   Red piše ruta, kroz `saAuditom` — jedna radnja, jedan red. Da RPC piše svoj, otvaranje
+   beta naloga bi ostavljalo dva zapisa o jednoj radnji.
+5. **Rok u prošlosti prolazi kroz šemu i kroz RPC bez ijedne provere, ali UI traži potvrdu.**
+   Gašenje bete rokom u prošlosti je propisan način (§1.5); pogrešna godina je najčešća
+   omaška i posledica joj je da čovek istog trenutka ispadne iz aplikacije. Server ne može da
+   razlikuje to dvoje — čovek pred obrascem može. Gornja granica (5 godina unapred) postoji
+   iz iste porodice grešaka: `2226` umesto `2026` je neograničena beta upisana kao datum.
+6. **`<input type="date">` se prevodi u KRAJ izabranog lokalnog dana.** „Do 21. septembra"
+   znači da beta traje ceo 21. septembar. Ponoć na početku tog dana bi bila za jedan dan
+   manje nego što u polju piše — nad pristupom, gde se to primeti odmah.
+7. **Podrazumevani datum se popunjava u `useEffect`, ne pri renderu.** „Danas" na serveru
+   (UTC na Vercelu) i u pregledaču (Beograd) nije isti dan svake večeri, pa bi vrednost polja
+   izazvala neslaganje pri hidraciji — na obrascu koji dodeljuje pristup.
+8. **`beta_grant` je nov razlog u knjizi, a ne `admin`.** „Koliko je otišlo na betu" je drugo
+   pitanje od „koliko je dodeljeno rukom", a izvod mora da kaže odakle su krediti.
+9. **`PATCH .../beta` ne traži da nalog bude u beti.** `stanjePristupa()` uzima **kasniji** od
+   dva roka, pa je ovo način da pretplatnik dobije dve nedelje viška posle propalog plaćanja,
+   bez diranja pretplate i bez dodirivanja Paddle-a. Poruka izričito kaže kad rok nikome
+   ništa ne menja.
+10. **„Grace" ostaje neprevedeno u konzoli.** Tako se stanje zove u §1.5 i u svakom komentaru
+    u kodu, a taj ekran čita samo onaj ko te dokumente i piše. Prevod bi bio drugo ime za istu
+    stvar. Korisnik svoje stanje ionako nikad ne vidi kao ime — njemu ide baner sa datumom.
+
+### Popravljeno usput
+
+- **Izvoz korisnika u CSV je pratio ekran.** Komentar uz `izveziKorisnike()` obećava da su
+  brojevi u fajlu isti oni sa ekrana; čim je kolona kredita na ekranu postala zbir obe kase,
+  fajl sa jednom kolonom je počeo da laže. Sada nosi obe kase odvojeno (`krediti` je i dalje
+  samo ona koja ističe), plus `stanje`, `beta_do` i `pun_pristup_do`. Stanje računa **ista**
+  `pristupIzReda()` koju zove i lista — izvoz koji bi ga računao sam bio bi treća računica o
+  pristupu. Prazan `beta_do` uz plan `beta` piše **`neograniceno`**: u tabeli van aplikacije
+  nema ko da objasni razliku između „nema roka" i „nema bete".
+- **`clerkClient` je dopisan u `scripts/lib/next-stubs.ts`.** Bez njega se `lib/admin-radnje.ts`
+  ne može ni učitati van Next runtime-a, pa nijedna admin radnja nije mogla da dobije test.
+  Stub **baca** ako se stvarno pozove: jedina dozvoljena laž u testovima je identitet, ne i
+  ponašanje tuđeg servisa.
+
+### Šta je test pokrio
+
+**`apps/web/test/admin-beta.ts`** — šta uopšte može da uđe u rute (šeme, granice, `refId` u
+tuđem prostoru imena), da su otvaranje i pomeranje roka **dve** radnje u dnevniku i da oba
+metoda idu kroz `saAuditom`. Peta sekcija je razlog zbog kog fajl postoji i namerno je
+**statička**: prolazi kroz sav izvor u `apps/*/src` i `packages/*/src` i drži da nijedan fajl
+osim `lib/admin-radnje.ts` ne piše `plan: "beta"`, da se `admin_open_beta` zove sa tačno
+jednog mesta, da registracija ne uvozi nijedan broj iz beta plana i da webhook i dalje odbija
+pokušaj. Regresija koje se stvarno plašim nije „ruta je vratila pogrešan status" nego „neko
+je dopisao `plan: 'beta'` u kupon, zato što je tamo zgodno".
+
+**`pnpm check:sql`** — ponašanje trigera nad pravim Postgresom: goli `update` i `insert` ne
+mogu da dodele `beta`, zastavica ne curi u sledeću transakciju, `admin_open_beta` postavlja
+sve troje odjednom, isti `ref_id` drugi put ne daje drugi paket kredita, `NULL` rok je
+neograničeno, plan van spiska pada na `profiles_plan_valid`. Uz to `p_ids` sužavanje i prazan
+niz kao „nijedan pogodak", a ne „bez ograničenja".
+
+### Ostaje na meni
+
+- **Postojeći beta nalozi nisu dirani.** Migracija namerno ne postavlja rok nikome ko ga već
+  nema: to su moji testni nalozi i ljudi koji su već unutra, a migracija koja ćutke zaključa
+  žive korisnike je gora od rupe koju zatvara. **Otvori `/admin/korisnici?stanje=beta`, pogledaj
+  ko nosi bedž `NEOGRANIČENO` i postavi rok.** Zbog toga S20 i postoji.
+- **Registracija sada vodi na `/zakljucano`.** Naslov te strane glasi „Pristup je istekao", što
+  je za nekoga ko se upravo registrovao pogrešna rečenica — telo strane već ima granu za
+  „nalog nema ni pretplatu ni betu ni kredite", ali naslov je ne prati. **S24** je sesija koja
+  i inače prepravlja prvih 90 sekundi; ovo ide tamo.
+- **R27** (prolaz kroz životni ciklus rukom) sada ima i drugu stranu: otvori beta nalog iz
+  konzole, ugasi ga rokom u prošlosti, pa ga vrati.
+
+### Preneto dalje
+
+- **S21 (cenovnik i pretplata):** `/krediti` traži isti razbijen prikaz dve kase koji detalj
+  korisnika sada ima — „iz pretplate, obnavlja se \<datum\>" i „dokupljeni, ne ističu".
+  Tekstovi i podela su u bloku „Krediti" na `/admin/korisnici/[id]`, gotovi za prepis.
+- **S24 (onboarding):** nov nalog više nema 50 kredita. Ako onboarding treba da da kredit
+  dobrodošlice, razlog u knjizi je **`onboarding`** (već postoji od 0022, `ref_id = user_id`,
+  dakle najviše jednom po nalogu) i menja se **jedan broj** —
+  `KREDITI_NA_REGISTRACIJI` u `lib/profile.ts`. Plan se ne dira.
+- **S26 (Sentry):** `admin_open_beta` baca izuzetak kad `grant_credits` odbije dodelu posle
+  upisa plana — namerno, da transakcija ode nazad. To je jedini put u konzoli na kome se
+  greška iz baze vidi kao `500`; ako se ikad pojavi u produkciji, znači da se lista razloga u
+  `grant_credits` razišla sa pozivaocem.
+
+---
+
+## S21 — Cenovnik sa paketima, stanje pretplate, portal, linkovi ☑
+
+**Isporučeno 23. avgusta 2026.** Izvor: `docs/LANSIRANJE.md` §1.2, §1.3, §1.4 i §1.5, sesija
+S21. **Bez migracije** — ništa u ovoj isporuci ne traži novu kolonu, i to je bio jedan od
+uslova (v. „Odstupanja", tačka o ceni).
+
+**Cilj, ispunjen:** paket kredita se kupuje sa cenovnika i **bez pretplate**; `/krediti`
+pokazuje obe kase odvojeno i objašnjava zašto se jedna resetuje a druga ne; otkazivanje ide
+kroz Paddle portal, ne kroz mejl meni.
+
+### Zašto je ovo bila i sesija o jednom broju
+
+Do S21 je proizvod na **četiri mesta** pokazivao samo `credits_balance`, a naplaćivao iz zbira
+obe kase. To nije bilo vidljivo dok `credits_topup` nije mogao da bude različit od nule — a
+od S18 (webhook) može. Posledica bi bila najgora vrsta greške koju ovaj proizvod ume da
+napravi: **korisnik vidi 4 kredita, klikne skeniranje za 3, prođe** — i onda se pita da li je
+plaćeno dvaput. Sva četiri mesta su ispravljena u ovoj sesiji (bočna traka, gornja traka na
+telefonu, `/krediti`, `/dashboard`); `/pretraga` i `/api/search` su na zbir prešli još u S17,
+jer oni odlučuju o naplati.
+
+### Šta je urađeno
+
+- **`POST /api/billing/portal`** — `requireUserId()`, `paddle_customer_id` iz `profiles`, svi
+  `sub_` ID-jevi iz `subscriptions`, pa `paddle.customerPortalSessions.create()`. Nazad ide
+  **samo** `urls.general.overview`. Nalog bez Paddle kupca dobija **`404`**, ne `403`.
+- **`lib/pretplata.ts`** — drugi čitač `subscriptions`, za ekran i portal. Vraća i `price_id`,
+  iz kog se izvodi ciklus („mesečno" / „godišnje").
+- **`components/portal-dugme.tsx`** — traži link **na klik**, nikad pri renderu: portal sesija
+  je jednokratna i vremenski ograničena.
+- **`/cenovnik` → sekcija „Paketi kredita"** sa sidrom `#paketi`, ispod tri plana, kao jedan
+  panel na `--bg-subtle`. Oba paketa iz `plans.ts`, cene iz **istog** `PricePreview()` poziva.
+- **`/krediti` → blok „Pretplata"** iznad izvoda: ime plana, ciklus, rečenica o stanju sa
+  datumom, žuto upozorenje u `grace`, obe kase razdvojene i objašnjene, dva izlaza.
+- **`sledecaDodelaKredita()`** u `packages/shared/src/plans.ts` — prvi dan narednog meseca po
+  **beogradskom** kalendaru, istom po kom `grant_monthly_credits` računa ključ idempotencije.
+- **Linkovi ka `/cenovnik`** — stavka „Planovi i cene" u bočnoj traci, poziv na dokupljivanje
+  kad stanje padne nisko, i sidro `#paketi` na koje su dva linka iz S19 već pokazivala.
+- **`apps/web/test/cenovnik.ts`** — nov test, uvezan u `pnpm --filter web test`.
+
+### Odstupanja od prompta — namerna
+
+- **Cene u evrima na `/krediti` NEMA, iako je prompt tražio „ime plana, cena, sledeća
+  naplata".** Tri razloga, svaki dovoljan sam za sebe: katalog namerno ne drži iznose (Paddle
+  je jedini izvor — v. zaglavlje `lib/cenovnik.ts`); `PricePreview()` vraća **cenovničku**
+  cenu, a beta korisnik ima 33% popust (`BETA2026`, §1.6), pa bi mu na ekranu pisalo €59 nad
+  računom od €39,53; a `subscriptions` (0022) ne čuva naplaćen iznos, pa se ne može ni
+  pročitati bez migracije koju S21 nema. **Pogrešan iznos o novcu je gori od izostalog
+  iznosa**, pa blok piše ono što jeste tačno — plan, ciklus i datum sledeće naplate — i vodi
+  na portal, gde iznos i račun ionako žive. Obrazloženje stoji i u zaglavlju
+  `components/pretplata-blok.tsx`, da se odluka ne donosi ponovo.
+- **`404` se vezuje za `paddle_customer_id`, ne za postojanje pretplate.** Prompt kaže
+  „korisnik bez pretplate → 404". Doslovno čitanje bi zaključalo portal kupcu koji je uzeo
+  **samo paket kredita** — a njemu portal treba, jer tamo stoji njegov račun. Ko nikad ništa
+  nije kupio nema ni Paddle kupca, pa i dalje dobija `404`; ko je kupio bilo šta, ima šta da
+  otvori. Zato dugme i menja ime: „Upravljaj pretplatom" kad pretplata postoji, „Računi i
+  plaćanja" kad postoji samo kupovina.
+- **Paketi u `SVI_PRICE_ID` su već bili.** Prompt traži da se dodaju; S16 ih je tamo stavio
+  unapred, baš zbog ove sesije (`ALL_PRICE_IDS` = 6 pretplata + 2 paketa). Provereno testom
+  umesto dopisano.
+- **Stat kartica „Stanje" na `/krediti` je obrisana.** Prikaz stanja kredita bi posle novog
+  bloka postojao **dvaput na istom ekranu**, i to jednom kao zbir a jednom razbijeno. Ostale
+  su dve dnevne kartice (skeniranja, CSV). Zbir sada stoji desno od naslova „Krediti", u
+  bloku, uz dva polja od kojih je sabran.
+- **Prag za „nisko stanje" je relativan pa apsolutan** — `max(3, 10% mesečne dodele)`. Fiksni
+  broj bi Advanced nalogu (800 kredita) javio tek kad je već sve stalo, a čisto relativan bi
+  nalogu bez plana (`mesecni = 0`) javljao uvek, i onda kad ima 150 kupljenih kredita.
+- **Poziv na dokupljivanje je link, ne dugme.** Bočna traka stoji preko **svih** ekrana, pa bi
+  primarno dugme u njoj bilo drugo primarno dugme na svakom od njih (§7.1).
+
+### Popravljeno usput
+
+- **`/dashboard` je tvrdio da je svaki nalog beta.** Podnaslov kartice „Plan" bio je zakucan
+  string `"beta"` — tačan dok su svi nalozi bili beta, netačan od S16. Sada prati stanje iz
+  `stanjePristupa()`.
+- **Kartica plana ispisivala je sirovu vrednost kolone.** Nalog bez pretplate dobijao je
+  `dopuna` — interno ime stanja, koje korisniku ne znači ništa. Nov `PLAN_IME` /
+  `imePlana()` u `lib/ui-tekst.ts` daje „Bez pretplate". Namerno **odvojeno** od
+  `STANJE_PRISTUPA`: taj spisak je za admin konzolu i sadrži „Grace" i „Zaključan".
+- **Traka napunjenosti u bočnoj traci lagala je nalog bez plana.** `mesecni = 0` je davao 0%
+  i nad punim novčanikom kupljenih kredita. Sada se traka ne crta kad mesečne dodele nema, a
+  tekst kaže da kupljeni krediti ne ističu.
+- **Bezuslovna poruka „Beta je besplatna dok traje" na `/krediti`.** Stajala je svakom
+  korisniku, uključujući pretplatnika koji plaća €59. Obrisana.
+- **Sidro `#paketi` nije postojalo.** Modal „Ostao si bez kredita" i strana `/zakljucano` su
+  od S19 vodili na `/cenovnik#paketi`, dakle na vrh strane. Sada vode na sekciju.
+
+### Šta je test pokrio
+
+**`apps/web/test/cenovnik.ts`** — tri stvari koje `tsc` ne vidi:
+
+1. **Datum sledeće dodele.** Prelazak decembar → januar, 31. januar → 1. februar (ne 31.), i
+   zamka vremenske zone: 31.12. u 23.30 UTC je **već januar** u Beogradu, pa je sledeća dodela
+   februar. Plus invarijanta koja mora da važi uvek — datum je u budućnosti.
+2. **Portal, statički.** Da ruta uzima kupca iz sesije, da **ne čita** ni telo ni query (nema
+   `customerId` spolja), da vraća `404` i nigde `403`, i da nazad ide samo URL a ne ceo objekat
+   sesije. Regresija koje se plašim nije „pogrešan status" nego „neko je dopisao `customerId` u
+   telo zahteva, zato što je tako lakše".
+3. **Žice i kopija.** Da sidro `#paketi` postoji, da je i dalje **jedan** `PricePreview()` poziv,
+   da obe obavezne rečenice o paketima stoje (ne ističu / nije zamena za plan), da paketi nemaju
+   primarno dugme, i da sva četiri mesta koja pokazuju kredite pokazuju **zbir**.
+
+Test čita izvor sa **skinutim komentarima** (`bezKomentara()`): komentari u ovom repozitorijumu
+objašnjavaju baš ono što se proverava („zašto 404, a ne 403"), pa bi naivan `includes("403")`
+pao na sopstveno objašnjenje. Provera koja pada na komentar uči te da je ignorišeš.
+
+### Ostaje na meni
+
+- **Futer sa linkom ka `/cenovnik` ne postoji** — futera uopšte nema, on nastaje u **S22**.
+  To je jedina tačka iz prompta S21 koja nije isporučena, i jedina koja ne može da bude.
+  Kad futer stigne, link ide u njega.
+- **Portal se ne može isprobati bez `R3`** (Paddle API ključ u `.env`) i bez naloga koji je
+  stvarno prošao kroz sandbox checkout — dakle bez `paddle_customer_id` u `profiles`. Do tada
+  dugme uredno vraća `404` i to je tačno ponašanje, ne kvar.
+- **`podrska@sajtoskop.com`** i dalje stoji u poruci greške na `/cenovnik` (V5) — nije
+  provereno da adresa postoji.
+- **Prolaz kroz `docs/PROVERA-VIZUELNA.md` §6, §7b i §5** — obe teme, telefon ≤ 390 px.
+
+### Preneto dalje
+
+- **S22 (futer):** link ka `/cenovnik` u futer, uz pravne tekstove. Sekcija paketa je već
+  sidro `#paketi`, pa futer sme da linkuje direktno na nju.
+- **S24 (landing):** `/cenovnik` sada ima sekciju paketa i sidro; landing sme da vodi na
+  `/cenovnik#paketi` za posetioca koji neće pretplatu. Kopija o dve kase je gotova u
+  `components/pretplata-blok.tsx` i ne treba je pisati ponovo.
+- **S26 (Sentry i sandbox prolaz):** portal ruta je treća koja dodiruje Paddle SDK
+  (checkout, webhook, portal). Sve tri padaju na `502` sa porukom bez ključa; sandbox prolaz
+  treba da pokrije i otkazivanje kroz portal, pa proveru da `subscription.canceled` stigne
+  nazad kao `canceled_at` i da baner „traje do \<datum\>" iskoči sam.
+- **Ako se ikad zatraži iznos na `/krediti`:** to je migracija koja u `subscriptions` dodaje
+  naplaćen iznos i valutu iz `transaction.completed`, plus grana za popust. Ne PricePreview.

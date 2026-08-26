@@ -1,20 +1,31 @@
 // apps/web/src/app/(app)/krediti/page.tsx
-// Stanje kredita i izvod iz knjige (F4 §4).
+// Stanje kredita i izvod iz knjige (F4 §4), sa blokom pretplate iznad (S21).
 //
 // Ovo je ekran koji odgovara na „gde mi je otišao kredit". Zato je izvod
 // doslovan — svaka stavka iz `credit_ledger`, sa razlogom i nazivom prospekta.
+//
+// ── šta je S21 promenio ─────────────────────────────────────
+// 1. Stanje je ZBIR obe kase, kao i svuda drugde u proizvodu. Do sada je ovde
+//    stajao samo `credits_balance`, pa je korisnik koji je kupio paket video
+//    manji broj nego što stvarno ima — a `/api/search` je naplaćivao iz zbira.
+// 2. Iznad izvoda stoji blok pretplate: stanje naloga, datumi, obe kase
+//    razdvojene i objašnjene, i dva izlaza (portal i cenovnik).
+// 3. Bezuslovna poruka „Beta je besplatna dok traje" je otišla. Bila je tačna
+//    dok su svi nalozi bili beta; od S16 postoji naplata, pa je pretplatniku
+//    govorila neistinu o njegovom nalogu.
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Coins, Download, Radar } from "lucide-react";
+import { Download, Radar } from "lucide-react";
 import { creditMonth, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
+import { zahtevajCitanje } from "@/lib/pristup";
+import { citajPretplatuZaEkran } from "@/lib/pretplata";
 import { getIstorijaKredita } from "@/lib/krediti";
-import { getOwnProfile } from "@/lib/profile";
 import { formatDatum, RAZLOG_KREDITA } from "@/lib/ui-tekst";
 import { cn } from "@/lib/cn";
 import { VezaGreska } from "@/components/veza-greska";
-import { Alert } from "@/components/ui/alert";
+import { PretplataBlok } from "@/components/pretplata-blok";
 import { StatKartica } from "@/components/ui/stat";
 import { NaslovSekcije, ZaglavljeStranice } from "@/components/ui/stranica";
 
@@ -23,12 +34,25 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Krediti" };
 
 export default async function Page() {
-  await requireSession();
+  const userId = await requireSession();
 
   // Kvar veze daje `profile === null`, a odmah ispod stoji `VezaGreska` — pa
   // prazna knjiga u tom slučaju nikad ne stigne do ekrana kao „nemaš stavki".
-  const [profile, istorija] = await Promise.all([
-    getOwnProfile(),
+  //
+  // S19: kapija pristupa uz podatak, ne u layout-u — layout se ne izvršava
+  // ponovo pri klijentskoj navigaciji. Zaključan nalog ide na `/zakljucano`;
+  // `grace` PROLAZI, jer je čitanje svog rada ceo smisao grace perioda (§1.5).
+  //
+  // Ide u isti `Promise.all` i vraća profil koji je ionako trebao ovoj strani —
+  // dakle kapija ne košta nijedan dodatan upit nad `profiles`. `redirect()` iz
+  // nje se kroz `Promise.all` uredno propagira.
+  //
+  // S21: uz to ide i čitanje pretplate za ekran. Nije isti upit kao onaj koji
+  // hrani kapiju (`citajPretplatu`) — ovaj vraća i `price_id`, iz kog se izvodi
+  // ciklus. Razlog za dva čitača stoji u `lib/pretplata.ts`.
+  const [{ profile, pristup }, pretplata, istorija] = await Promise.all([
+    zahtevajCitanje(),
+    citajPretplatuZaEkran(userId),
     getIstorijaKredita().catch((err: unknown) => {
       console.error("[krediti] čitanje knjige:", err);
       return [];
@@ -55,14 +79,20 @@ export default async function Page() {
         opis="Kredit se troši na otključavanje prospekta i na skeniranje kombinacije koje nema u kešu. Pretraga po kešu je besplatna i neograničena."
       />
 
-      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatKartica
-          naslov="Stanje"
-          vrednost={String(profile.credits_balance)}
-          podnaslov={`od ${plan.monthlyCredits} mesečno`}
-          ikona={<Coins />}
-          odUkupno={[profile.credits_balance, plan.monthlyCredits]}
-        />
+      <PretplataBlok
+        pristup={pristup}
+        plan={profile.plan}
+        pretplata={pretplata}
+        imaPaddleKupca={profile.paddle_customer_id !== null}
+        izPretplate={profile.credits_balance}
+        dokupljeni={profile.credits_topup}
+        mesecnaDodela={plan.monthlyCredits}
+      />
+
+      {/* Dnevni osigurači. Stanje kredita NIJE ovde — ono je gore, razbijeno na
+          dve kase; treći prikaz istog broja bi bio treće mesto koje ume da se
+          raziđe sa druga dva. */}
+      <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StatKartica
           naslov="Nova skeniranja"
           vrednost={`${profile.cache_miss_count} / ${plan.cacheMissPerDay}`}
@@ -78,16 +108,6 @@ export default async function Page() {
           odUkupno={[profile.export_count, plan.exportPerDay]}
         />
       </dl>
-
-      {/* Beta status — obećanje se daje eksplicitno, sa rokom (00-kontekst §2). */}
-      <Alert variant="neutral" className="mt-4">
-        <span className="font-medium">Beta je besplatna dok traje.</span>{" "}
-        <span className="text-fg-muted">
-          Dobijaš {plan.monthlyCredits} kredita prvog u mesecu, bez prenošenja neiskorišćenih u
-          sledeći mesec. Kad uvedem planove, javljam ti unapred — nikad neće biti tako da jednog
-          jutra ne možeš da uđeš.
-        </span>
-      </Alert>
 
       <section className="mt-9">
         <NaslovSekcije>Istorija</NaslovSekcije>
@@ -148,9 +168,9 @@ export default async function Page() {
       </section>
 
       <p className="mt-6 text-xs text-fg-muted">
-        Sledeća dodela: prvog dana narednog meseca. Tekući mesec u knjizi je{" "}
-        <span className="num">{creditMonth()}</span>. Neiskorišćeni krediti se ne prenose
-        — balans se postavlja na {plan.monthlyCredits}, ne sabira.
+        Tekući mesec u knjizi je <span className="num">{creditMonth()}</span>. Izvod pokazuje obe
+        kase u istom nizu — „Kupljen paket" puni onu koja ne ističe, sve ostalo onu koja se
+        obnavlja.
       </p>
     </div>
   );

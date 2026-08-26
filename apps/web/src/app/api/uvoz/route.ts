@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
+import { citajPristup, odbijenica } from "@/lib/pristup";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError } from "@/lib/search-types";
 import { uveziPipeline } from "@/lib/uvoz";
@@ -45,6 +46,12 @@ export async function POST(req: Request): Promise<Response> {
   } catch {
     return greska("Nisi prijavljen.", 401);
   }
+
+  // [S19] Uvoz ume da OTKLJUČAVA redove, dakle troši kredite — ista kapija kao
+  // na `/api/unlock`, i pre čitanja fajla od 2 MB.
+  const { pristup } = await citajPristup();
+  const odbijen = odbijenica(pristup, "uvoz");
+  if (odbijen) return odbijen;
 
   let form: FormData;
   try {

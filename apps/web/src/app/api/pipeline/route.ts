@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { promeniStatus, sacuvajBelesku } from "@/lib/pipeline";
+import { citajPristup, odbijenicaCitanja } from "@/lib/pristup";
 import { pipelineBodySchema } from "@/lib/pipeline-schema";
 import type { ApiError } from "@/lib/search-types";
 
@@ -30,6 +31,12 @@ export async function PATCH(req: Request): Promise<Response> {
   } catch {
     return greska("Nisi prijavljen.", 401);
   }
+
+  // [S19] Pipeline je korisnikov RAD, ne kupljen podatak, i u grace stanju radi
+  // normalno (§1.5). Kapija pada samo na zaključan nalog.
+  const { pristup } = await citajPristup();
+  const odbijen = odbijenicaCitanja(pristup);
+  if (odbijen) return odbijen;
 
   let raw: unknown;
   try {

@@ -22,9 +22,13 @@ import type {
   FeedbackRow,
   JobQueueRow,
   LeadStatusValue,
+  PretplataZaPristup,
+  Pristup,
   ProfileRow,
   SearchRow,
+  StanjeId,
 } from "@sajtoskop/shared";
+import { stanjePristupa } from "@sajtoskop/shared";
 import { adminBootstrapIds } from "./env";
 import { adminSupabase } from "./supabase";
 import { inGrupe } from "./upiti";
@@ -40,10 +44,127 @@ export type UpitKorisnika = {
   q: string;
   filter: FilterKorisnika;
   plan: string;
+  /** Jedno od šest stanja pristupa, ili `""` za „sva" (S20). */
+  stanje: StanjeId | "";
   sort: SortKorisnika;
   smer: Smer;
   strana: number;
 };
+
+/**
+ * Ulazi za `stanjePristupa()` onako kako ih vraća `admin_users_page` (0024).
+ *
+ * Funkcija se zove u TS-u, nad redom iz baze — nikad u SQL-u. Kolona „stanje" u
+ * konzoli mora da pokazuje ISTO ono što kapija zaključuje, a to je moguće samo
+ * ako je računica jedna (LANSIRANJE §1.5).
+ */
+export function pristupIzReda(r: AdminUserRow): Pristup {
+  const pretplata: PretplataZaPristup | null = r.sub_status
+    ? { status: r.sub_status, currentPeriodEnd: r.sub_period_end, canceledAt: r.sub_canceled_at }
+    : null;
+
+  return stanjePristupa(
+    {
+      plan: r.plan,
+      betaExpiresAt: r.beta_expires_at,
+      planExpiresAt: r.plan_expires_at,
+      creditsTopup: r.credits_topup,
+    },
+    pretplata,
+    Date.now(),
+  );
+}
+
+/**
+ * Koliko naloga se najviše čita pri filtriranju po stanju.
+ *
+ * Filter po stanju ne može u SQL — to bi bila druga implementacija šest stanja
+ * (v. komentar uz `admin_users_page` u 0024). Zato se ULAZI pročitaju ovde,
+ * stanje se izračuna istom TS funkcijom koju zovu i kapije, i u bazu se vrati
+ * spisak ID-jeva; paginacija time ostaje tačna, jer je i dalje u SQL-u.
+ *
+ * Granica postoji zato što je ovo jedini upit u konzoli koji ne stane u
+ * stranicu. Pet hiljada naloga je red veličine iznad svakog broja iz
+ * LANSIRANJE §1.3 („60–100 korisnika u normalnom režimu"); kad se približi,
+ * filter po stanju traži materijalizovanu kolonu, a ne veći broj ovde.
+ */
+const MAX_ZA_FILTER_STANJA = 5000;
+
+/**
+ * ID-jevi naloga koji su u traženom stanju.
+ *
+ * Dva laka upita: `profiles` bez ijednog agregata i `subscriptions` u celini.
+ * Nijedan ne dodiruje `unlocks`, `searches` ni `feedback` — te brojeve računa
+ * `admin_users_page` tek nad suženim spiskom.
+ */
+async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
+  const db = adminSupabase();
+  const sada = Date.now();
+
+  const [profili, pretplate] = await Promise.all([
+    db
+      .from("profiles")
+      .select("id, plan, beta_expires_at, plan_expires_at, credits_topup")
+      .limit(MAX_ZA_FILTER_STANJA)
+      .returns<
+        {
+          id: string;
+          plan: string;
+          beta_expires_at: string | null;
+          plan_expires_at: string | null;
+          credits_topup: number;
+        }[]
+      >(),
+    db
+      .from("subscriptions")
+      .select("user_id, status, current_period_end, canceled_at")
+      // Merodavna je ona koja traje najduže — isti izbor kao u `citajPretplatu()`.
+      .order("current_period_end", { ascending: false, nullsFirst: false })
+      .limit(MAX_ZA_FILTER_STANJA)
+      .returns<
+        {
+          user_id: string;
+          status: PretplataZaPristup["status"];
+          current_period_end: string | null;
+          canceled_at: string | null;
+        }[]
+      >(),
+  ]);
+
+  if (profili.error) throw new Error(`Filter po stanju nije uspeo: ${profili.error.message}`);
+  if (pretplate.error) {
+    // Pad ovog upita ne sme da isprazni listu. Bez pretplata se `otkazan` ne
+    // razlikuje od `aktivan`, ali sve ostalo je i dalje tačno.
+    console.error("[admin] pretplate za filter stanja:", pretplate.error.message);
+  }
+
+  const poKorisniku = new Map<string, PretplataZaPristup>();
+  for (const s of pretplate.data ?? []) {
+    // Spisak je već sortiran opadajuće — prvi red po korisniku je merodavan.
+    if (poKorisniku.has(s.user_id)) continue;
+    poKorisniku.set(s.user_id, {
+      status: s.status,
+      currentPeriodEnd: s.current_period_end,
+      canceledAt: s.canceled_at,
+    });
+  }
+
+  return (profili.data ?? [])
+    .filter(
+      (p) =>
+        stanjePristupa(
+          {
+            plan: p.plan,
+            betaExpiresAt: p.beta_expires_at,
+            planExpiresAt: p.plan_expires_at,
+            creditsTopup: p.credits_topup,
+          },
+          poKorisniku.get(p.id) ?? null,
+          sada,
+        ).stanje === stanje,
+    )
+    .map((p) => p.id);
+}
 
 /**
  * Podaci koje o korisniku zna samo Clerk.
@@ -61,6 +182,14 @@ export type ClerkPodaci = {
 
 export type RedKorisnika = AdminUserRow & {
   clerk: ClerkPodaci | null;
+  /**
+   * Stanje pristupa, izračunato istom funkcijom koju zovu kapije (§1.5).
+   *
+   * Stoji u redu, a ne u komponenti, iz istog razloga iz kog `bootstrap` stoji
+   * ovde: prikaz ne sme da bude mesto na kome se odluka o pristupu (ponovo)
+   * donosi.
+   */
+  pristup: Pristup;
   /**
    * Admin je kroz `ADMIN_BOOTSTRAP_IDS`, a ne kroz `profiles.role`.
    *
@@ -100,6 +229,12 @@ export async function citajKorisnike(upit: UpitKorisnika): Promise<ListaKorisnik
   const strana = Math.max(1, upit.strana);
   const bootstrap = adminBootstrapIds();
 
+  // Filter po stanju se rešava PRE upita: stanje se ne računa u SQL-u, pa se u
+  // bazu šalje spisak ID-jeva koji mu odgovaraju (v. `idjeviUStanju`).
+  // `null` je „bez sužavanja"; prazan niz je legitiman ishod „nijedan nalog nije
+  // u tom stanju" i mora da vrati praznu listu, a ne celu.
+  const ids = upit.stanje ? await idjeviUStanju(upit.stanje) : null;
+
   const { data, error } = await adminSupabase().rpc("admin_users_page", {
     p_q: upit.q || null,
     p_filter: upit.filter,
@@ -110,6 +245,7 @@ export async function citajKorisnike(upit: UpitKorisnika): Promise<ListaKorisnik
     p_offset: (strana - 1) * PO_STRANI,
     // Filter „Admini" mora da vidi i onoga ko je admin samo iz env-a (0014).
     p_bootstrap: bootstrap,
+    p_ids: ids,
   });
 
   if (error) throw new Error(`Čitanje liste korisnika nije uspelo: ${error.message}`);
@@ -125,6 +261,7 @@ export async function citajKorisnike(upit: UpitKorisnika): Promise<ListaKorisnik
       clerk: poId.get(r.id) ?? null,
       bootstrap: bootstrap.includes(r.id),
       uClerku: odgovorio ? poId.has(r.id) : null,
+      pristup: pristupIzReda(r),
     })),
     ukupno,
     strana,
@@ -160,6 +297,19 @@ export type StavkaUtiska = Pick<
 
 export type DetaljKorisnika = {
   profil: ProfileRow;
+  /**
+   * Najsvežija pretplata, svedena na ono što odluka o pristupu koristi.
+   * `null` znači „nikad je nije ni bilo" — beta i dopuna nemaju pretplatu.
+   */
+  pretplata: PretplataZaPristup | null;
+  /**
+   * Stanje pristupa i IZVEDENI datumi (`punDo`, `citanjeDo`).
+   *
+   * Blok „Pristup" ih samo ispisuje. Sabiranje `beta_expires_at` i
+   * `plan_expires_at` na strani bi bila druga računica o pristupu — tačno ono
+   * što §1.5 zabranjuje, i to na ekranu sa kog se pristup dodeljuje.
+   */
+  pristup: Pristup;
   clerk: ClerkPodaci | null;
   clerkGreska: string | null;
   /** Admin je iz env-a, ne iz `profiles.role` — v. `RedKorisnika.bootstrap`. */
@@ -195,9 +345,9 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
   if (error) throw new Error(`Čitanje profila nije uspelo: ${error.message}`);
   if (!profil) return null;
 
-  // Šest nezavisnih čitanja, svih šest odjednom. Nijedno ne zavisi od ishoda
-  // drugog, pa bi redom bilo šest čekanja umesto jednog.
-  const [ledger, otkljucani, pretrage, poslovi, pipeline, utisci] = await Promise.all([
+  // Sedam nezavisnih čitanja, svih sedam odjednom. Nijedno ne zavisi od ishoda
+  // drugog, pa bi redom bilo sedam čekanja umesto jednog.
+  const [ledger, otkljucani, pretrage, poslovi, pipeline, utisci, pretplata] = await Promise.all([
     db
       .from("credit_ledger")
       .select("id, delta, reason, ref_id, created_at")
@@ -240,6 +390,23 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
       .order("created_at", { ascending: false })
       .limit(20)
       .returns<StavkaUtiska[]>(),
+    // Isti izbor kao u `citajPretplatu()` iz `lib/pristup.ts`: više redova
+    // postoji kad je korisnik menjao plan, a merodavan je onaj koji traje
+    // najduže. Ne uvozim tu funkciju jer je memoizovana po ZAHTEVU i vezana za
+    // korisnika iz sesije — ovde se čita TUĐI red.
+    db
+      .from("subscriptions")
+      .select("status, current_period_end, canceled_at")
+      .eq("user_id", id)
+      .order("current_period_end", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .returns<
+        {
+          status: PretplataZaPristup["status"];
+          current_period_end: string | null;
+          canceled_at: string | null;
+        }[]
+      >(),
   ]);
 
   for (const [ime, r] of [
@@ -249,6 +416,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
     ["poslovi", poslovi],
     ["pipeline", pipeline],
     ["utisci", utisci],
+    ["pretplata", pretplata],
   ] as const) {
     if (r.error) console.error(`[admin] ${ime}:`, r.error.message);
   }
@@ -280,8 +448,28 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
 
   const { poId, greska, odgovorio } = await citajIzClerka([id]);
 
+  const redPretplate = (pretplata.data ?? [])[0];
+  const zaPristup: PretplataZaPristup | null = redPretplate
+    ? {
+        status: redPretplate.status,
+        currentPeriodEnd: redPretplate.current_period_end,
+        canceledAt: redPretplate.canceled_at,
+      }
+    : null;
+
   return {
     profil,
+    pretplata: zaPristup,
+    pristup: stanjePristupa(
+      {
+        plan: profil.plan,
+        betaExpiresAt: profil.beta_expires_at,
+        planExpiresAt: profil.plan_expires_at,
+        creditsTopup: profil.credits_topup,
+      },
+      zaPristup,
+      Date.now(),
+    ),
     clerk: poId.get(id) ?? null,
     clerkGreska: greska,
     bootstrap: adminBootstrapIds().includes(id),

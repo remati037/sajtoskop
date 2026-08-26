@@ -16,6 +16,9 @@
 //   /                      prijava i registracija; javno po definiciji
 //   /prijava, /registracija redirekcije na `/`, zbog starih linkova
 //   /api/webhooks/clerk    Clerk zove bez sesije; potpis JESTE autentikacija
+//   /api/billing/webhook   isto, Paddle (S18) — `paddle.webhooks.unmarshal`
+//   /cenovnik              javan ekran cena; sesija se čita samo da bi se znalo
+//                          da li dugme vodi u checkout ili na registraciju
 
 import { clerkMiddleware } from "@clerk/nextjs/server";
 

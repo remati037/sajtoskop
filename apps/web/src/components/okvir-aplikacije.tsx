@@ -16,10 +16,12 @@ import { usePathname } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { UserButton } from "@clerk/nextjs";
 import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Menu, ShieldCheck, X } from "lucide-react";
-import type { MotorStanje, Uslovi } from "@sajtoskop/shared";
+import type { MotorStanje, Pristup, Uslovi } from "@sajtoskop/shared";
 import { cn } from "@/lib/cn";
 import { NAVIGACIJA, naslovZaPutanju, type NavStavka } from "@/lib/navigacija";
 import { PrekidacTeme, PrekidacTemeDugme } from "./prekidac-teme";
+import { PristupBaner } from "./pristup-baner";
+import { PristupProvider } from "./pristup-provider";
 import { UtisakDugme } from "./utisak-dugme";
 import { UtisciProvider } from "./utisci-provider";
 import { Znak, ZnakSaImenom } from "./znak";
@@ -67,6 +69,13 @@ type Props = {
    * tačke. Iz profila koji layout ionako čita — nijedan dodatan upit.
    */
   neprocitano?: number;
+  /**
+   * Stanje pristupa (S19, LANSIRANJE §1.5). `null` = nepoznato, tj. profil nije
+   * pročitan — tada nema ni banera ni modala, a razlog stoji u `greska`.
+   *
+   * Izvedeno u layout-u kroz `stanjePristupa()`; ovde se samo prikazuje.
+   */
+  pristup?: Pristup | null;
   children: React.ReactNode;
 };
 
@@ -79,6 +88,7 @@ export function OkvirAplikacije({
   usloviUtisaka,
   admin = false,
   neprocitano = 0,
+  pristup = null,
   children,
 }: Props) {
   const putanja = usePathname();
@@ -111,6 +121,7 @@ export function OkvirAplikacije({
 
   return (
     <UtisciProvider stanje={stanjeUtisaka} uslovi={usloviUtisaka}>
+      <PristupProvider pristup={pristup}>
       <TooltipProvider delayDuration={200}>
       {/* Blaga aura iza svega. Prazan ekran bez ovoga izgleda kao prazan list. */}
       <div aria-hidden className="pozadina-aure pointer-events-none fixed inset-0 -z-10 opacity-70" />
@@ -217,6 +228,11 @@ export function OkvirAplikacije({
 
         {greska && <TrakaKvara poruka={greska} />}
 
+        {/* S19: traka stoji ISPOD trake kvara i IZNAD sadržaja. Redosled je
+            namerno takav — pokvarena veza sa bazom je hitnija vest od isteklog
+            roka, i uz nju stanje pristupa ionako nije pouzdano. */}
+        <PristupBaner pristup={pristup} />
+
         {/* Donji razmak postoji zbog plutajućeg dugmeta: bez njega ono stoji
             preko poslednjeg reda tabele na kratkim ekranima. */}
         <main className="flex-1 pb-20">{children}</main>
@@ -225,6 +241,7 @@ export function OkvirAplikacije({
         {/* Dugme „Utisak" — na svakom ekranu unutar okvira, nikad na prijavi. */}
         <UtisakDugme traziUtisak={traziUtisak} neprocitano={neprocitano} />
       </TooltipProvider>
+      </PristupProvider>
     </UtisciProvider>
   );
 }
@@ -435,11 +452,37 @@ function NavLink({
 }
 
 /**
+ * Kad se pali poziv na dokupljivanje (S21).
+ *
+ * Prag je relativan pa apsolutan: desetina mesečne dodele, ali nikad ispod tri.
+ * Advanced nalog sa 800 kredita bi na fiksnom pragu od 5 dobio poziv tek kad je
+ * već sve stalo, a nalog bez plana (`dopuna`, `mesecni = 0`) bi ga na čisto
+ * relativnom pragu dobijao uvek — i onda kad ima 150 kupljenih kredita.
+ *
+ * `null` (kvar veze) NIJE nisko stanje: ponuda da se kupi nešto zato što se
+ * balans nije pročitao je najgori mogući oblik ovog dugmeta.
+ */
+function niskoStanje(krediti: number | null, mesecni: number): boolean {
+  if (krediti === null) return false;
+  return krediti <= Math.max(3, Math.ceil(mesecni * 0.1));
+}
+
+/**
  * Balans kredita (F4 §4: uvek vidljiv).
  *
  * Traka pokazuje koliko je od mesečne dodele ostalo — broj bez konteksta ne
  * govori ništa. Skupljen sidebar zadržava broj, jer je to jedini podatak koji
  * korisnik proverava između dva otključavanja.
+ *
+ * ‼️ `krediti` je ZBIR obe kase (`credits_balance + credits_topup`), isto kao
+ *    na `/pretraga` i u `/api/search`. Prikazivati samo kasu koja ističe znači
+ *    da korisnik koji je kupio paket vidi manji broj nego što mu se naplaćuje —
+ *    a razlaz između prikazanog i naplaćenog stanja je najskuplja vrsta greške
+ *    u ovom proizvodu.
+ *
+ * Traka se crta samo kad mesečna dodela postoji. Nalog bez plana (`dopuna`) ima
+ * `mesecni = 0`, pa bi traka stajala na nuli i sa punim novčanikom kupljenih
+ * kredita — dakle lagala bi u trenutku kad je čovek upravo platio.
  */
 function KarticaKredita({
   krediti,
@@ -450,55 +493,84 @@ function KarticaKredita({
   mesecni: number;
   skupljen: boolean;
 }) {
+  const imaDodelu = mesecni > 0;
   const procenat =
-    krediti === null || mesecni <= 0 ? 0 : Math.min(100, Math.round((krediti / mesecni) * 100));
+    krediti === null || !imaDodelu ? 0 : Math.min(100, Math.round((krediti / mesecni) * 100));
+  const nisko = niskoStanje(krediti, mesecni);
 
   if (skupljen) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
-            href="/krediti"
+            href={nisko ? "/cenovnik#paketi" : "/krediti"}
             className="flex flex-col items-center gap-0.5 rounded-lg border border-border-strong bg-bg-elev py-2 text-center transition-colors hover:border-fg-muted"
           >
-            <Coins className="h-4 w-4 text-accent-text" />
+            <Coins className={cn("h-4 w-4", nisko ? "text-warn-text" : "text-accent-text")} />
             <span className="text-xs font-semibold num">{krediti ?? "—"}</span>
           </Link>
         </TooltipTrigger>
         <TooltipContent side="right">
-          {krediti ?? "—"} od {mesecni} kredita
+          {nisko
+            ? `Ostalo ti je ${krediti ?? "—"} kredita — dokupi`
+            : imaDodelu
+              ? `${krediti ?? "—"} od ${mesecni} kredita`
+              : `${krediti ?? "—"} kredita, bez roka`}
         </TooltipContent>
       </Tooltip>
     );
   }
 
   return (
-    <Link
-      href="/krediti"
-      title="Krediti se troše na otključavanje prospekata"
-      className="block rounded-xl border border-border-strong bg-bg-elev p-3 shadow-sm transition-colors hover:border-fg-muted"
-    >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
-          <Coins className="h-3.5 w-3.5 text-accent-text" />
-          Krediti
-        </span>
-        <span className="text-sm font-semibold num">
-          {krediti ?? "—"}
-          <span className="text-xs font-normal text-fg-muted">/{mesecni}</span>
-        </span>
-      </div>
+    <div className="rounded-xl border border-border-strong bg-bg-elev shadow-sm">
+      <Link
+        href="/krediti"
+        title="Krediti se troše na otključavanje prospekata i na skeniranje"
+        className="block rounded-xl p-3 transition-colors hover:bg-bg-hover"
+      >
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
+            <Coins className={cn("h-3.5 w-3.5", nisko ? "text-warn-text" : "text-accent-text")} />
+            Krediti
+          </span>
+          <span className="text-sm font-semibold num">
+            {krediti ?? "—"}
+            {imaDodelu && <span className="text-xs font-normal text-fg-muted">/{mesecni}</span>}
+          </span>
+        </div>
 
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-bg-inset">
-        <div
-          className="h-full rounded-full bg-accent transition-[width] duration-500"
-          style={{ width: `${procenat}%` }}
-        />
-      </div>
+        {imaDodelu && (
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-bg-inset">
+            <div
+              className={cn(
+                "h-full rounded-full transition-[width] duration-500",
+                nisko ? "bg-warn" : "bg-accent",
+              )}
+              style={{ width: `${procenat}%` }}
+            />
+          </div>
+        )}
 
-      <p className="mt-2 text-[11px] leading-tight text-fg-muted">
-        Obnavlja se prvog u mesecu. Keš je besplatan, novo skeniranje 1–3 kredita po dubini.
-      </p>
-    </Link>
+        <p className="mt-2 text-[11px] leading-tight text-fg-muted">
+          {imaDodelu
+            ? "Obnavlja se prvog u mesecu. Keš je besplatan, novo skeniranje 1–3 kredita po dubini."
+            : "Kupljeni krediti ne ističu. Keš je besplatan, novo skeniranje 1–3 kredita po dubini."}
+        </p>
+      </Link>
+
+      {/* S21: poziv na akciju kad stanje padne nisko. Odvojen link, ne dugme —
+          §7.1 daje jedno primarno dugme po ekranu, a bočna traka stoji preko
+          SVIH ekrana i njeno dugme bi se tuklo sa primarnim dugmetom svakog od
+          njih. Pojavljuje se tek kad je stvarno nisko, inače je stalna reklama. */}
+      {nisko && (
+        <Link
+          href="/cenovnik#paketi"
+          className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-[11px] font-medium text-accent-text transition-colors hover:bg-bg-hover"
+        >
+          Dokupi kredite
+          <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+        </Link>
+      )}
+    </div>
   );
 }

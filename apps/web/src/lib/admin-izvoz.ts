@@ -13,6 +13,7 @@
 
 import "server-only";
 import { toCsv, type AdminUserRow } from "@sajtoskop/shared";
+import { pristupIzReda } from "./admin-korisnici";
 import { adminSupabase } from "./supabase";
 
 /**
@@ -35,12 +36,21 @@ export type IzvozKorisnika = {
   filename: string;
 };
 
+// [S20] `krediti` je i dalje SAMO kasa koja ističe, kako je i bilo — a ne zbir.
+// Zbir bi bio jedan broj u kome se ne vidi šta propada mesečno a šta ne, i to
+// tačno u fajlu koji se otvara van aplikacije, bez ijednog `title`-a da objasni.
+// Zato dve kolone, i uz njih stanje pristupa — ekran ga od S20 pokazuje, pa mora
+// i fajl (v. komentar uz `izveziKorisnike`).
 const KOLONE = [
   "clerk_id",
   "mejl",
   "plan",
+  "stanje",
   "uloga",
   "krediti",
+  "krediti_dokupljeni",
+  "beta_do",
+  "pun_pristup_do",
   "otkljucano",
   "pretraga",
   "utisaka",
@@ -90,18 +100,30 @@ export async function izveziKorisnike(): Promise<IzvozKorisnika> {
   return {
     csv: toCsv(
       [...KOLONE],
-      redovi.map((r) => [
-        r.id,
-        r.email ?? "",
-        r.plan,
-        r.role,
-        r.credits_balance,
-        r.unlocks_count,
-        r.searches_count,
-        r.feedback_count,
-        r.created_at,
-        r.last_seen_at ?? "",
-      ]),
+      redovi.map((r) => {
+        // Ista funkcija koju zovu i kapije i ekran (LANSIRANJE §1.5). Izvoz koji
+        // bi stanje računao sam bio bi treća računica o pristupu.
+        const pristup = pristupIzReda(r);
+
+        return [
+          r.id,
+          r.email ?? "",
+          r.plan,
+          pristup.stanje,
+          r.role,
+          r.credits_balance,
+          r.credits_topup,
+          // Prazno uz plan `beta` znači NEOGRANIČENO — reč, ne prazna ćelija,
+          // jer u tabeli van aplikacije nema ko da objasni razliku.
+          r.beta_expires_at ?? (r.plan === "beta" ? "neograniceno" : ""),
+          pristup.punDo ?? "",
+          r.unlocks_count,
+          r.searches_count,
+          r.feedback_count,
+          r.created_at,
+          r.last_seen_at ?? "",
+        ];
+      }),
     ),
     redova: redovi.length,
     odseceno,

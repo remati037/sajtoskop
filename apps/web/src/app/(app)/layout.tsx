@@ -16,12 +16,14 @@
 // uvek se vidi gde si u toku rada, a `pipeline` dobija punu širinu ekrana.
 
 import { after } from "next/server";
+import { redirect } from "next/navigation";
 import { planFor } from "@sajtoskop/shared";
 import { currentUser } from "@clerk/nextjs/server";
 import { jeAdminIzProfila } from "@/lib/admin";
 import { requireSession } from "@/lib/auth";
 import { trebaPodsetnik } from "@/lib/feedback";
 import { citajProfil, ensureProfile, zabeleziDolazak } from "@/lib/profile";
+import { citajPretplatu, pristupZaProfil, PUTANJA_ZAKLJUCANO } from "@/lib/pristup";
 import { OkvirAplikacije } from "@/components/okvir-aplikacije";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -51,6 +53,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }
   }
 
+  // S19: stanje pristupa se računa OVDE, iz profila koji je gore ionako
+  // pročitan, i odatle ide baneru i modalu. Kroz `citajPristup()` bi profil bio
+  // pročitan drugi put — i u rezervnom putu iznad bi vratio memoizovan `null`,
+  // dakle stanje od pre kreiranja profila.
+  //
+  // `citajPretplatu()` je `cache()`-ovan, pa ga stranica ispod deli sa layoutom:
+  // ceo `(app)` zahtev ima jedan upit nad `subscriptions`, ne dva.
+  const pretplata = await citajPretplatu(userId);
+  const pristup = pristupZaProfil(profile, pretplata);
+
+  // Kapija na ulazu. NIJE jedina — layout se ne izvršava ponovo pri klijentskoj
+  // navigaciji, pa svaka strana ispod zove `zahtevajCitanje()` sama (pravilo
+  // „kapija ide uz podatak"). Ovde stoji da zaključan nalog ne bi ni video
+  // okvir aplikacije pre nego što ga strana preusmeri.
+  if (pristup && !pristup.cita) redirect(PUTANJA_ZAKLJUCANO);
+
   const plan = planFor(profile?.plan);
 
   // [Faza 3, 3.6] Stanje motora utisaka se odavde više NE čita — layout je
@@ -74,7 +92,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // kroz `router.refresh()` posle svakog otključavanja — ovaj layout je server
     // komponenta i sam od sebe ne zna za klik.
     <OkvirAplikacije
-      krediti={profile ? profile.credits_balance : null}
+      // S21: ZBIR obe kase, isto kao na `/pretraga` i u `/api/search`. Do sada
+      // je ovde stajao samo `credits_balance`, pa je nalog sa kupljenim paketom
+      // u bočnoj traci video manji broj nego što mu se stvarno naplaćuje.
+      krediti={profile ? profile.credits_balance + profile.credits_topup : null}
       mesecniKrediti={plan.monthlyCredits}
       greska={greska}
       // F10 §4.4: podsetnik posle tri dana. Izvedeno iz profila koji je već
@@ -96,6 +117,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // korisnik nije pogledao. Isti profil koji je već pročitan — nijedan
       // dodatan upit (F11 §3.3).
       neprocitano={profile?.feedback_unseen_count ?? 0}
+      // S19 §1.5: trajan baner (grace, otkazana pretplata) i modal koji vodi na
+      // cenovnik. Isto `stanjePristupa()` koje kapije koriste — ni ovde nema
+      // druge računice.
+      pristup={pristup}
     >
       {children}
     </OkvirAplikacije>

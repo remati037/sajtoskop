@@ -4,14 +4,15 @@
 // posetiocu — to mu je i glavna publika.
 //
 // Zaštite nema jer nema ni podatka koji bi se štitio: sve na strani je javno.
-// Sesija se čita samo da bi se checkout popunio mejlom, i `null` je uredno
-// stanje, ne greška (pravilo 8 iz CLAUDE.md i dalje važi — `user_id` bi, da nam
-// zatreba, došao iz `auth()`, nikad iz query parametra).
+// Sesija se čita samo da bi se znalo DA LI je posetilac prijavljen — gost vidi
+// cene, ali ga dugme vodi na registraciju, jer bez `user_id`-ja kupovina nema za
+// šta da se veže (S18). Pravilo 8 i dalje važi u punom obliku: `user_id` odavde
+// ne izlazi nikuda, `/api/billing/checkout` ga sam uzima iz `auth()`.
 
 import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
-import { currentUser } from "@clerk/nextjs/server";
+import { getCurrentUserId } from "@/lib/auth";
 import { CenovnikEkran } from "@/components/cenovnik-ekran";
 import { PrekidacTemeDugme } from "@/components/prekidac-teme";
 import { ZnakSaImenom } from "@/components/znak";
@@ -20,7 +21,9 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Cenovnik",
-  description: "Tri plana za pronalaženje prospekata u Srbiji. Plaćanje mesečno ili godišnje.",
+  description:
+    "Tri plana za pronalaženje prospekata u Srbiji, mesečno ili godišnje — i dva paketa " +
+    "kredita bez pretplate, čiji krediti ne ističu.",
 };
 
 /**
@@ -42,17 +45,19 @@ function drzavaIzZaglavlja(vrednost: string | null): string | null {
 }
 
 export default async function Page() {
-  const [zaglavlja, korisnik] = await Promise.all([
+  const [zaglavlja, userId] = await Promise.all([
     headers(),
-    // Ne baca za goste — vrati `null`, pa se checkout prosto ne popunjava.
-    currentUser().catch((err: unknown) => {
+    // `getCurrentUserId()`, ne `currentUser()`: treba nam samo POSTOJANJE sesije,
+    // a `currentUser()` za to ide na Clerk API. Mejl se od S18 nigde ne koristi
+    // — kupovinu vezuje `user_id`, ne adresa sa koje je plaćeno.
+    getCurrentUserId().catch((err: unknown) => {
       console.error("[cenovnik] čitanje Clerk sesije:", err);
       return null;
     }),
   ]);
 
   const drzava = drzavaIzZaglavlja(zaglavlja.get("x-vercel-ip-country"));
-  const email = korisnik?.primaryEmailAddress?.emailAddress ?? null;
+  const prijavljen = userId !== null;
 
   return (
     <div className="relative min-h-screen">
@@ -65,10 +70,10 @@ export default async function Page() {
         <div className="flex items-center gap-2">
           <PrekidacTemeDugme />
           <Link
-            href={email ? "/pretraga" : "/"}
+            href={prijavljen ? "/pretraga" : "/"}
             className="rounded-lg px-3 py-2 text-sm font-medium text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
           >
-            {email ? "Aplikacija" : "Prijava"}
+            {prijavljen ? "Aplikacija" : "Prijava"}
           </Link>
         </div>
       </header>
@@ -80,12 +85,16 @@ export default async function Page() {
           <p className="lede mx-auto mt-4 max-w-xl">
             Kredit je jedan otključan prospekt ili jedna stranica skeniranja — do 20 rezultata.
             Pretraga po onome što je već skenirano ne troši ništa i neograničena je na svim
-            planovima.
+            planovima. Ako ti pretplata ne treba,{" "}
+            <a href="#paketi" className="font-medium text-accent-text underline underline-offset-4">
+              paket kredita
+            </a>{" "}
+            se kupuje i sam.
           </p>
         </div>
 
         <div className="mt-10 sm:mt-12">
-          <CenovnikEkran drzava={drzava} email={email} />
+          <CenovnikEkran drzava={drzava} prijavljen={prijavljen} />
         </div>
       </main>
     </div>

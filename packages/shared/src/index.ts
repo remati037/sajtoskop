@@ -24,6 +24,7 @@ export type {
 export type {
   AdminAdjustResult,
   AdminAuditRow,
+  AdminOpenBetaResult,
   AdminOverview,
   AdminRole,
   AdminSetRoleResult,
@@ -142,7 +143,7 @@ export {
 export { bezOblika, gradLokativ, nisaAkuzativ } from "./sklonidba";
 
 // ── planovi, paketi, Paddle katalog i globalni kapovi ──────
-export type { Ciklus, Dubina, DubinaOpis, PaidPlanId, PaketId, Plan, PlanId } from "./plans";
+export type { Ciklus, Dubina, DubinaOpis, Kupovina, PaidPlanId, PaketId, Plan, PlanId } from "./plans";
 export {
   AI_DAILY_CAP,
   AI_OUTREACH_DAILY_CAP,
@@ -151,6 +152,7 @@ export {
   cenaDubine,
   cenaSkeniranja,
   CREDIT_PACKS,
+  BETA_DEFAULT_DAYS,
   CREDITS_TIMEZONE,
   creditMonth,
   creditsForPriceId,
@@ -163,6 +165,7 @@ export {
   GLOBAL_MONTHLY_API_CAP,
   GOOGLE_TTL_DAYS,
   GRACE_DAYS,
+  kupovinaZaPriceId,
   maxRezultataZaDubinu,
   PLACES_EUR_PER_CALL,
   PLACES_FREE_CALLS_MONTH,
@@ -175,8 +178,13 @@ export {
   planForPriceId,
   PODRAZUMEVANA_DUBINA,
   PSI_DAILY_CAP,
+  sledecaDodelaKredita,
   stranicaZaRezultate,
 } from "./plans";
+
+// ── pristup: šest stanja naloga (LANSIRANJE §1.5) ──────────
+export type { Pristup, PretplataZaPristup, ProfilZaPristup, StanjeId } from "./pristup";
+export { citanjeDoZa, stanjePristupa } from "./pristup";
 
 // ── naplata: interfejs bez implementacije (F4 §6) ──────────
 export type { BillingProvider } from "./billing";

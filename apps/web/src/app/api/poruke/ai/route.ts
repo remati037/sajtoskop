@@ -8,6 +8,11 @@
 // Naplata: poziv ne troši kredit. Troši dnevni cap `ai:outreach`, koji je
 // globalan i stoji u `api_budget.by_kind`. Razlog je što je ovo varijanta
 // poruke za lead koji je korisnik već platio, a ne nov podatak.
+//
+// [S19] Kapija pristupa je svejedno ona za TROŠENJE, ne za čitanje. „Ne troši
+// kredit" nije isto što i „ne košta": svaka varijanta je plaćen Anthropic poziv
+// iz mog džepa. `grace` nalog dobija svoje poruke — one se generišu bez ijednog
+// spoljnog poziva, na `GET /api/poruke` — ali ne i nove AI varijante.
 
 import { NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
@@ -16,6 +21,7 @@ import { brojReci } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
 import { enqueueRewrite, getJobForUser } from "@/lib/jobs";
 import { kanalEnum } from "@/lib/pipeline-schema";
+import { citajPristup, odbijenica } from "@/lib/pristup";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError } from "@/lib/search-types";
 import { adminSupabase, userSupabase } from "@/lib/supabase";
@@ -58,6 +64,10 @@ export async function POST(req: Request): Promise<Response> {
   } catch {
     return greska("Nisi prijavljen.", 401);
   }
+
+  const { pristup } = await citajPristup();
+  const odbijenPristup = odbijenica(pristup, "ai-poruka");
+  if (odbijenPristup) return odbijenPristup;
 
   let raw: unknown;
   try {

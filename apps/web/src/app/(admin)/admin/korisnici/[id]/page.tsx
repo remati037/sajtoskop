@@ -1,5 +1,6 @@
 // apps/web/src/app/(admin)/admin/korisnici/[id]/page.tsx
-// Detalj korisnika (F12 §3.2) — četiri bloka i kolona sa radnjama.
+// Detalj korisnika (F12 §3.2, prošireno u S20) — pet blokova i kolona sa
+// radnjama.
 //
 // Čitanje je u `lib/admin-korisnici.ts`, izmene u `lib/admin-radnje.ts` i u
 // rutama pod `/api/admin`. Ova strana ne menja ništa sama; ona samo prikazuje i
@@ -15,14 +16,20 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ShieldCheck } from "lucide-react";
-import { CITIES, NICHES, planFor } from "@sajtoskop/shared";
+import { ArrowLeft, Infinity as Beskonacno, ShieldCheck } from "lucide-react";
+import { CITIES, GRACE_DAYS, NICHES, planFor } from "@sajtoskop/shared";
 import { requireAdminPage } from "@/lib/admin";
 import { citajKorisnika } from "@/lib/admin-korisnici";
 import { brojAdmina } from "@/lib/admin-radnje";
 import { noviRefId } from "@/lib/admin-radnje-schema";
 import { KOLONA_LABEL } from "@/lib/pipeline-tipovi";
-import { formatDatum, formatDatumKratko, RAZLOG_KREDITA, vremeUnazad } from "@/lib/ui-tekst";
+import {
+  formatDatum,
+  formatDatumKratko,
+  RAZLOG_KREDITA,
+  STANJE_PRISTUPA,
+  vremeUnazad,
+} from "@/lib/ui-tekst";
 import { cn } from "@/lib/cn";
 import { RadnjeNadKorisnikom } from "@/components/admin-radnje";
 import { Alert } from "@/components/ui/alert";
@@ -51,7 +58,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const detalj = await citajKorisnika(decodeURIComponent(id));
   if (!detalj) notFound();
 
-  const { profil, clerk } = detalj;
+  const { profil, clerk, pristup } = detalj;
   const plan = planFor(profil.plan);
   const jaSam = actor === profil.id;
 
@@ -152,10 +159,83 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             </dl>
           </Blok>
 
-          {/* ── 2. KREDITI ───────────────────────────────────── */}
+          {/* ── 2. PRISTUP ───────────────────────────────────── */}
+          {/* Sve ispod je IZVEDENO iz dva ulaza (`beta_expires_at` i
+              `plan_expires_at`) — `stanjePristupa()` ih sabira, ova strana ih
+              samo ispisuje. Treći skladišteni datum bi se razišao sa prva dva
+              čim se pomeri rok bete (LANSIRANJE §1.5). */}
+          <Blok naslov="Pristup">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Badge variant={STANJE_PRISTUPA[pristup.stanje].variant}>
+                {STANJE_PRISTUPA[pristup.stanje].label}
+              </Badge>
+              {pristup.stanje === "beta" && pristup.punDo === null && (
+                <Badge variant="warning" title="Beta bez roka — traje dok je neko ne ugasi rukom.">
+                  <Beskonacno />
+                  NEOGRANIČENO
+                </Badge>
+              )}
+            </div>
+
+            <p className="mb-3 text-[13px] leading-relaxed text-fg-muted">
+              {STANJE_PRISTUPA[pristup.stanje].opis}
+            </p>
+
+            <dl className="divide-y divide-border">
+              <Red naziv="Rok bete" vrednost={rokTekst(profil.beta_expires_at, profil.plan)} mono />
+              <Red
+                naziv="Rok pretplate"
+                vrednost={profil.plan_expires_at ? formatDatum(profil.plan_expires_at) : "—"}
+                napomena={detalj.pretplata ? `Paddle: ${detalj.pretplata.status}` : "nema pretplate"}
+                mono
+              />
+              <Red
+                naziv="Pun pristup do"
+                vrednost={pristup.punDo ? formatDatum(pristup.punDo) : "—"}
+                napomena="max(rok bete, rok pretplate)"
+                mono
+              />
+              <Red
+                naziv="Čitanje do"
+                vrednost={pristup.citanjeDo ? formatDatum(pristup.citanjeDo) : "—"}
+                napomena={`pun pristup + ${GRACE_DAYS} dana grace-a`}
+                mono
+              />
+              {detalj.pretplata?.canceledAt && (
+                <Red
+                  naziv="Otkazana"
+                  vrednost={formatDatum(detalj.pretplata.canceledAt)}
+                  napomena="pristup i dalje traje do kraja plaćenog perioda"
+                  mono
+                />
+              )}
+            </dl>
+          </Blok>
+
+          {/* ── 3. KREDITI ───────────────────────────────────── */}
           <Blok naslov="Krediti">
             <dl className="divide-y divide-border">
-              <Red naziv="Balans" vrednost={`${profil.credits_balance} / ${plan.monthlyCredits}`} mono />
+              {/* Dve kase, odvojeno i uvek (§1.4). Zbir je ono što korisnik
+                  troši, ali samo razdvojen prikaz objašnjava zašto mu se jedan
+                  deo balansa resetuje mesečno a drugi nikad. */}
+              <Red
+                naziv="Ukupno"
+                vrednost={String(profil.credits_balance + profil.credits_topup)}
+                napomena="zbir obe kase — toliko stvarno sme da potroši"
+                mono
+              />
+              <Red
+                naziv="Iz pretplate"
+                vrednost={`${profil.credits_balance} / ${plan.monthlyCredits}`}
+                napomena="ističe — mesečna dodela postavlja, bez rollovera"
+                mono
+              />
+              <Red
+                naziv="Dokupljeni"
+                vrednost={String(profil.credits_topup)}
+                napomena="ne ističu — paketi iz §1.4"
+                mono
+              />
               <Red
                 naziv="Nova skeniranja danas"
                 vrednost={`${profil.cache_miss_count} / ${plan.cacheMissPerDay}`}
@@ -197,7 +277,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             <p className="mt-2 text-[11px] text-fg-faint">Poslednjih 50 stavki.</p>
           </Blok>
 
-          {/* ── 3. AKTIVNOST ─────────────────────────────────── */}
+          {/* ── 4. AKTIVNOST ─────────────────────────────────── */}
           <Blok naslov="Aktivnost">
             <NaslovSekcije>Pipeline</NaslovSekcije>
             {detalj.pipeline.length === 0 ? (
@@ -284,7 +364,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             )}
           </Blok>
 
-          {/* ── 4. UTISCI ────────────────────────────────────── */}
+          {/* ── 5. UTISCI ────────────────────────────────────── */}
           <Blok naslov="Utisci">
             {detalj.utisci.length === 0 ? (
               <Prazno>Nijedan utisak.</Prazno>
@@ -325,6 +405,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         </div>
 
         {/* ── RADNJE ───────────────────────────────────────── */}
+        {/* `betaRefId` je ZASEBAN ključ, ne isti kao `refId`: dva obrasca su
+            dve radnje i dve idempotencije, pa slanje jednog ne sme da „potroši"
+            ključ drugog. */}
         <div className="lg:sticky lg:top-8 lg:self-start">
           <RadnjeNadKorisnikom
             id={profil.id}
@@ -334,6 +417,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             cacheMissCount={profil.cache_miss_count}
             cacheMissLimit={plan.cacheMissPerDay}
             refId={noviRefId()}
+            betaRefId={noviRefId()}
+            betaDo={profil.beta_expires_at}
+            jeBeta={profil.plan === "beta"}
             jaSam={jaSam}
             blokiran={clerk ? clerk.blokiran : null}
             poslednjiAdmin={profil.role === "admin" && admina <= 1}
@@ -342,6 +428,18 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       </div>
     </div>
   );
+}
+
+/**
+ * Rok bete, sa jedinom zamkom iz §1.5 ispisanom, a ne prećutanom.
+ *
+ * `null` znači dve različite stvari: uz plan `beta` je NEOGRANIČENO, uz svaki
+ * drugi plan je „bete nema". Ista prazna kolona, dva suprotna značenja — pa
+ * ekran sa kog se beta dodeljuje mora da kaže koje je u pitanju.
+ */
+function rokTekst(rok: string | null, plan: string): string {
+  if (rok) return formatDatum(rok);
+  return plan === "beta" ? "neograničeno" : "—";
 }
 
 // ── sitni delovi ─────────────────────────────────────────────

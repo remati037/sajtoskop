@@ -192,7 +192,15 @@ export type CreditReason =
   /** Kupljen paket kredita (0022). JEDINI razlog koji puni `credits_topup`. */
   | "credit_pack"
   /** Besplatan prvi unlock (F8 §2, dodat u 0022). `ref_id` je `user_id`. */
-  | "onboarding";
+  | "onboarding"
+  /**
+   * Paket kredita koji ide uz otvaranje beta naloga (S20, 0024). Ide isključivo
+   * kroz `admin_open_beta`; `ref_id` je `adm:<uuid>` iz forme.
+   *
+   * Zaseban razlog, a ne `admin`: izvod mora da kaže ODAKLE su krediti, jer je
+   * „koliko je otišlo na betu" drugo pitanje od „koliko je dodeljeno rukom".
+   */
+  | "beta_grant";
 
 export type CreditLedgerRow = {
   id: number;
@@ -507,13 +515,29 @@ export type AdminAdjustResult = {
   balance: number | null;
 };
 
-/** Jedan red liste korisnika iz `admin_users_page` (F12 §3.1). */
+/**
+ * Jedan red liste korisnika iz `admin_users_page` (F12 §3.1).
+ *
+ * Od 0024 nosi i ULAZE za `stanjePristupa()` — obe kase, oba roka i najsvežiju
+ * pretplatu. Sama funkcija se NE zove u SQL-u: stanje računa ista TS funkcija
+ * koju zovu layout i rute, jer bi druga računica u bazi bila druga računica o
+ * pristupu (LANSIRANJE §1.5).
+ */
 export type AdminUserRow = {
   id: string;
   email: string | null;
   plan: string;
   role: AdminRole;
   credits_balance: number;
+  /** Kasa koja ne ističe (paketi). Prikazano stanje je zbir obe. */
+  credits_topup: number;
+  /** `null` uz plan `beta` je NEOGRANIČENA beta; uz svaki drugi plan „bete nema". */
+  beta_expires_at: string | null;
+  plan_expires_at: string | null;
+  /** Najsvežija pretplata; `null` kad je nikad nije ni bilo. */
+  sub_status: SubscriptionRow["status"] | null;
+  sub_period_end: string | null;
+  sub_canceled_at: string | null;
   created_at: string;
   last_seen_at: string | null;
   unlocks_count: number;
@@ -521,6 +545,23 @@ export type AdminUserRow = {
   feedback_count: number;
   /** Ukupan broj pogodaka pre sečenja na stranicu; isti u svakom redu. */
   ukupno: number;
+};
+
+/**
+ * `admin_open_beta` iz 0024 (LANSIRANJE §1.1, odluka D1).
+ *
+ * Jedini put kojim plan sme da postane `beta`, i jedini poziv koji plan, rok i
+ * kredite postavlja u ISTOJ transakciji — pola otvorenog beta naloga je gore
+ * nego nijedan.
+ *
+ * `already_granted` je dvostruki klik: plan i rok su (ponovo) upisani, kredita
+ * nema drugi put.
+ */
+export type AdminOpenBetaResult = {
+  ok: boolean;
+  reason: "opened" | "already_granted" | "no_user" | "invalid_amount" | "missing_ref_id";
+  granted: number;
+  balance: number | null;
 };
 
 /**

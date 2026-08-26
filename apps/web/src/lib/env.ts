@@ -61,6 +61,51 @@ const cronSchema = z.object({
   CRON_SECRET: z.string().min(16),
 });
 
+/**
+ * S18: serverski Paddle ključevi. Obe promenljive su u ISTOJ šemi i obe BACAJU
+ * kad fale — po uzoru na `webhookSecret()`, ne na `cronSecret()`.
+ *
+ * ── zašto baca, a ne pada na `null` ─────────────────────────
+ * Cron bez tajne ne uradi ništa i to je uredno stanje. Webhook bez tajne je
+ * suprotno: to je javan POST endpoint koji dodeljuje kredite. Ruta koja bi
+ * „preskočila proveru jer tajne nema" bila bi poklon svakome ko pogodi URL, pa
+ * radije odbija da radi. Isto važi za API ključ: bez njega checkout ne može da
+ * upiše `custom_data.user_id`, a kupovina bez tog podatka je novac koji je
+ * stigao i ne zna se čiji je.
+ *
+ * ── zašto zajedno, iako ih koriste dve različite rute ───────
+ * Naplata je jedna funkcija. Podešena polovično znači ili checkout koji vodi u
+ * plaćanje koje niko neće obraditi, ili webhook koji čeka kupovinu koja ne može
+ * da nastane. Bolje je da obe rute stanu odmah nego da jedna radi u prazno.
+ *
+ * Prefiksi se proveravaju iz istog razloga kao kod Clerk ključeva: pogrešno
+ * nalepljen ključ inače pukne tek u Paddle-ovom odgovoru, kao `403` bez ijedne
+ * druge reči. Ukrštena provera sa `NEXT_PUBLIC_PADDLE_ENV` NIJE ovde nego u
+ * `lib/paddle-server.ts` — ovaj fajl ne zna za klijentsko okruženje.
+ */
+const paddleServerSchema = z.object({
+  PADDLE_API_KEY: z
+    .string()
+    .regex(/^pdl_(sdbx|live)_/, {
+      message: "mora počinjati sa pdl_sdbx_ (sandbox) ili pdl_live_ (produkcija)",
+    }),
+  PADDLE_WEBHOOK_SECRET: z
+    .string()
+    .regex(/^pdl_ntfset_/, { message: "mora počinjati sa pdl_ntfset_" }),
+});
+
+/**
+ * `PADDLE_BETA_DISCOUNT_ID` je NAMERNO van šeme iznad i NAMERNO ne baca.
+ *
+ * Bez njega se popust za betu prosto ne primenjuje sam — a kod `BETA2026` i
+ * dalje može ručno da se ukuca u checkout-u, jer je u Paddle-u podešen sa
+ * `enabled_for_checkout: true`. Dva puta do istog popusta; nedostatak jednog
+ * nije kvar naplate i ne sme da je obori.
+ */
+const paddleDiscountSchema = z.object({
+  PADDLE_BETA_DISCOUNT_ID: z.string().regex(/^dsc_/).optional(),
+});
+
 export type ServerEnv = z.infer<typeof serverSchema>;
 
 let cached: ServerEnv | null = null;
@@ -146,4 +191,30 @@ export function feedbackMailEnv(): FeedbackMailConfig {
     ok: false,
     razlog: `${imena.join(", ")} ${imena.length === 1 ? "nije podešen" : "nisu podešeni"}`,
   };
+}
+
+export type PaddleServerEnv = z.infer<typeof paddleServerSchema>;
+
+/**
+ * API ključ i webhook tajna, ili baciti sa razlogom (v. `paddleServerSchema`).
+ *
+ * Vrednosti se ne keširaju u modulu i ne loguju nigde: jedini put kojim smeju
+ * da izađu iz procesa je zaglavlje ka `api.paddle.com`.
+ */
+export function paddleServerEnv(): PaddleServerEnv {
+  const parsed = paddleServerSchema.safeParse(process.env);
+  if (!parsed.success) fail(parsed.error);
+  return parsed.data;
+}
+
+/**
+ * ID popusta za beta korisnike, ili `null` kad nije podešen.
+ *
+ * Ne baca nikad — v. `paddleDiscountSchema`. Prazna vrednost i vrednost
+ * pogrešnog oblika daju isti odgovor: popust se ne primenjuje sam.
+ */
+export function paddleBetaDiscountId(): string | null {
+  const parsed = paddleDiscountSchema.safeParse(process.env);
+  if (!parsed.success) return null;
+  return parsed.data.PADDLE_BETA_DISCOUNT_ID ?? null;
 }

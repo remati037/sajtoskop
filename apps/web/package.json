@@ -8,13 +8,14 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/ide-odmah.ts && tsx test/dubina.ts",
+    "test": "tsx test/ide-odmah.ts && tsx test/dubina.ts && tsx test/naplata.ts && tsx test/pristup.ts && tsx test/admin-beta.ts && tsx test/cenovnik.ts",
     "lint": "eslint ."
   },
   "dependencies": {
     "@clerk/localizations": "^4.13.10",
     "@clerk/nextjs": "^7.6.5",
     "@paddle/paddle-js": "^1.6.4",
+    "@paddle/paddle-node-sdk": "^3.10.0",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
     "@radix-ui/react-select": "^2.3.7",

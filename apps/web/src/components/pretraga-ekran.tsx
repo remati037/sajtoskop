@@ -51,6 +51,7 @@ import { LeadTabela } from "./lead-tabela";
 import { SkeniranjeModal, type SkeniranjePredlog } from "./skeniranje-modal";
 import { UtisakKartica } from "./utisak-kartica";
 import { UtisakMikro } from "./utisak-mikro";
+import { usePristup } from "./pristup-provider";
 import { useUtisci } from "./utisci-provider";
 import { cn } from "@/lib/cn";
 import { Alert } from "./ui/alert";
@@ -170,6 +171,10 @@ export function PretragaEkran({
   // Motor pitanja (F11). Ekran mu javlja SAMO da je okidač pukao — hoće li se
   // pitanje pojaviti odlučuje motor, i najčešći ishod je da neće.
   const utisci = useUtisci();
+  // [S19] Modal „ostao si bez kredita" ima jedan izvor — provider iznad okvira
+  // aplikacije — pa se dva mesta ispod (`402` na pretrazi i `402` na
+  // otključavanju) ne pretvore u dva različita prozora za istu stvar.
+  const pristup = usePristup();
   const [city, setCity] = useState<string | null>(null);
   const [niche, setNiche] = useState<string | null>(null);
   const [filters, setFilters] = useState<SearchFilters>(PRAZNI_FILTERI);
@@ -392,6 +397,11 @@ export function PretragaEkran({
     if (token !== pollToken.current) return null;
 
     if (!res.ok) {
+      // 402 je ovde uvek jedno te isto: skeniranje je stalo zato što kredita
+      // nema. Poruka ostaje uz formu (tamo je kontekst), a modal dodaje izlaz —
+      // najviše jednom po tabu, v. `pristup-provider.tsx`.
+      if (res.status === 402) pristup?.prijaviBezKredita();
+
       setGreska("greska" in json ? json.greska : "Pretraga nije uspela.");
       setData(null);
       return null;
@@ -739,6 +749,8 @@ export function PretragaEkran({
       const json: UnlockResponse | ApiError = await res.json();
 
       if (!res.ok) {
+        if (res.status === 402) pristup?.prijaviBezKredita();
+
         setGreskaOtkljuc("greska" in json ? json.greska : "Otključavanje nije uspelo.");
         return;
       }

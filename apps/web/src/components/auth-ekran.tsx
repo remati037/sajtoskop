@@ -28,7 +28,21 @@ const REZIMI: { vrednost: Rezim; naziv: string }[] = [
 /** Gde korisnik ide kad Clerk nema svoj razlog da ga pošalje drugde. */
 const POSLE_ULASKA = "/pretraga";
 
-export function AuthEkran({ pocetni }: { pocetni: Rezim }) {
+export function AuthEkran({
+  pocetni,
+  posle = POSLE_ULASKA,
+}: {
+  pocetni: Rezim;
+  /**
+   * Gde se ide posle uspešnog ulaska. Postoji zbog `/cenovnik` (S18): gost koji
+   * klikne „Uzmi Pro" mora da se registruje, i ako ga posle toga bacimo na
+   * `/pretraga`, izgubio je i nameru i mesto na kome je bio.
+   *
+   * Vrednost stiže iz `?nazad=` i PROVERAVA SE NA SERVERU (v. `app/page.tsx`) —
+   * neproverena bi bila otvorena redirekcija, dakle phishing sa našeg domena.
+   */
+  posle?: string;
+}) {
   const [rezim, setRezim] = useState<Rezim>(pocetni);
   const index = REZIMI.findIndex((r) => r.vrednost === rezim);
 
@@ -100,15 +114,15 @@ export function AuthEkran({ pocetni }: { pocetni: Rezim }) {
           <SignIn
             key="prijava"
             routing="hash"
-            fallbackRedirectUrl={POSLE_ULASKA}
-            signUpFallbackRedirectUrl={POSLE_ULASKA}
+            fallbackRedirectUrl={posle}
+            signUpFallbackRedirectUrl={posle}
           />
         ) : (
           <SignUp
             key="registracija"
             routing="hash"
-            fallbackRedirectUrl={POSLE_ULASKA}
-            signInFallbackRedirectUrl={POSLE_ULASKA}
+            fallbackRedirectUrl={posle}
+            signInFallbackRedirectUrl={posle}
           />
         )}
       </div>

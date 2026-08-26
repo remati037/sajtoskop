@@ -135,7 +135,18 @@
 ### Onboarding (Faza 4, 4.7)
 - [ ] Nov nalog (ili nalog bez ijednog otključanog): iznad statistike stoji kartica **„Prvi koraci"** sa tri koraka.
 - [ ] Posle prvog otključavanja (na sledećem učitavanju) kartica nestaje.
-- [ ] Kartica „Plan" prikazuje „beta" bez `.num` problema (reč se ne razvlači).
+- [ ] Kartica „Plan" prikazuje IME plana bez `.num` problema (reč se ne razvlači).
+
+### Plan i obe kase (S21)
+- [ ] Kartica **„Krediti"** pokazuje **zbir obe kase**. Nalogu sa `credits_balance = 4` i
+      `credits_topup = 50` piše `54`, a podnaslov `4 iz pretplate · 50 dokupljeno`.
+- [ ] Nalogu bez plana (`dopuna`, mesečna dodela 0) **nema trake napunjenosti** — traka na nuli
+      iznad punog novčanika kupljenih kredita je najgori mogući prikaz.
+- [ ] Kartica **„Plan"** piše ime iz cenovnika (`Starter` / `Pro` / `Advanced` / `Beta`), a za
+      nalog bez pretplate **„Bez pretplate"** — nikad sirovo `dopuna` iz baze.
+- [ ] Podnaslov ispod imena plana prati stanje: `pretplata aktivna` / `otkazana, traje do kraja
+      perioda` / `bez pretplate, radi na kreditima` / `pristup istekao — samo čitanje`.
+- [ ] Nigde ne piše „Grace" ni „Zaključan" — ta imena postoje samo u admin konzoli.
 
 ---
 
@@ -144,9 +155,212 @@
 - [ ] Datumi stavki su `.num` (ne skaču).
 - [ ] Lista se učitava brzo i sa dosta stavki (indeks `(user_id, created_at desc)`).
 
+### Blok „Pretplata" (S21)
+> Stoji iznad izvoda. Sve ispod se proverava u **obe teme** i na **telefonu ≤ 390 px**.
+
+**Stanje naloga**
+- [ ] Gore levo: eyebrow **„Pretplata"**, ispod njega **ime plana** i, kad pretplata postoji,
+      `· mesečno` ili `· godišnje` — ciklus se izvodi iz `price_id`, ne iz zasebne kolone.
+- [ ] Aktivna pretplata: rečenica **„Sledeća naplata \<datum\>"**, datum `.num`.
+- [ ] Otkazana pretplata koja još traje: **„otkazana i neće se obnoviti, ali traje do \<datum\>"**.
+- [ ] Beta sa rokom: **„Beta nalog, traje do \<datum\>"**; beta bez roka: **„bez roka"**, bez
+      izmišljenog datuma.
+- [ ] Nalog bez pretplate sa kupljenim kreditima: **„Nemaš pretplatu i radiš na kupljenim
+      kreditima"**, uz pomen Starter dnevnih limita.
+- [ ] `grace`: žuto upozorenje unutar bloka sa **oba** datuma (istekao i „čitanje do"), a
+      rečenica iznad ne ponavlja iste datume.
+- [ ] **Iznosa u evrima nigde nema** — i to je namerno: v. zaglavlje
+      `components/pretplata-blok.tsx` (popust `BETA2026` bi ovde ispisao cenovničku cenu umesto
+      one koja se naplaćuje). Umesto iznosa stoji rečenica da su iznos, kartica i računi kod
+      Paddle-a.
+
+**Obe kase**
+- [ ] Dva polja jedno pored drugog, u jednoj mreži bez dvostrukih linija: **„Iz pretplate"** i
+      **„Dokupljeni"**.
+- [ ] „Iz pretplate" kaže **„Obnavlja se \<datum\> — tada se postavlja na \<N\>, ne sabira"**.
+      Datum je **prvi dan narednog meseca** — proveri 28. u mesecu da ne piše datum iz prošlosti.
+- [ ] „Dokupljeni" kaže **„Ne ističu"** podebljano, i da ih mesečna dodela ne dira.
+- [ ] Desno od naslova „Krediti" stoji **ukupno**, `.num`, i jednako je zbiru dva polja.
+- [ ] Ispod: rečenica da se troši prvo ono što ističe.
+- [ ] Stanje kredita se na ovoj strani pojavljuje **tačno jednom** — stat kartica „Stanje" je
+      obrisana, ostale su samo dve dnevne (skeniranja, CSV).
+
+**Dugmad**
+- [ ] **Jedno primarno**: „Dokupi kredite" → `/cenovnik#paketi`, sa strelicom.
+- [ ] **„Upravljaj pretplatom"** je sekundarno; nalogu koji je kupio samo paket piše **„Računi i
+      plaćanja"**; nalogu koji nikad ništa nije kupio stoji „Pogledaj planove" umesto portala.
+- [ ] Klik na portal: dugme pređe u **„Otvaram portal"** sa spinerom i **ne vraća se** u mirno
+      stanje — strana odlazi na Paddle.
+- [ ] Isti link **nikad se ne koristi dvaput**: vrati se nazad i klikni ponovo — u Network tabu
+      je nov `POST /api/billing/portal` i **drugačiji** URL.
+- [ ] Ugasi mrežu pa klikni — crvena rečenica ispod dugmeta, dugme se vrati u mirno stanje.
+
 ---
 
-## 7. Tema i pristupačnost (Faza 4, 4.8 · Faza 5)
+## 7. Životni ciklus naloga (S19)
+
+> Šest stanja pristupa iz `LANSIRANJE.md` §1.5. Sve se podešava **rukom u Supabase-u**,
+> nad testnim nalogom — nijedna stavka ne traži Paddle, tunel ni pravu uplatu:
+>
+> ```sql
+> -- grace: pristup je istekao juče
+> update profiles set beta_expires_at = now() - interval '1 day' where id = '<clerk_id>';
+> -- zaključan: grace je istekao
+> update profiles set beta_expires_at = now() - interval '40 days' where id = '<clerk_id>';
+> -- dopuna: nema roka, ima kupljenih kredita
+> update profiles set credits_topup = 25 where id = '<clerk_id>';
+> -- povratak na početak
+> update profiles set beta_expires_at = null, credits_topup = 0 where id = '<clerk_id>';
+> ```
+>
+> Posle svake izmene ide **puno osvežavanje strane** (`Cmd+Shift+R`), ne klik u aplikaciji:
+> stanje se čita na serveru, a klijentska navigacija ne pokreće layout.
+
+### Neograničena beta — ništa se ne menja
+- [ ] `beta_expires_at` je `NULL`: nema banera, nema modala, pretraga i skeniranje rade.
+- [ ] Isprazni kredite na nulu — **i dalje** nema banera ni zaključavanja: prazan novčanik nije istekao pristup.
+
+### Grace — trajan baner
+- [ ] Postavi rok u prošlost i osveži: iznad sadržaja stoji **žuta traka** (`--warn-wash`), na **svakom** ekranu.
+- [ ] Traka piše **tačan datum** isteka i **tačan datum** do kog čitanje radi; oba su `.num` i ne skaču.
+- [ ] Traka ima link **„Vrati pristup"** koji vodi na `/cenovnik`.
+- [ ] Traka stoji **ispod** trake o kvaru veze sa bazom, ako se obe pojave.
+- [ ] Obe teme; telefon ≤ 390 px — tekst se prelama, link pada ispod, ništa ne izlazi iz ekrana.
+
+### Grace — šta radi a šta ne
+- [ ] `/pretraga`: umesto forme stoji objašnjenje sa datumima i dva dugmeta (**„Uzmi plan"** primarno, **„Dokupi kredite"** ghost). Nema mrtvog comboboxa ni ugašenog prekidača dubine.
+- [ ] `/lista`: tabela radi, **„Izvezi CSV" prolazi** i fajl stiže.
+- [ ] `/pipeline`: kartica se prevlači, beleška se čuva.
+- [ ] Poruke: tri poruke se generišu i kopiraju; **„Napiši drugačije" ne radi** i vraća objašnjenje.
+- [ ] `curl -X POST .../api/search` sa sesijom → **403** i rečenica na srpskom sa datumom i `/cenovnik`. Isto za `/api/unlock` i `/api/uvoz`.
+- [ ] `curl .../api/export` → **200** i CSV. Ovo je stavka koja grace period čini smislenim.
+
+### Grace — modal
+- [ ] Prvo učitavanje posle isteka: modal **„Pristup ti je istekao"**, sa datumom do kog čitanje radi i dva dugmeta ka `/cenovnik`.
+- [ ] Zatvori ga i osveži stranu **pet puta** — više se ne pojavljuje.
+- [ ] Pomeri `beta_expires_at` na drugi datum u prošlosti i osveži — modal se pojavi **ponovo** (potpis stanja se promenio).
+
+### Modal „ostao si bez kredita"
+- [ ] Nalog sa punim pristupom i nula kredita: pokreni skeniranje → poruka uz formu **i** modal sa dva izlaza.
+- [ ] Zatvori modal, pokušaj ponovo u istom tabu → **nema** drugog modala, poruka uz formu i dalje stoji.
+- [ ] Otvori isti ekran u novom tabu i pokušaj → modal se pojavi (pamćenje je po tabu).
+
+### Zaključan nalog
+- [ ] Rok 40 dana u prošlost, otvori `/pretraga` → preusmerava na **`/zakljucano`**.
+- [ ] Strana ima naslov, **oba datuma**, rečenicu „Ništa nije obrisano" i dva dugmeta ka cenovniku. **Nije** prazna i **nije** `404`.
+- [ ] Kucaj `/lista`, `/pipeline`, `/krediti`, `/dashboard`, `/utisci` rukom u adresu — svaka vodi na istu stranu.
+- [ ] `curl .../api/export` → **403**, ne CSV.
+- [ ] Postavi `credits_topup = 25` i osveži `/zakljucano` → **odmah preusmerava u aplikaciju** (kupljen paket je pun pristup). Strana ne sme da bude slepa ulica posle kupovine.
+- [ ] Obe teme, telefon ≤ 390 px.
+
+### Otkazana pretplata koja još traje
+> Bez Paddle-a: `insert into subscriptions (...) values (..., status => 'canceled', canceled_at => now(), current_period_end => now() + interval '12 days')` uz `update profiles set plan = 'starter', plan_expires_at = now() + interval '12 days'`.
+- [ ] Baner je **plav** (`--info-wash`), ne žut: ovo je obaveštenje, ne upozorenje.
+- [ ] Piše **„traje do &lt;datum&gt;"** sa tačnim datumom.
+- [ ] Pretraga, skeniranje i otključavanje **rade normalno** — ovo nije grace.
+
+---
+
+## 7a. Beta nalozi u konzoli (S20)
+
+> Sve odavde traži admin nalog. Prolaz je najbrži nad **drugim** nalogom, ne svojim.
+
+### `/admin/korisnici` — kolona i filter
+- [ ] Kolona **„Stanje"** stoji odmah do plana i nosi bedž po stanju: `Beta` zeleni,
+      `Aktivan` zeleni, `Otkazan` plavi, `Dopuna` sivi, `Grace` žuti, `Zaključan` crveni.
+- [ ] `title` na bedžu objašnjava stanje i nosi **tačan datum** („Pun pristup do …",
+      „Čitanje do …", ili „Bez roka — neograničeno").
+- [ ] Padajući filter **„Svako stanje"** menja adresu (`?stanje=grace`), radi posle
+      osvežavanja i posle dugmeta „nazad".
+- [ ] Broj u podnožju („N korisnika") prati filter — ne pokazuje ukupan broj naloga.
+- [ ] Kolona **„Krediti"** pokazuje **zbir obe kase**; kad ima kupljenih, u zagradi stoji
+      `(+N)` sa `.num` i objašnjenjem u `title`-u.
+
+### `/admin/korisnici/[id]` — blok „Pristup"
+- [ ] Bedž stanja, a uz neograničenu betu i drugi bedž **`NEOGRANIČENO`**.
+- [ ] Pet redova: rok bete, rok pretplate, **pun pristup do**, **čitanje do**, i „Otkazana"
+      samo kad je otkazana. Svi datumi nose `.num`.
+- [ ] „Pun pristup do" je zaista **kasniji** od dva roka — postavi beta rok 20 dana unapred
+      nalogu čija pretplata ističe za 2 dana i proveri koji datum piše.
+- [ ] Blok „Krediti" ima tri reda: **Ukupno / Iz pretplate / Dokupljeni**.
+
+### Obrazac „Otvori beta nalog"
+- [ ] Polja su unapred popunjena: **50 kredita**, datum **za 30 dana**.
+- [ ] Sekcija „Plan" nema `beta` u padajućem spisku, i ispod nje stoji rečenica zašto.
+- [ ] Čekiranje **„Neograničeno"** gasi polje za datum.
+- [ ] Datum **u prošlosti** otvara žuto polje sa potvrdom; dok potvrda nije čekirana, oba
+      dugmeta su ugašena.
+- [ ] Klik na **„Otvori beta nalog"** → jedna rečenica sa rokom i kreditima; strana se
+      osvežava; blok „Pristup" odmah pokazuje `Beta`.
+- [ ] **Dvostruki klik** na isto dugme → druga poruka kaže da su krediti već dodeljeni, a
+      balans se **nije** promenio.
+- [ ] **„Samo rok"** menja datum, ne dira ni plan ni kredite.
+- [ ] Rok u prošlost + potvrda → stanje pada u `Grace`, pa posle 30 dana u `Zaključan`.
+
+### Revizija
+- [ ] `/admin/revizija` ima **dve** nove radnje: `user.beta_open` i `user.beta_expiry`.
+- [ ] `payload` nosi plan, rok i broj kredita — i nijedan ključ ni token.
+- [ ] Namerno pokvaren zahtev (npr. rok 20 godina unapred) ostavlja red sa `ok = false`.
+
+### Obe teme i telefon
+- [ ] Tamna i svetla: lista, detalj, žuto polje potvrde, oba bedža.
+- [ ] Telefon ≤ 390 px: filteri se prelamaju u dva reda, tabela skroluje vodoravno, kolona
+      radnji je ispod blokova, a polja „Kredita" i „Rok" stoje jedno pored drugog.
+
+---
+
+## 7b. Cenovnik i paketi kredita (S21)
+
+> `/cenovnik` je javan — sve ispod se proverava **i odjavljen** i prijavljen, u **obe teme**
+> i na **telefonu ≤ 390 px**.
+
+### Sekcija „Paketi kredita"
+- [ ] Stoji **ispod** tri plana, kao jedan panel na `--bg-subtle`, a **ne** kao četvrta i peta
+      kartica u redu od tri.
+- [ ] Dva paketa, oba iz `plans.ts`: **Dopuna 50** i **Dopuna 150**, sa brojem kredita u `.num`.
+- [ ] Cene stižu **istim** `PricePreview()` pozivom kao planovi — u Network tabu je **jedan**
+      poziv ka Paddle-u za svih osam cena, ne dva.
+- [ ] Dok cene stižu, na mestu iznosa stoji sivi pravougaonik koji pulsira; kartice ne poskaču
+      kad cifra stigne.
+- [ ] Uz cenu piše **„jednokratno"**, ne „/ mesečno".
+- [ ] Kopija kaže obe stvari, jasno: **„Krediti iz paketa ne ističu"** i **„Paket nije zamena za
+      plan"** (po kreditu je skuplji), plus **„Pretplata nije uslov"**.
+- [ ] **Jedno primarno dugme na celom ekranu** — ono je na istaknutom planu (Pro). Dugmad
+      paketa su sekundarna.
+
+### Kupovina
+- [ ] Prijavljen korisnik klikne „Uzmi Dopuna 50" → dugme pređe u **„Otvaram plaćanje"**, ostala
+      dugmad (i planovi i paketi) se **ugase**, pa se otvori Paddle modal u temi aplikacije.
+- [ ] **Bez pretplate** — nalog koji nikad nije imao plan kupuje paket bez ijedne prepreke. To je
+      podržan slučaj, ne izuzetak.
+- [ ] **Gost** klikne bilo koje dugme → vodi ga na registraciju sa povratkom na `/cenovnik`.
+- [ ] Popust `BETA2026` **ne** hvata pakete (ograničen je na tri proizvoda pretplate) — beta
+      nalog koji kupuje paket vidi punu cenu, i to je tačno.
+
+### Sidro `#paketi`
+- [ ] Link **„paket kredita"** u uvodnom pasusu skroluje na sekciju, a ona ne završava ispod
+      zaglavlja.
+- [ ] Modal „Ostao si bez kredita" → **„Dokupi kredite"** → otvara `/cenovnik` **na sekciji
+      paketa**, ne na vrhu strane.
+- [ ] Isto sa `/zakljucano` → „Samo dokupi kredite" i sa `/krediti` → „Dokupi kredite".
+
+### Linkovi ka `/cenovnik` (do S21 ih je bilo nula)
+- [ ] Bočna traka, grupa **„Nalog"**, stavka **„Planovi i cene"** — postoji i raširena i
+      skupljena (tada tooltip „Pretplata i paketi kredita").
+- [ ] **Nisko stanje kredita**: spusti balans na ≤ 10% mesečne dodele (nikad ispod 3) — kartica
+      kredita u bočnoj traci dobija **žutu** traku i ikonicu, i ispod nje se pojavi red
+      **„Dokupi kredite"**. Iznad praga tog reda **nema**.
+- [ ] Nalog bez plana (`dopuna`): kartica kredita **nema traku**, a tekst kaže „Kupljeni krediti
+      ne ističu".
+- [ ] Broj u bočnoj traci i u gornjoj traci na telefonu je **zbir obe kase** — isti broj koji
+      `/api/search` koristi za naplatu.
+- [ ] Kvar veze sa bazom (`krediti = null`): piše `—` i **nema** poziva na dokupljivanje.
+- [ ] **Futer:** ☐ **NE POSTOJI — čeka S22.** Kad futer stigne, link ka `/cenovnik` ide i u
+      njega; do tada je ovo jedina stavka iz S21 koja nije isporučena.
+
+---
+
+## 8. Tema i pristupačnost (Faza 4, 4.8 · Faza 5)
 
 - [ ] Prekidač teme: **Tab** ulazi u celu grupu, **strelicama ← →** menja temu; klik radi isto.
 - [ ] Čitač ekrana (VoiceOver/NVDA): greška (crveni Alert) se najavljuje kao **alert**; combobox čita koja je opcija označena; sklopljena kes-lista najavljuje da je sklopljena.
@@ -155,7 +369,7 @@
 
 ---
 
-## 8. Terminal / logovi (nije vizuelno, ali zatvara faze)
+## 9. Terminal / logovi (nije vizuelno, ali zatvara faze)
 
 ### Worker — novac i pouzdanost (Faza 0)
 - [ ] `GOOGLE_DAILY_LIMIT=0` + scan → u logu **„odloženo do …"**, ne „PAO konačno"; posao `pending` sa `run_after` sutra (baza: `job_queue`).
@@ -183,3 +397,6 @@
 7. Poruke → jedno primarno „Kopiraj" (5.2)
 8. Dashboard → „Prvi koraci" (4.7)
 9. Obe teme + telefon na tri ekrana
+10. Životni ciklus: rok u prošlost → baner + modal, izvoz prolazi a skeniranje ne; rok 40 dana unazad → `/zakljucano`; `credits_topup = 25` → vraća se unutra (S19)
+11. Konzola: otvori beta nalog jednim obrascem, klikni dvaput, pa ga ugasi rokom u prošlosti (S20)
+12. Cenovnik → sekcija paketa, kupi paket bez pretplate; `/krediti` → obe kase odvojeno i portal (S21)

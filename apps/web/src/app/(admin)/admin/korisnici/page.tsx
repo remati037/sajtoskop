@@ -10,17 +10,19 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PLANS } from "@sajtoskop/shared";
+import { PLANS, type StanjeId } from "@sajtoskop/shared";
 import { requireAdminPage } from "@/lib/admin";
 import {
   citajKorisnike,
   type FilterKorisnika,
+  type RedKorisnika,
   type SortKorisnika,
   type Smer,
 } from "@/lib/admin-korisnici";
-import { vremeUnazad } from "@/lib/ui-tekst";
+import { formatDatum, STANJE_PRISTUPA, vremeUnazad } from "@/lib/ui-tekst";
 import { cn } from "@/lib/cn";
 import {
+  PadajuciFilter,
   Paginacija,
   PoljePretrage,
   SortKolona,
@@ -44,6 +46,14 @@ const FILTERI: { vrednost: FilterKorisnika; label: string }[] = [
 ];
 
 const SORTOVI: SortKorisnika[] = ["created_at", "credits", "unlocks", "last_seen"];
+
+/**
+ * Šest stanja pristupa kao filter (S20, LANSIRANJE §1.5).
+ *
+ * Redosled nije abecedni nego onaj kojim se pitanja stvarno postavljaju: prvo
+ * „ko je u beti" (jer njima ja postavljam rok), pa ko plaća, pa ko je na izlazu.
+ */
+const STANJA: StanjeId[] = ["beta", "aktivan", "otkazan", "dopuna", "grace", "zakljucan"];
 
 /** Nepoznata vrednost iz adrese pada na podrazumevanu, nikad ne ruši stranu. */
 function jedan<T extends string>(vrednost: string | undefined, dozvoljene: readonly T[], podrazumevana: T): T {
@@ -70,6 +80,7 @@ export default async function Page({
       "svi",
     ),
     plan: jedan<string>(tekst(sp.plan), ["", ...Object.keys(PLANS)], ""),
+    stanje: jedan<StanjeId | "">(tekst(sp.stanje), ["", ...STANJA], ""),
     sort: jedan<SortKorisnika>(tekst(sp.sort), SORTOVI, "created_at"),
     smer: jedan<Smer>(tekst(sp.smer), ["asc", "desc"], "desc"),
     strana: Math.max(1, Number.parseInt(tekst(sp.strana), 10) || 1),
@@ -103,6 +114,12 @@ export default async function Page({
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <PoljePretrage naziv="Pretraga po mejlu" placeholder="mejl…" />
         <TrakaFiltera kljuc="filter" opcije={FILTERI} podrazumevano="svi" />
+        <PadajuciFilter
+          kljuc="stanje"
+          naziv="Filter po stanju pristupa"
+          svePrazno="Svako stanje"
+          opcije={STANJA.map((s) => ({ vrednost: s, label: STANJE_PRISTUPA[s].label }))}
+        />
       </div>
 
       {lista.clerkGreska && (
@@ -126,6 +143,12 @@ export default async function Page({
                   <tr className="border-b border-border bg-bg-subtle/70 text-left text-[11px] uppercase tracking-wider text-fg-muted">
                     <th className="py-2.5 pl-4 font-medium">Mejl</th>
                     <th className="py-2.5 font-medium">Plan</th>
+                    <th
+                      className="py-2.5 font-medium"
+                      title="Stanje pristupa — isto ono što kapija zaključuje (LANSIRANJE §1.5)"
+                    >
+                      Stanje
+                    </th>
                     <th className="py-2.5 text-right font-medium">
                       <SortKolona kljuc="credits" label="Krediti" />
                     </th>
@@ -209,7 +232,23 @@ export default async function Page({
                         </Link>
                       </td>
                       <td className="py-2.5 text-fg-muted">{r.plan}</td>
-                      <td className="py-2.5 text-right num">{r.credits_balance}</td>
+                      <td className="py-2.5">
+                        <StanjeBedz pristup={r.pristup} />
+                      </td>
+                      {/* Prikazano stanje kredita je ZBIR obe kase (§1.4); iz
+                          paketa u zagradi, jer to je deo koji NE ističe i jedini
+                          razlog zbog kog nalog bez pretplate i dalje radi. */}
+                      <td className="py-2.5 text-right num">
+                        {r.credits_balance + r.credits_topup}
+                        {r.credits_topup > 0 && (
+                          <span
+                            className="ml-1 text-[11px] text-fg-faint"
+                            title="Od toga iz paketa — ne ističe"
+                          >
+                            (+{r.credits_topup})
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2.5 text-right num">
                         <Broj vrednost={r.unlocks_count} />
                       </td>
@@ -259,6 +298,32 @@ export default async function Page({
         jer je u bazi i nema.
       </p>
     </div>
+  );
+}
+
+/**
+ * Stanje pristupa u jednom bedžu, sa datumom u `title`-u.
+ *
+ * Datum ne ide u sam bedž: u koloni od šest različitih stanja bi svaki red bio
+ * dva reda teksta, a pitanje koje se postavlja gledajući listu je „ko je u
+ * kom stanju", ne „do kad tačno". Tačan datum stoji na detalju i u `title`-u.
+ */
+function StanjeBedz({ pristup }: { pristup: RedKorisnika["pristup"] }) {
+  const opis = STANJE_PRISTUPA[pristup.stanje];
+
+  const datum =
+    pristup.stanje === "beta" && pristup.punDo === null
+      ? "Bez roka — neograničeno."
+      : pristup.stanje === "grace"
+        ? `Čitanje do ${formatDatum(pristup.citanjeDo)}.`
+        : pristup.punDo
+          ? `Pun pristup do ${formatDatum(pristup.punDo)}.`
+          : "";
+
+  return (
+    <Badge variant={opis.variant} size="sm" title={`${opis.opis}${datum ? ` ${datum}` : ""}`}>
+      {opis.label}
+    </Badge>
   );
 }
 

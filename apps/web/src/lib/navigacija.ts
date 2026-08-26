@@ -4,7 +4,15 @@
 // Redosled je redosled rada: nađi → otključaj → vodi kroz pipeline. Nalog stoji
 // odvojeno, jer se tamo ne radi nego proverava.
 
-import { Coins, Inbox, LayoutDashboard, ListChecks, KanbanSquare, Search } from "lucide-react";
+import {
+  Coins,
+  CreditCard,
+  Inbox,
+  LayoutDashboard,
+  ListChecks,
+  KanbanSquare,
+  Search,
+} from "lucide-react";
 
 export type NavStavka = {
   href: string;
@@ -40,6 +48,20 @@ export const NAVIGACIJA: NavGrupa[] = [
         label: "Kontrolna tabla",
         Ikona: LayoutDashboard,
         opis: "Plan, limiti i stanje naloga",
+      },
+      // S21: do ove isporuke `/cenovnik` nije bio linkovan NIOTKUDA u
+      // aplikaciji — do njega se stizalo samo iz banera isteklog pristupa,
+      // dakle tek kad je već kasno. Stoji u grupi „Nalog", uz kredite, jer je
+      // to i pitanje na koje odgovara: „kako da ih dobijem još".
+      //
+      // Vodi IZVAN okvira aplikacije (`/cenovnik` je namerno van grupe `(app)`,
+      // da bi radio i gostu), pa se posle klika gubi bočna traka. To je u redu:
+      // ekran cena ima svoje zaglavlje i povratak u aplikaciju.
+      {
+        href: "/cenovnik",
+        label: "Planovi i cene",
+        Ikona: CreditCard,
+        opis: "Pretplata i paketi kredita",
       },
     ],
   },

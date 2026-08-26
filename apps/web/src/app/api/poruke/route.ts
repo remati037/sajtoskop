@@ -15,6 +15,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { requireUserId } from "@/lib/auth";
 import { porukeZaLead, zabeleziKopiranje } from "@/lib/poruke";
 import { kontaktBodySchema } from "@/lib/pipeline-schema";
+import { citajPristup, odbijenicaCitanja } from "@/lib/pristup";
 import type { ApiError } from "@/lib/search-types";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +50,13 @@ export async function GET(req: Request): Promise<Response> {
   }
   void userId; // identitet nosi `userSupabase()` kroz RLS, ne parametar upita
 
+  // [S19] Poruke se sklapaju iz podataka koje je korisnik VEĆ platio, bez ijednog
+  // spoljnog poziva — dakle čitanje, i u `grace` stanju radi (§1.5). Pada samo
+  // zaključan nalog. AI varijanta („Napiši drugačije") je zaseban ulaz i ima
+  // strožu kapiju, jer ona jedina košta.
+  const odbijenGet = odbijenicaCitanja((await citajPristup()).pristup);
+  if (odbijenGet) return odbijenGet;
+
   const placeId = new URL(req.url).searchParams.get("placeId")?.trim();
   if (!placeId) return greska("Nedostaje ID prospekta.", 400);
 
@@ -81,6 +89,11 @@ export async function POST(req: Request): Promise<Response> {
   } catch {
     return greska("Nisi prijavljen.", 401);
   }
+
+  // [S19] „Kopirao sam poruku" pomera karticu u pipeline-u — korisnikov rad, ne
+  // kupovina. Ista kapija kao na `/api/pipeline`.
+  const odbijenPost = odbijenicaCitanja((await citajPristup()).pristup);
+  if (odbijenPost) return odbijenPost;
 
   let raw: unknown;
   try {

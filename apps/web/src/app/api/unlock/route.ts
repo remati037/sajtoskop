@@ -12,6 +12,7 @@
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
+import { citajPristup, odbijenica } from "@/lib/pristup";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError, UnlockResponse } from "@/lib/search-types";
 import { unlockLead } from "@/lib/unlock";
@@ -40,6 +41,13 @@ export async function POST(req: Request): Promise<Response> {
   } catch {
     return greska("Nisi prijavljen.", 401);
   }
+
+  // [S19] Otključavanje troši kredit, dakle stoji uz pretragu i skeniranje na
+  // listi onoga što `grace` nalog ne sme (§1.5). Kapija ide PRE tela: nema
+  // razloga parsirati zahtev koji ionako ne prolazi.
+  const { pristup } = await citajPristup();
+  const odbijen = odbijenica(pristup, "otkljucavanje");
+  if (odbijen) return odbijen;
 
   let raw: unknown;
   try {

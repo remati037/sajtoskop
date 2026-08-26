@@ -11,8 +11,8 @@ import Link from "next/link";
 import { KanbanSquare } from "lucide-react";
 import { CITIES, NICHES } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
+import { zahtevajCitanje } from "@/lib/pristup";
 import { getPipeline } from "@/lib/pipeline";
-import { getOwnProfile } from "@/lib/profile";
 import { PipelineTabla } from "@/components/pipeline-tabla";
 import { PipelineUvoz } from "@/components/pipeline-uvoz";
 import { VezaGreska } from "@/components/veza-greska";
@@ -29,12 +29,20 @@ export default async function Page() {
 
   // Isto kao na „Mojoj listi": kvar veze daje `profile === null` i poruku, pa
   // prazan niz ovde nikad ne izgleda kao „nemaš nijedan prospekt".
-  const [kartice, profile] = await Promise.all([
+  //
+  // S19: kapija pristupa uz podatak, ne u layout-u — layout se ne izvršava
+  // ponovo pri klijentskoj navigaciji. Zaključan nalog ide na `/zakljucano`;
+  // `grace` PROLAZI, jer je čitanje svog rada ceo smisao grace perioda (§1.5).
+  //
+  // Ide u isti `Promise.all` i vraća profil koji je ionako trebao ovoj strani —
+  // dakle kapija ne košta nijedan dodatan upit nad `profiles`. `redirect()` iz
+  // nje se kroz `Promise.all` uredno propagira.
+  const [kartice, { profile }] = await Promise.all([
     getPipeline().catch((err: unknown) => {
       console.error("[pipeline] čitanje kartica:", err);
       return [];
     }),
-    getOwnProfile(),
+    zahtevajCitanje(),
   ]);
 
   const cityLabels = Object.fromEntries(CITIES.map((c) => [c.slug, c.label]));

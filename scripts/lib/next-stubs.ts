@@ -51,3 +51,19 @@ export function notFound(): never {
 export async function currentUser(): Promise<null> {
   return null;
 }
+
+/**
+ * Zamena za `clerkClient()` iz `@clerk/nextjs/server`.
+ *
+ * Isti razlog kao kod `notFound()`: statički ESM uvoz se izvršava i kad se
+ * funkcija nikad ne pozove, pa `lib/admin-radnje.ts` bez ovog stuba ne može ni
+ * da se učita van Next runtime-a — a `apps/web/test/admin-beta.ts` iz njega
+ * proverava odbijanje plana `beta`, do koga se dolazi PRE ijednog spoljnog
+ * poziva.
+ *
+ * Baca, i to je namerno: test koji bi stvarno pozvao Clerk radi nad mrežom, a
+ * ovde je jedina dozvoljena laž identitet — ne i ponašanje tuđeg servisa.
+ */
+export async function clerkClient(): Promise<never> {
+  throw new Error("clerkClient() u testu — ova putanja ne sme da dodiruje Clerk.");
+}

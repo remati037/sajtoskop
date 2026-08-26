@@ -21,7 +21,12 @@ import "server-only";
 import { clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { ZodType } from "zod";
-import type { AdminAdjustResult, AdminRole, AdminSetRoleResult } from "@sajtoskop/shared";
+import type {
+  AdminAdjustResult,
+  AdminOpenBetaResult,
+  AdminRole,
+  AdminSetRoleResult,
+} from "@sajtoskop/shared";
 import {
   ipZahteva,
   NeAdmin,
@@ -34,6 +39,7 @@ import {
 import { posaljiPorukuKorisniku } from "./admin-mail";
 import type { ApiError } from "./search-types";
 import { adminSupabase } from "./supabase";
+import { formatDatum } from "./ui-tekst";
 
 const HEADERS = { "Cache-Control": "private, no-store" };
 
@@ -344,6 +350,22 @@ async function citajCilj(
 const NEMA_NALOGA: Ishod = { ok: false, status: 404, poruka: "Taj nalog ne postoji." };
 
 export async function promeniPlan(target: string, plan: string): Promise<Ishod> {
+  // Drugi od tri sloja odluke D1 (LANSIRANJE §1.1). Prvi je `PLAN_OPCIJE`, koji
+  // `beta` uopšte ne nudi; treći je triger u bazi (0024), koji drži i kad se
+  // aplikacija zaobiđe. Ovaj sloj postoji zato što bi bez njega jedini otpor
+  // ručno sklopljenom `PATCH`-u bio izuzetak iz Postgresa — dakle `500` i red u
+  // dnevniku koji piše „nije prošlo", umesto rečenice koja kaže ZAŠTO.
+  if (plan === "beta") {
+    return {
+      ok: false,
+      status: 400,
+      poruka:
+        "Plan `beta` se ne postavlja odavde. Beta nalog se otvara svojim obrascem, " +
+        "jer plan, rok i krediti moraju da idu zajedno.",
+      payload: { plan },
+    };
+  }
+
   const cilj = await citajCilj(target);
   if (!cilj) return NEMA_NALOGA;
 
@@ -351,6 +373,136 @@ export async function promeniPlan(target: string, plan: string): Promise<Ishod> 
   if (error) throw new Error(error.message);
 
   return { ok: true, poruka: `Plan je sada ${plan}.`, payload: { plan } };
+}
+
+// ═══════════════════════════════════════════════════════════
+// BETA NALOZI (S20, LANSIRANJE §1.1 i §1.5)
+// ═══════════════════════════════════════════════════════════
+
+/** Rečenica o roku, ista u obe radnje — dva teksta bi se razišla prvog dana. */
+function recenicaORoku(doKad: string | null, sada = Date.now()): string {
+  if (doKad === null) return "Beta je neograničena — rok nije postavljen.";
+  return Date.parse(doKad) <= sada
+    ? `Rok je ${formatDatum(doKad)}, dakle u prošlosti — beta je ugašena.`
+    : `Beta traje do ${formatDatum(doKad)}.`;
+}
+
+/**
+ * „Otvori beta nalog" — plan, rok i krediti u JEDNOM pozivu (§1.1).
+ *
+ * Ovo je jedini put kojim `profiles.plan` sme da postane `beta`. Ne zato što se
+ * ovaj sloj tako dogovorio, nego zato što `admin_open_beta` jedini pali
+ * transakcijsku zastavicu koju triger iz 0024 traži — svaki drugi `update`
+ * puca u bazi, i kad dođe iz ove aplikacije, i kad dođe iz SQL editora.
+ *
+ * Sve tri izmene su u jednoj transakciji, i to je cela poenta: do S20 se beta
+ * otvarala u dva poteza (plan, pa krediti) i bez roka uopšte. Kad bi drugi
+ * potez pao, nalog bi ostao sa planom `beta` i praznim rokom — a prazan rok po
+ * §1.5 znači NEOGRANIČENO. Najgori ishod pola odrađenog posla bio je doživotan
+ * besplatan nalog.
+ *
+ * Iznos i granice proverava RPC; ovaj sloj prevodi razlog u status kod i u
+ * rečenicu, isto kao kod korekcije kredita i uloge.
+ */
+export async function otvoriBetaNalog(
+  target: string,
+  krediti: number,
+  doKad: string | null,
+  refId: string,
+): Promise<Ishod> {
+  const { data, error } = await adminSupabase().rpc("admin_open_beta", {
+    p_user: target,
+    p_credits: krediti,
+    p_expires: doKad,
+    p_ref_id: refId,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const red = ((data ?? []) as AdminOpenBetaResult[])[0];
+  if (!red) throw new Error("admin_open_beta nije vratio nijedan red.");
+
+  if (!red.ok) {
+    const status = red.reason === "no_user" ? 404 : 400;
+    return {
+      ok: false,
+      status,
+      poruka: PORUKA_BETE[red.reason] ?? red.reason,
+      ref: refId,
+      payload: { krediti, do: doKad },
+    };
+  }
+
+  const rok = recenicaORoku(doKad);
+
+  // Dvostruki klik. Plan i rok su ponovo upisani (to je postavljanje, ne
+  // sabiranje), kredita nema drugi put — pa to i piše, umesto lažnog „+50".
+  const oKreditima =
+    red.reason === "already_granted"
+      ? `Krediti su već bili dodeljeni ovom radnjom, balans je i dalje ${red.balance}.`
+      : krediti > 0
+        ? `+${krediti} kredita, balans je sada ${red.balance}.`
+        : "Bez novih kredita.";
+
+  return {
+    ok: true,
+    poruka: `Beta nalog je otvoren. ${rok} ${oKreditima}`,
+    ref: refId,
+    payload: { plan: "beta", do: doKad, krediti, dodeljeno: red.granted },
+  };
+}
+
+const PORUKA_BETE: Record<string, string> = {
+  no_user: "Taj nalog ne postoji.",
+  invalid_amount: "Broj kredita je van granica — od 0 do 500 po radnji.",
+  missing_ref_id: "Ključ forme nije stigao. Osveži stranu.",
+};
+
+/**
+ * Samo rok bete — `PATCH .../beta` (§1.5).
+ *
+ * `null` je NEOGRANIČENO, i to je jedina vrednost koja se ovde tumači.
+ *
+ * Direktan `update` je dozvoljen: `beta_expires_at` nije balans, pa pravilo 3
+ * nije u igri, a triger iz 0024 čuva samo kolonu `plan` — rok nad nalogom koji
+ * već JESTE u beti se time ne dira.
+ *
+ * ── zašto se ne traži da nalog bude u beti ───────────────────
+ * Rok sme da se postavi i nalogu sa plaćenim planom, i to nije rupa nego
+ * upotreba: `stanjePristupa()` uzima KASNIJI od dva roka (§1.5), pa je ovo način
+ * da pretplatnik dobije dve nedelje viška posle propalog plaćanja — bez
+ * diranja pretplate i bez dodirivanja Paddle-a. Poruka zato izričito kaže kad
+ * rok nikome ništa ne menja.
+ */
+export async function postaviBetaRok(target: string, doKad: string | null): Promise<Ishod> {
+  const cilj = await citajCilj(target);
+  if (!cilj) return NEMA_NALOGA;
+
+  const { data: pre, error: greskaCitanja } = await adminSupabase()
+    .from("profiles")
+    .select("plan")
+    .eq("id", target)
+    .maybeSingle<{ plan: string }>();
+
+  if (greskaCitanja) throw new Error(greskaCitanja.message);
+
+  const { error } = await adminSupabase()
+    .from("profiles")
+    .update({ beta_expires_at: doKad })
+    .eq("id", target);
+
+  if (error) throw new Error(error.message);
+
+  const napomena =
+    pre?.plan === "beta"
+      ? ""
+      : ` Nalog nije na beta planu (${pre?.plan ?? "nepoznat"}), pa rok radi samo kao produžetak pristupa.`;
+
+  return {
+    ok: true,
+    poruka: `${recenicaORoku(doKad)}${napomena}`,
+    payload: { do: doKad },
+  };
 }
 
 /**

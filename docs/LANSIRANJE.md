@@ -344,24 +344,24 @@ ostaje kao rezerva za nekoga ko kupuje pre nego što se uloguje. Isti popust, dv
 
 | # | Šta | Gde |
 |---|---|---|
-| N1 | **Webhook ne postoji.** Polar stub je obrisan u S16 i rute sada nema uopšte; u Paddle sandboxu je `notification_settings` i dalje **prazan niz**. RPC koje treba da pozove (`apply_subscription`, `apply_credit_pack`) postoje od `0022`. | — |
-| N2 | **Checkout ne nosi `user_id`.** Samo `customer.email`. | `components/cenovnik-ekran.tsx` |
+| ~~N1~~ ☑ | **Rešeno u S18.** `/api/billing/webhook` verifikuje potpis, deduplikuje po `event_id` i zove `apply_subscription` / `apply_credit_pack` / `admin_adjust_credits`. Ostaje **R8**: destinacija u Paddle panelu. | `api/billing/webhook` |
+| ~~N2~~ ☑ | **Rešeno u S18.** Transakciju pravi server iz Clerk sesije; `Checkout.open()` prima samo `transactionId`. Gost više ne otvara checkout — vodi se na registraciju sa povratkom. | `api/billing/checkout` |
 | ~~N3~~ ☑ | **Rešeno u S16.** `billing_events`, `subscriptions`, `profiles.credits_topup` i `apply_*` funkcije. | `0022_naplata.sql` |
 | ~~N4~~ ☑ | **Rešeno u S16.** Pet planova, `pri_` katalog i budžetski kapovi su sada u `plans.ts`. | `packages/shared/src/plans.ts` |
-| N5 | **Nema obnavljanja kredita po pretplati.** | — |
-| N6 | **Nema portala ni otkazivanja.** | — |
-| N7 | **Nema UI stanja pretplate.** | `app/(app)/krediti/page.tsx` |
-| N8 | **`/cenovnik` nije linkovan niotkuda.** Nula linkova u celom `src`. | — |
+| ~~N5~~ ☑ | **Rešeno u S18.** Obnovu okida `transaction.completed` na svaku naplatu pretplate, pa cron ne postoji (Hobby plan nema slobodan slot). | `lib/billing.ts` |
+| ~~N6~~ ☑ | **Rešeno u S21.** `POST /api/billing/portal` pravi jednokratnu Paddle portal sesiju iz Clerk sesije; otkazivanje, kartica i računi ostaju kod Paddle-a. Nalog bez Paddle kupca dobija `404`, ne `403`. | `api/billing/portal` |
+| ~~N7~~ ☑ | **Rešeno u S21.** Blok „Pretplata" iznad izvoda: plan, ciklus, datum sledeće naplate, upozorenje u `grace`, **obe kase odvojeno**. Iznosa u evrima namerno nema — obrazloženje u `docs/SESIJE.md`, S21 „Odstupanja". | `app/(app)/krediti/page.tsx` |
+| ~~N8~~ ☑ | **Rešeno u S21**, osim futera (on nastaje u **S22**). Stavka „Planovi i cene" u bočnoj traci, poziv na dokupljivanje kad stanje padne nisko, i sidro `#paketi` — na njega su dva linka iz S19 već pokazivala, a nije postojalo. | — |
 | ~~N9~~ ☑ | **Rešeno u S16.** Stub, zavisnost, lockfile i env očišćeni; `grep -ri polar` vraća samo `docs/`. | — |
-| N10 | **Paketi postoje kao podatak, ali ne i kao ekran.** Cene se učitavaju (u `SVI_PRICE_ID` su), sekcija koja ih prikazuje dolazi u S21. | `components/cenovnik-ekran.tsx` |
+| ~~N10~~ ☑ | **Rešeno u S21.** Sekcija „Paketi kredita" ispod tri plana, sidro `#paketi`, cene iz istog `PricePreview()` poziva. Paket se kupuje i bez pretplate. | `components/cenovnik-ekran.tsx` |
 | ~~N11~~ | ~~`SCAN_CREDIT_COST` je i dalje 1~~ — **rešeno u S17.** Konstanta je obrisana, cena se izvodi iz broja stranica, i sva mesta koja su pisala „1 kredit" (i tri van `pretraga-ekran.tsx` koje spisak nije imao) promenjena su odjednom. | `plans.ts`, `pretraga-ekran.tsx` |
 
 ### Ne radi — životni ciklus i ostalo
 
 | # | Šta |
 |---|---|
-| Z1 | **Nema pojma o isteku.** `beta_expires_at`, `plan_expires_at` i `GRACE_DAYS` postoje od S16, ali ih **niko ne čita**: nema `stanjePristupa()`, nema kapije, nema banera. Ko ima nalog — ima pristup, zauvek. |
-| Z2 | **Admin ne može da postavi beta rok** ni da vidi stanje pristupa. Može plan i kredite. |
+| ~~Z1~~ ☑ | **Rešeno u S19.** `stanjePristupa()` u `packages/shared/src/pristup.ts` je jedini izvor istine; kapija stoji na svakoj strani u `(app)` i u svakoj ruti koja troši; `grace` ima trajan baner sa tačnim datumom, zaključan nalog stranu `/zakljucano`. |
+| ~~Z2~~ ☑ | **Rešeno u S20.** Beta nalog se otvara jednim obrascem (plan + rok + krediti, jedna transakcija); lista ima kolonu i filter po stanju pristupa, detalj oba upisana i oba izvedena datuma. Uz to: plan `beta` više ne može da nastane iz registracije, kupona ni webhooka — triger `profiles_beta_guard` (0024) propušta samo `admin_open_beta`. |
 | ~~Z3~~ ☑ | **Rešeno u S16.** `admin_adjust_credits(p_kind => 'povracaj')` sme u minus; obična korekcija i dalje ne sme. |
 | V1 | **F8 nije rađen uopšte.** Landing, pravni tekstovi, kanarinci, merenje, onboarding. |
 | V2 | **Nema futera.** Pravni linkovi nemaju gde da stoje. |
@@ -449,10 +449,10 @@ odgovor knjigovođe). Ne blokira nijednu sesiju — blokira **produkciju**, ne r
 | **R3, R4, R7, R8** | Paddle: API ključ, payment link, tunel, destination | — | 45 min | ☐ |
 | ~~**S16**~~ | Novčanik, planovi, paketi, migracija `0022` | — | 1,5 dana | ☑ |
 | ~~**S17**~~ | Dubina skeniranja, cena po stranici, migracija `0023` | S16 | 1 dan | ☑ |
-| **S18** | Paddle webhook + serverski checkout + kupon | S17, R3+R4+R7+R8 | 1,5 dana | ☐ |
-| **S19** | Životni ciklus pristupa: beta istek, grace, modal, baneri | S16 | 1,5 dana | ☐ |
-| **S20** | Admin konzola: beta nalozi | S19 | 0,75 dana | ☐ |
-| **S21** | Cenovnik sa paketima, stanje pretplate, portal, linkovi | S18, S19 | 1 dan | ☐ |
+| ~~**S18**~~ | Paddle webhook + serverski checkout + kupon | S17 | 1,5 dana | ☑ |
+| ~~**S19**~~ | Životni ciklus pristupa: beta istek, grace, modal, baneri | S16 | 1,5 dana | ☑ |
+| ~~**S20**~~ | Admin konzola: beta nalozi, migracija `0024` | S19 | 0,75 dana | ☑ |
+| ~~**S21**~~ | Cenovnik sa paketima, stanje pretplate, portal, linkovi | S18, S19 | 1 dan | ☑ |
 | **S22** | Pravni tekstovi + futer | — | 0,5 dana | ☐ |
 | **S23** | F8 — kopi landinga (samo tekst) | — | 0,5 dana | ☐ |
 | **S24** | F8 — landing na `/` + onboarding | S22, S23 | 1,5 dana | ☐ |
@@ -460,7 +460,7 @@ odgovor knjigovođe). Ne blokira nijednu sesiju — blokira **produkciju**, ne r
 | **S26** | Sentry + testovi naplate + sandbox prolaz | S18, S19 | 1 dan | ☐ |
 | **R9–R32** | Ostali ručni koraci iz §7 — zaostalo iz ranijih faza, knjigovođa, operativa | razno | ~2,5 dana | ☐ |
 
-**Ukupno: ~11,5 dana koda + ~2,5 dana ručnog rada.**
+**Ukupno: ~11,5 dana koda + ~2,5 dana ručnog rada.** Od toga je isporučeno S16–S21.
 
 ---
 
@@ -743,7 +743,7 @@ odlučuje o naplati.
 
 ---
 
-### S18 — Paddle webhook, serverski checkout, kupon
+### S18 — Paddle webhook, serverski checkout, kupon ☑
 
 **Preduslovi:** S17 gotov. **R3, R4, R7, R8** (API ključ, payment link, tunel, destination).
 Paketi i kupon su već napravljeni.
@@ -833,9 +833,20 @@ Ažuriraj docs/SESIJE.md i štikliraj S18 u docs/LANSIRANJE.md.
 **Gotovo kad:** simulacija `subscription_creation` dodeli plan i kredite; ponovljena ne
 dodeli ništa; kupovina paketa napuni `credits_topup`; pogrešan potpis vraća 401.
 
+**Isporučeno 21. avgusta 2026.** `POST /api/billing/checkout` (Paddle transakcija sa
+`custom_data.user_id` iz Clerk sesije, popust za betu sam) i `POST /api/billing/webhook`
+(potpis uvek, `billing_events` kao gruba brana, `ref_id` kao fina). Odluke pretplate su u
+`lib/billing.ts`, upiti u `lib/billing-skladiste.ts` — razdvojeni da bi test mogao da
+zameni bazu bez ijedne zaobilaznice u produkcijskom kodu. **43 provere** u novom
+`apps/web/test/naplata.ts`, sa PRAVIM HMAC potpisom. Bez migracije — `0022` je sve dao.
+
+**Ostaje ručno:** **R3, R4, R7, R8** (payment link, tunel, destination, prolaz kroz
+simulator). Kod ih ne može odraditi; do njih webhook nikad ne dobija ni jedan zahtev.
+Detalji, odstupanja i preneto dalje u `docs/SESIJE.md`.
+
 ---
 
-### S19 — Životni ciklus pristupa
+### S19 — Životni ciklus pristupa ☑
 
 **Šta se menja:** aplikacija prvi put zna da pristup može da istekne.
 
@@ -899,7 +910,7 @@ ne može da skenira; posle 30 dana ga ulaz vodi na cenovnik.
 
 ---
 
-### S20 — Admin konzola: beta nalozi
+### S20 — Admin konzola: beta nalozi ☑
 
 **Preduslovi:** S19 gotov. Nema otvorenih pitanja.
 
@@ -944,6 +955,20 @@ Ažuriraj docs/SESIJE.md i štikliraj S20 u docs/LANSIRANJE.md.
 
 **Gotovo kad:** beta nalog se otvara jednim obrascem; `/admin/korisnici` pokazuje stanje
 pristupa i filtrira po njemu.
+
+**Isporučeno 21. avgusta 2026.** Migracija **`0024_beta_nalozi.sql`**. Beta se otvara jednim
+auditovanim pozivom (plan + rok + krediti, u jednoj transakciji), lista ima kolonu i filter
+po stanju, detalj ima blok „Pristup" sa oba upisana i oba izvedena datuma i obe kase kredita.
+
+**Uz to je zatvorena i rupa koju je S19 preneo:** plan `beta` više ne može da nastane sam.
+`profiles.plan` ima `default 'dopuna'`, `DEFAULT_PLAN` više nije `beta`, registracija dodeljuje
+**0 kredita**, a triger `profiles_beta_guard` odbija svaki prelazak u `beta` mimo
+`admin_open_beta` — dakle i kad se aplikacija zaobiđe. **38 provera** u novom
+`apps/web/test/admin-beta.ts` i **24** u `pnpm check:sql`.
+
+**Ostaje ručno:** **postojećim beta nalozima migracija NIJE postavila rok** — namerno, da
+žive korisnike ne zaključa u tišini. Otvori `/admin/korisnici?stanje=beta` i postavi rok
+svakome ko nosi bedž `NEOGRANIČENO`. Detalji, odstupanja i preneto dalje u `docs/SESIJE.md`.
 
 ---
 
@@ -993,6 +1018,14 @@ Dopuni docs/PROVERA-VIZUELNA.md. Ažuriraj docs/SESIJE.md i štikliraj S21.
 
 **Gotovo kad:** paket se kupuje sa cenovnika bez pretplate; `/krediti` pokazuje obe kase;
 otkazivanje prolazi bez mejla tebi.
+
+**☑ Isporučeno 23. avgusta 2026.** Bez migracije. Sva tri uslova ispunjena; **futer je jedina
+tačka iz prompta koja nije isporučena i ne može da bude pre S22.** Uz to su ispravljena
+**četiri mesta koja su prikazivala samo `credits_balance`** dok je naplata išla iz zbira obe
+kase — nevidljivo dok `credits_topup` nije mogao da bude različit od nule, a od S18 može.
+Cene u evrima na `/krediti` NEMA, namerno: `PricePreview()` vraća cenovničku cenu, a beta
+korisnik ima 33% popust, pa bi mu pisalo €59 nad računom od €39,53. Detalji i odstupanja u
+`docs/SESIJE.md`.
 
 ---
 
@@ -1288,6 +1321,8 @@ Prolazi se u jednom sedenju, na **produkciji**, sa čistim nalogom.
 ### Proizvod
 - [ ] Registracija → pretraga po kešu → skeniranje → otključavanje → poruka (Viber i mejl)
 - [ ] Prvi otključan prospekt besplatan; knjiga pokazuje `onboarding`
+- [ ] Nov nalog **nije** beta: plan `dopuna`, nula kredita, ulaz vodi na cenovnik (S20)
+- [ ] Nijedan postojeći nalog ne nosi bedž `NEOGRANIČENO` — `/admin/korisnici?stanje=beta`
 - [ ] Obe teme na svakom ekranu; telefon ≤ 390 px; `.num` na svakom broju
 - [ ] Kanarinci u bazi i nevidljivi u izvozu
 
@@ -1370,7 +1405,10 @@ Ne radi se pre, ali je zapisano da se ne izgubi:
 
 | Datum | Izmena |
 |---|---|
+| 2026-08-23 | **S21 isporučen — cenovnik ima pakete, nalog ima stanje, otkazivanje ima gde da se desi.** Bez migracije. `POST /api/billing/portal` pravi jednokratnu Paddle portal sesiju iz Clerk sesije i vraća **samo** `urls.general.overview`; telo zahteva se ne čita, pa `customerId` ne može ni da stigne spolja. Nalog bez Paddle kupca dobija `404`. Sekcija „Paketi kredita" na `/cenovnik` sa sidrom `#paketi` — sekundaran panel, ne četvrta kartica, cene iz **istog** `PricePreview()` poziva, kopija kaže i da krediti ne ističu i da paket nije jeftinija zamena za plan. Blok „Pretplata" na `/krediti` sa obe kase odvojeno i tačnim datumom obnove (`sledecaDodelaKredita()`, beogradski kalendar, isti kao ključ idempotencije mesečne dodele). **Najvažnija ispravka nije bila u opsegu:** četiri mesta su prikazivala samo `credits_balance` dok naplata ide iz zbira obe kase — nevidljivo dok `credits_topup` nije mogao da bude različit od nule, a od S18 može. **Iznosa u evrima na `/krediti` nema, namerno:** `PricePreview()` daje cenovničku cenu, a beta korisnik ima 33% popust, pa bi mu pisalo €59 nad računom od €39,53; `subscriptions` naplaćen iznos ne čuva. Futer je jedina tačka iz prompta koja nije isporučena — nastaje u S22. |
+| 2026-08-21 | **S20 isporučen — beta nalog je ručna radnja, i to jedina.** Migracija `0024`: nov razlog u knjizi `beta_grant` (i u `check`, i u indeksu, i u telu `grant_credits`), `profiles.plan default 'dopuna'` + `profiles_plan_valid`, triger `profiles_beta_guard` i `admin_open_beta` kao jedini put kroz njega — plan, rok i krediti u **jednoj** transakciji. `admin_users_page` vraća ulaze za `stanjePristupa()` i prima `p_ids`. `POST`/`PATCH /api/admin/korisnici/[id]/beta`, dve radnje u reviziji (`user.beta_open`, `user.beta_expiry`). Lista korisnika ima kolonu i filter po stanju i prikazuje **zbir obe kase**; detalj ima blok „Pristup" sa oba upisana i oba izvedena datuma. **Uz to je zatvorena rupa iz S19:** `DEFAULT_PLAN` više nije `beta` i registracija dodeljuje **0 kredita**, pa nov nalog ide na `/cenovnik` umesto u doživotnu betu. Filter po stanju se računa u TS-u i u SQL šalje spisak ID-jeva — druga implementacija šest stanja u bazi bi se razišla tiho. |
 | 2026-08-20 | Prva verzija. |
+| 2026-08-21 | **S19 isporučen — aplikacija zna da pristup može da istekne.** Bez migracije. `stanjePristupa(profil, pretplata, sada)` u `packages/shared/src/pristup.ts` vraća diskriminisanu uniju sa šest stanja i izvedenim datumima (`pun pristup do = max(beta, plan)`, `čitanje do = + GRACE_DAYS`); `null` u `beta_expires_at` je neograničeno **samo uz plan `beta`**. `apps/web/src/lib/pristup.ts` je serverska strana: `citajPristup()` (React `cache()`, jedan par upita po zahtevu), `zahtevajCitanje()` za strane i `odbijenica()` / `odbijenicaCitanja()` za rute. Kapija ide **uz podatak** — svih šest strana u `(app)` i osam ruta; `grace` odbija pretragu, skeniranje, otključavanje, uvoz i AI varijantu (**403**, ne 402), a propušta oba izvoza, pipeline i poruke. Nova strana `/zakljucano`, trajan baner (žut za grace, plav za otkazanu pretplatu) i modal koji pamti da je viđen (`localStorage` po potpisu stanja, `sessionStorage` za „nema kredita"). Dnevni limiti se od sada računaju po `planLimita` iz kapije, pa stanje `dopuna` stvarno dobija Starter limite. |
 | 2026-08-20 | **S17 isporučen — cena skeniranja je 1 kredit po stranici.** Migracija `0023`: `search_cache.pages` (1–3, backfill iz `last_results_count`), dubina u ključu deduplikacije (`RS:grad:nisa:p2`), cena izvedena iz stranica i merena nad zbirom obe kase, `refund_scan` vraća tačan iznos iz knjige. `SCAN_CREDIT_COST` obrisan; zamenili su ga `Dubina` (zatvoren skup za UI i URL) i `cenaSkeniranja()` (totalna funkcija za worker, CLI i SQL). `PLACES_PAGE_SIZE`/`PLACES_MAX_PAGES` preseljeni iz `places.ts` u `plans.ts`. Nov razlog naplate `plice` — svež ali plitak keš. **Nijedna funkcija ne menja povratni tip**, jer bi drugi prolaz `check:sql` pukao; dubina se čita iz kolone, kao `partial` u 0021. `searchText` staje na plaćenom broju stranica — dotad je umeo da povuče stranicu preko plaćene. |
 | 2026-08-21 | **Dokument očišćen od zaostalih „otvoreno" oznaka.** §4 preimenovan u „Pitanja — sva zatvorena"; zaglavlje kaže da S16 nema preduslova; `P6` skinut sa preduslova S20; `N10` prepravljen (paketi POSTOJE u katalogu i kodu, fali im samo ekran); dodat `N11` (`SCAN_CREDIT_COST` je i dalje 1, menja se u S17); mapa isporuka razdvaja odrađene ručne korake od preostalih. |
 | 2026-08-21 | **Kupon `BETA2026` napravljen** (`dsc_01m0fgb2e0ex6dh5g3hba2c1ep`) i upisan u `.env`. **Pogodnosti u `cenovnik.ts` usklađene** sa tabelom §1.3: šest istih stavki po kartici, „AI poruke po kanalu" zamenjeno dnevnim brojem AI varijanti, Advanced 800 kredita i 10.000 CSV redova. Lede na `/cenovnik` prepravljen — kredit je sada prospekt ILI stranica skeniranja. **S16 više ne dira `SCAN_CREDIT_COST`** (ostaje 1 do S17), jer UI na ~10 mesta tvrdo piše „1 kredit". |

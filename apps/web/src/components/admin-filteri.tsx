@@ -169,6 +169,65 @@ export function TrakaFiltera({
 }
 
 /**
+ * Padajući filter — za spisak koji ne staje u traku dugmadi.
+ *
+ * `TrakaFiltera` je bolja dok filtera ima četiri i dok svi staju u red. Šest
+ * stanja pristupa uz postojeća četiri dugmeta je deset kontrola u istom redu,
+ * što na telefonu (≤ 390 px) postaje tri reda dugmadi iznad tabele.
+ *
+ * Nativni `<select>`, ne Radix `Izbor`: ovo je konzola, spisak je kratak i
+ * fiksan, a nativna kontrola na telefonu otvara sistemski točkić — bolje od
+ * svakog menija koji bismo nacrtali.
+ */
+export function PadajuciFilter({
+  kljuc,
+  naziv,
+  opcije,
+  svePrazno,
+}: {
+  kljuc: string;
+  naziv: string;
+  opcije: { vrednost: string; label: string }[];
+  /** Tekst za „bez filtera". Ta opcija uvek stoji prva i briše parametar. */
+  svePrazno: string;
+}) {
+  const router = useRouter();
+  const putanja = usePathname();
+  const params = useSearchParams();
+  const [, prenesi] = useTransition();
+
+  const aktivna = params.get(kljuc) ?? "";
+
+  return (
+    <label className="inline-flex items-center gap-2">
+      <span className="sr-only">{naziv}</span>
+      <select
+        value={aktivna}
+        aria-label={naziv}
+        onChange={(e) =>
+          prenesi(() => {
+            router.push(`${putanja}${saParametrom(params, { [kljuc]: e.target.value })}`);
+          })
+        }
+        className={cn(
+          "h-10 rounded-lg border border-border-strong bg-bg-elev px-3 text-xs font-medium text-fg",
+          "shadow-sm outline-none transition-[border-color,box-shadow]",
+          "hover:border-fg-muted focus:border-accent focus:ring-2 focus:ring-accent/25",
+          aktivna && "border-accent/40",
+        )}
+      >
+        <option value="">{svePrazno}</option>
+        {opcije.map((o) => (
+          <option key={o.vrednost} value={o.vrednost}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
  * Zaglavlje kolone po kojoj se sortira.
  *
  * Klik na aktivnu kolonu okreće smer, klik na drugu je postavlja sa

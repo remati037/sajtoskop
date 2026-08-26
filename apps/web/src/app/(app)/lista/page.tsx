@@ -7,8 +7,8 @@ import Link from "next/link";
 import { ListChecks } from "lucide-react";
 import { CITIES, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
+import { zahtevajCitanje } from "@/lib/pristup";
 import { getMojaLista } from "@/lib/moja-lista";
-import { getOwnProfile } from "@/lib/profile";
 import { MojaListaEkran } from "@/components/moja-lista-ekran";
 import { VezaGreska } from "@/components/veza-greska";
 import { Button } from "@/components/ui/button";
@@ -25,14 +25,25 @@ export default async function Page() {
   // Pokvarena veza sa bazom ne sme da obori stranu — `profile` je tada `null`,
   // pa se ionako prikazuje `VezaGreska`, a ne prazna tabela. Zato prazan niz
   // ovde nije laž: do njega se stiže samo kad se poruka o kvaru već prikazuje.
-  const [leads, profile] = await Promise.all([
+  //
+  // S19: kapija pristupa uz podatak, ne u layout-u — layout se ne izvršava
+  // ponovo pri klijentskoj navigaciji. Zaključan nalog ide na `/zakljucano`;
+  // `grace` PROLAZI, jer je čitanje svog rada ceo smisao grace perioda (§1.5).
+  //
+  // Ide u isti `Promise.all` i vraća profil koji je ionako trebao ovoj strani —
+  // dakle kapija ne košta nijedan dodatan upit nad `profiles`. `redirect()` iz
+  // nje se kroz `Promise.all` uredno propagira.
+  const [leads, { profile, pristup }] = await Promise.all([
     getMojaLista().catch((err: unknown) => {
       console.error("[lista] čitanje otključanih prospekata:", err);
       return [];
     }),
-    getOwnProfile(),
+    zahtevajCitanje(),
   ]);
-  const plan = planFor(profile?.plan);
+  // Dnevni cap izvoza po planu iz kapije: stanje `dopuna` ima Starter limite,
+  // a `profiles.plan` bi dao limite plana koji je istekao (§1.3). Isto računa i
+  // `/api/export`, pa se broj uz dugme i broj koji server primeni ne razilaze.
+  const plan = planFor(pristup?.planLimita ?? profile?.plan);
   const cityLabels = Object.fromEntries(CITIES.map((c) => [c.slug, c.label]));
 
   return (

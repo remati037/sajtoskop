@@ -72,10 +72,21 @@ export const PLANS: Record<PlanId, Plan> = {
 };
 
 /**
- * Podrazumevan plan. Poklapa se sa `profiles.plan default 'beta'` iz 0001 i
- * ostaje `beta` dok kapija pristupa (S19) ne odluči šta dobija nov nalog.
+ * Podrazumevan plan — i za nov nalog, i kao pad kad u bazi stoji vrednost koju
+ * kod ne poznaje.
+ *
+ * ‼️ NIJE `beta`, i to je odluka D1 (LANSIRANJE §1.1), zatvorena u S20.
+ *    Do migracije 0024 je ovde stajalo `beta`, uz `profiles.plan default 'beta'`
+ *    — a `beta_expires_at IS NULL` po §1.5 znači NEOGRANIČENO. Zajedno je to
+ *    značilo da svaka registracija otvara doživotan besplatan nalog, i da
+ *    nepoznata vrednost u koloni radi isto.
+ *
+ * `dopuna` je „korisnik bez pretplate": sa nula kredita u obe kase
+ * `stanjePristupa()` ga čita kao `zakljucan` i vodi na cenovnik, a čim kupi
+ * paket, `credits_topup > 0` ga vraća u pun pristup — bez ijedne izmene plana.
+ * Poklapa se sa `profiles.plan default 'dopuna'` iz 0024.
  */
-export const DEFAULT_PLAN: PlanId = "beta";
+export const DEFAULT_PLAN: PlanId = "dopuna";
 
 /** Nepoznat plan iz baze ne sme da sruši rutu — padni na podrazumevani. */
 export function planFor(id: string | null | undefined): Plan {
@@ -94,6 +105,17 @@ export function planFor(id: string | null | undefined): Plan {
  * komponente.
  */
 export const GRACE_DAYS = 30;
+
+/**
+ * Podrazumevana dužina bete u danima (LANSIRANJE §1.5, odluka P6).
+ *
+ * Broj kredita koje beta nalog dobija pri otvaranju NIJE ovde nego u
+ * `PLANS.beta.monthlyCredits` — to je isti podatak i ne sme da postoji dvaput.
+ *
+ * Oba su samo PREDLOG koji obrazac u konzoli popuni; admin sme da postavi drugi
+ * datum, „neograničeno" ili drugi broj kredita.
+ */
+export const BETA_DEFAULT_DAYS = 30;
 
 // ═══════════════════════════════════════════════════════════
 // PADDLE KATALOG
@@ -321,6 +343,31 @@ export function creditMonth(now: Date = new Date()): string {
   return `${get("year")}-${get("month")}`;
 }
 
+/**
+ * Kad stiže sledeća mesečna dodela — prvi dan narednog meseca, kao ISO datum.
+ *
+ * Postoji zbog S21: `/krediti` mora da uz kasu koja ISTIČE napiše TAČAN datum
+ * obnove, jer je „obnavlja se prvog u mesecu" rečenica koju korisnik čita 28.
+ * u mesecu i ne zna da li se odnosi na sutra ili na pet nedelja.
+ *
+ * Mesec se uzima iz `creditMonth()`, dakle po istom beogradskom kalendaru po
+ * kom `grant_monthly_credits` računa svoj ključ idempotencije — druga računica
+ * bi ispisala datum koji se ne poklapa sa dodelom.
+ *
+ * Vreme je `T12:00:00Z`, a ne ponoć, i to je jedina sitnica u ovoj funkciji:
+ * `formatDatum()` renderuje po vremenskoj zoni procesa, pa bi ponoć u UTC-u na
+ * mašini zapadno od Griniča ispala prethodni dan. Podne izdrži ±11 sati.
+ */
+export function sledecaDodelaKredita(now: Date = new Date()): string {
+  const delovi = creditMonth(now).split("-");
+  const godina = Number(delovi[0]);
+  const mesec = Number(delovi[1]);
+  const prelazak = mesec === 12;
+  const g = prelazak ? godina + 1 : godina;
+  const m = prelazak ? 1 : mesec + 1;
+  return `${g}-${String(m).padStart(2, "0")}-01T12:00:00.000Z`;
+}
+
 /** Pravilo 1 iz CLAUDE.md: Google podatak stariji od ovoga se ne servira. */
 export const GOOGLE_TTL_DAYS = 30;
 
@@ -430,4 +477,61 @@ export function dubinaZaRezultate(maxResults: number): Dubina {
 /** Nepoznata vrednost iz URL-a ili tela zahteva ne sme da sruši ekran. */
 export function dubinaIli(raw: unknown, rezerva: Dubina = PODRAZUMEVANA_DUBINA): Dubina {
   return DUBINE.find((d) => d === raw) ?? rezerva;
+}
+
+/**
+ * Šta je tačno kupljeno za dati `pri_`.
+ *
+ * Postoji da bi checkout (S18) i webhook (S18) grananje radili nad ISTIM
+ * spiskom. Ranije su postojale dve poluge — `planForPriceId` i
+ * `creditsForPriceId` — i svaki pozivalac je sam sklapao „ako nije plan, valjda
+ * je paket". To „valjda" je na novčanoj putanji: `pri_` iz tuđeg kataloga bi
+ * prošao kroz obe provere kao `null` i završio kao paket od `null` kredita.
+ *
+ * Zatvoren rezultat (`Kupovina | null`) tera pozivaoca da odbije nepoznat ID
+ * eksplicitno, umesto da mu se odsustvo grane provuče kao grana.
+ */
+export type Kupovina =
+  | { kind: "subscription"; plan: PaidPlanId; ciklus: Ciklus; credits: number }
+  | { kind: "pack"; paket: PaketId; credits: number };
+
+const CIKLUS_BY_PRICE_ID: Readonly<Record<string, Ciklus>> = Object.fromEntries(
+  Object.values(PLAN_PRICE_IDS).flatMap((ids) => [
+    [ids.month, "month" as Ciklus],
+    [ids.year, "year" as Ciklus],
+  ]),
+);
+
+const PAKET_BY_PRICE_ID: Readonly<Record<string, PaketId>> = Object.fromEntries(
+  (Object.entries(CREDIT_PACKS) as [PaketId, { credits: number; priceId: string }][]).map(
+    ([paket, p]) => [p.priceId, paket],
+  ),
+);
+
+/**
+ * `pri_` → šta se za njega dobija. `null` znači „nije iz našeg kataloga" i
+ * jedini ispravan odgovor na njega je odbijanje, ne podrazumevana vrednost.
+ *
+ * `credits` je za pretplatu MESEČNA dodela — ista i za godišnji ciklus, jer se
+ * godišnja pretplata naplaćuje jednom a krediti stižu svakog meseca. Godišnja
+ * obnova kredita zato NE ide iz ovog broja nego iz mesečne dodele
+ * (`grant_monthly_credits`, `creditMonth()` kao ključ idempotencije).
+ */
+export function kupovinaZaPriceId(priceId: string | null | undefined): Kupovina | null {
+  if (!priceId) return null;
+
+  const plan = PLAN_BY_PRICE_ID[priceId];
+  if (plan) {
+    return {
+      kind: "subscription",
+      plan,
+      ciklus: CIKLUS_BY_PRICE_ID[priceId] ?? "month",
+      credits: PLANS[plan].monthlyCredits,
+    };
+  }
+
+  const paket = PAKET_BY_PRICE_ID[priceId];
+  if (paket) return { kind: "pack", paket, credits: CREDIT_PACKS[paket].credits };
+
+  return null;
 }
