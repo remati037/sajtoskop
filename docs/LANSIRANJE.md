@@ -1265,6 +1265,27 @@ Ažuriraj docs/SESIJE.md i štikliraj S26.
 | **R7** | **Tunel.** `brew install hookdeck/hookdeck/hookdeck`, pa `hookdeck listen 3000 paddle-local --path /api/billing/webhook`. Zapiši javni URL. (`ngrok http 3000` radi isto.) | terminal |
 | **R8** | **Notification destination.** URL iz R7. **Usage type = „Platform and simulation"** (`traffic_source: all`) — bez toga simulator ne radi. Događaji: `transaction.completed`, `subscription.created`, `subscription.updated`, `subscription.canceled`, `subscription.past_due`, `adjustment.created`. **Sačuvaj `pdl_ntfset_…` odmah — ne može se pročitati drugi put.** | Paddle sandbox |
 
+
+> ‼️ **Dve zamke u tunelu, obe otkrivene 26.8. na pravoj kupovini** — koštale su
+> dva neisporučena paketa kredita:
+>
+> 1. **Hookdeck destination mora da bude tipa `CLI`, ne `HTTP`.** `HTTP`
+>    destination sa `localhost` adresom Hookdeck-ov oblak ne može da dohvati, a
+>    događaj svejedno stoji kao **„Accepted"** — Paddle prijavi `delivered`,
+>    tunel prijavi primljeno, a u `billing_events` nema ničega. Nijedan od tri
+>    sistema ne prijavi grešku.
+> 2. **Paddle SDK odbija potpis stariji od 5 sekundi**
+>    (`WebhooksValidator.MAX_VALID_TIME_DIFFERENCE`). Zato Hookdeck-ovo dugme
+>    **„Retry" nikad ne radi** — šalje sačuvan zahtev sa originalnim zaglavljem.
+>    Ponavljanje ide iz Paddle-a (`notifications.replay`, potpisuje iznova) ili
+>    kroz `pnpm paddle:replay`.
+>
+> **Tunel nije uslov za rad na naplati.** `pnpm paddle:replay --last` uzima
+> pravu `completed` transakciju iz Paddle-a, potpisuje je pravom tajnom i šalje
+> na lokalnu rutu — dakle ceo kod naplate se testira bez tunela. Tunel treba
+> samo da se dokaže isporuka od Paddle-a, a nje u produkciji ionako nema
+> (Paddle gađa pravi domen direktno).
+
 ### Blok 3 — zaostalo iz ranijih faza, uradi ovih dana (~1 h)
 
 Skupljeno iz pet `‼️ Ručni korak` sekcija razasutih po `docs/SESIJE.md`. **Nijedan nikad
