@@ -17,6 +17,7 @@ import { ArrowRight, Lock } from "lucide-react";
 import { requireSession } from "@/lib/auth";
 import { citajPristup } from "@/lib/pristup";
 import { formatDatum } from "@/lib/ui-tekst";
+import { LANDING_URL } from "@/lib/veze";
 import { Button } from "@/components/ui/button";
 import { PrekidacTemeDugme } from "@/components/prekidac-teme";
 import { ZnakSaImenom } from "@/components/znak";
@@ -47,9 +48,12 @@ export default async function Page() {
       <div aria-hidden className="pozadina-aure pointer-events-none absolute inset-0 h-[32rem]" />
 
       <header className="relative mx-auto flex h-[68px] w-full max-w-[1160px] items-center justify-between px-5 sm:px-7 lg:px-8">
-        <Link href="/cenovnik" className="rounded-lg">
+        {/* Do S24 je logo vodio na `/cenovnik` — jedini izlaz sa ove strane.
+            Sada vodi na landing (§1.7); izlaz ka planovima je dugme ispod, a
+            ono je i dalje jedino primarno dugme na ekranu. */}
+        <a href={LANDING_URL} className="rounded-lg">
           <ZnakSaImenom imeKlase="text-base" />
-        </Link>
+        </a>
         <PrekidacTemeDugme />
       </header>
 

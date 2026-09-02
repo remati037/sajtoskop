@@ -21,6 +21,7 @@
 
 import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
+import { LANDING_URL } from "@/lib/veze";
 import { Futer, KONTAKT_MEJL } from "@/components/futer";
 import { PrekidacTemeDugme } from "@/components/prekidac-teme";
 import { ZnakSaImenom } from "@/components/znak";
@@ -160,9 +161,11 @@ export function PravniOkvir({
       <div aria-hidden className="pozadina-aure pointer-events-none absolute inset-0 h-[28rem]" />
 
       <header className="relative mx-auto flex h-[68px] w-full max-w-[1160px] items-center justify-between px-5 sm:px-7 lg:px-8">
-        <Link href="/" className="rounded-lg">
+        {/* Logo vodi na landing (S24, §1.7). Paddle recenzent pravne strane
+            otvara sa prodajne strane i mora da ima put nazad na nju. */}
+        <a href={LANDING_URL} className="rounded-lg">
           <ZnakSaImenom imeKlase="text-base" />
-        </Link>
+        </a>
         <PrekidacTemeDugme />
       </header>
 

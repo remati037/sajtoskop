@@ -18,7 +18,10 @@
 // Pokreće se rukom, jednom u nekoliko nedelja:
 //
 //   curl -X POST -H "x-cron-secret: $CRON_SECRET" \
-//        https://sajtoskop.com/api/cron/utisci-slike
+//        https://app.sajtoskop.com/api/cron/utisci-slike
+//
+// ‼️ Od S24 je aplikacija na `app.` poddomenu. Goli domen je LANDING i ovu rutu
+//    nema — komanda protiv njega vraća tuđi `404` i izgleda kao da je cron pao.
 //
 // Posao je idempotentan i bezbedan za ponavljanje: drugi poziv za redom nema šta
 // da obriše. Kad projekat ikad pređe na Pro, dodaje se red u `vercel.json` i

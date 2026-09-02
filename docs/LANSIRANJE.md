@@ -563,7 +563,7 @@ prestao da bude onboarding i postao reklama.
 | ~~Z3~~ ☑ | **Rešeno u S16.** `admin_adjust_credits(p_kind => 'povracaj')` sme u minus; obična korekcija i dalje ne sme. |
 | ~~V1~~ | ~~**F8 nije rađen uopšte.**~~ — **delimično rešeno.** **Landing je napravljen van repoa**, na `sajtoskop.com` (27.8., §1.7); **pravni tekstovi su isporučeni u S22**. Ostaju kanarinci i merenje (**S25**) i onboarding, koji je od 27.8. zasebna faza — **S27** i **S28** (§1.8). |
 | ~~V2~~ ☑ | **Rešeno u S22.** `components/futer.tsx` stoji na `/`, `/cenovnik`, `/welcome` i tri pravne strane; u grupi `(app)` ga namerno nema. |
-| V9 | **Aplikacija još misli da je sama na domenu.** Logo vodi na `/`, nema linka nazad na landing, a `/cenovnik` ne ume da primi `?plan=` sa prodajne strane — **S24**. |
+| ~~V9~~ ☑ | **Rešeno u S24.** Domen landinga živi u `apps/web/src/lib/veze.ts` (`NEXT_PUBLIC_LANDING_URL`) i nigde u JSX-u — čuva `apps/web/test/veze.ts`. Logo na svim javnim stranama i u futeru vodi na landing, futer ima stavku „Početna", a `/` diskretan link nazad. `/cenovnik` prima `?plan=`, `?ciklus=` i `?paket=`, nepoznatu vrednost ignoriše bez greške, a gostu nosi izbor kroz registraciju (`?nazad=`). |
 | V3 | **`CRON_SECRET` nije u `.env`** → sve tri `/api/cron/*` vraćaju `404`. |
 | V4 | **Sentry ne postoji.** Pad webhooka je tih — korisnik misli da je platio. |
 | V5 | **`podrska@sajtoskop.com`** stoji na `/cenovnik` i `/welcome`; nije provereno da postoji. |
@@ -658,14 +658,14 @@ odgovor knjigovođe). Ne blokira nijednu sesiju — blokira **produkciju**, ne r
 | ~~**S21**~~ | Cenovnik sa paketima, stanje pretplate, portal, linkovi | S18, S19 | 1 dan | ☑ |
 | ~~**S22**~~ | Pravni tekstovi + futer | — | 0,5 dana | ☑ |
 | ~~**S23**~~ | ~~F8 — kopi landinga~~ | — | — | ⊘ otpalo (§1.7) |
-| **S24** | Preokret na `app.` poddomen + veze ka landingu | S22 | 0,5 dana | ☐ |
+| ~~**S24**~~ | Preokret na `app.` poddomen + veze ka landingu | S22 | 0,5 dana | ☑ |
 | **S25** | F8 — kanarinci + pet metrika | — | 0,5 dana | ☐ |
 | **S26** | Sentry + testovi naplate + sandbox prolaz | S18, S19 | 1 dan | ☐ |
 | **S27** | Onboarding 1 — čarobnjak, prvi rezultat, besplatno prvo otključavanje, traka napretka, migracija `0025` | S24 | 1,5 dana | ☐ |
 | **S28** | Onboarding 2 — vođen prolaz, prazna stanja, vodič na zahtev | S27 | 1 dan | ☐ |
 | **R9–R38** | Ostali ručni koraci iz §7 — zaostalo iz ranijih faza, knjigovođa, domen, operativa | razno | ~3 dana | ☐ |
 
-**Ukupno: ~12,5 dana koda + ~3 dana ručnog rada.** Od toga je isporučeno S16–S22.
+**Ukupno: ~12,5 dana koda + ~3 dana ručnog rada.** Od toga je isporučeno S16–S22 i S24.
 
 **Onboarding je najveći preostali blok koda** i to je namerno: S27 i S28 su jedini deo plana
 koji dodiruje brojku od koje sve zavisi — koliko ljudi koji otvore nalog dođe do prve poruke
@@ -1681,12 +1681,12 @@ nije potvrđen.**
 | **R27** | **Prolaz kroz životni ciklus — rukom.** Testni nalog: otvori betu iz konzole → radi; postavi rok u prošlost → grace baner, izvoz prolazi, skeniranje ne; pomeri rok 31 dan unazad → zaključan, vodi na cenovnik; kupi paket → ponovo pun pristup. | 45 min |
 | **R28** | **Puna vizuelna provera** po `docs/PROVERA-VIZUELNA.md` + novi ekrani: `/cenovnik` sa paketima na 390 px, Paddle overlay **u svetloj temi**, `/welcome`, tri pravne strane, landing, blok pretplate na `/krediti`, grace baner, modal. Obe teme svuda. | 2 h |
 | **R32** | **Clerk: instanca na `app.sajtoskop.com`.** ‼️ Prepisano 27.8. — stara verzija je tražila `/prijava` i `/registracija`, što je bilo vezano za P5. Sada: produkcijski domen instance je **poddomen**, sign-in i sign-up URL ostaju `/` (tamo forma i jeste), a `user.created` / `user.updated` / `user.deleted` webhook destination mora da pokazuje na **`app.` URL**. Ako domen ostane goli, prijava sa landinga vodi u krug ili u tuđ origin. | 30 min |
-| **R33** | **Vercel: dodaj domen `app.sajtoskop.com`** i postavi `NEXT_PUBLIC_LANDING_URL=https://sajtoskop.com`. Proveri da goli domen **ne** pokazuje na Vercel projekat aplikacije — tamo je landing. | 20 min |
+| **R33** | **Vercel: dodaj domen `app.sajtoskop.com`** i postavi `NEXT_PUBLIC_LANDING_URL=https://www.sajtoskop.com`. ‼️ **Ispravljeno u S24: `www` oblik, ne goli.** §1.7 to i traži, ali su ovaj red i prompt sesije pisali goli domen — a goli odgovara `308` i preusmerava na `www` (provereno ponovo 2.9.), pa bi svaki klik iz aplikacije plaćao suvišan skok. Isti oblik je i podrazumevana vrednost u `apps/web/src/lib/veze.ts`, pa nepostavljen env nije kvar. Proveri da goli domen **ne** pokazuje na Vercel projekat aplikacije — tamo je landing. | 20 min |
 | **R34** | **Paddle: default payment link na `app.sajtoskop.com`.** Mora da bude verifikovan i odobren domen, inače naplata pada (§9). ‼️ Ispravka 27.8.: **`successUrl` NE traži ništa** — sklapa se u pregledaču iz `window.location.origin` (`cenovnik-ekran.tsx`), pa je već `app.sajtoskop.com/welcome`. | 10 min |
 | **R35** | **Provera da se cene na landingu poklapaju sa Paddle katalogom.** Iznosi u evrima stoje na dva mesta (§1.7) i to se ne može ukloniti. Radi se uz **svaku** izmenu cene i **obavezno** posle prelaska sandbox → produkcija. | 10 min |
 | **R36** | **Linkovi sa landinga** — gotov prompt za Claude Code u landing repou stoji u `docs/prompt-landing-veze.md`. Ukratko: Uslovi, Privatnost i Povraćaj na `app.sajtoskop.com/...` (Paddle ih traži vidljive, R21), a svaki CTA za plan nosi **slug**, ne `pri_` ID — `app.sajtoskop.com/cenovnik?plan=pro&ciklus=godisnje`. | 30 min |
 | **R38** | **DNS zapis za `app.` poddomen** po uputstvu Vercela, pa sačekaj propagaciju pre R32 i R34 — Clerk i Paddle verifikuju domen koji mora već da odgovara. | 15 min + čekanje |
-| **R29** | **`/api/cron/utisci-slike` rukom** — nije zakazan (Hobby ima dva slota, oba zauzeta): `curl -X POST -H "x-cron-secret: $CRON_SECRET" https://sajtoskop.com/api/cron/utisci-slike` | 2 min |
+| **R29** | **`/api/cron/utisci-slike` rukom** — nije zakazan (Hobby ima dva slota, oba zauzeta): `curl -X POST -H "x-cron-secret: $CRON_SECRET" https://app.sajtoskop.com/api/cron/utisci-slike` ‼️ **Poddomen, ispravljeno u S24** — goli domen je landing i tu rutu nema, pa bi komanda vratila tuđ `404` i izgledala kao pao cron. | 2 min |
 
 ### Blok 6 — otvaranje
 

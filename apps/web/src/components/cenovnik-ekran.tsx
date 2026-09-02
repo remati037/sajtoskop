@@ -33,8 +33,24 @@
 //     povratkom ovamo.
 //   · svako dugme ima svoje stanje čekanja: između klika i otvaranja modala
 //     stoji jedan mrežni poziv ka nama, pa ekran ne sme da izgleda mrtvo.
+//
+// ── šta je promenio S24 ─────────────────────────────────────
+// Ekran prima NAMERU sa landinga (`?plan=`, `?ciklus=`, `?paket=` — §1.7).
+// Posledice:
+//
+//   · prekidač kreće od ciklusa iz linka, ne uvek od „Mesečno";
+//   · izabran plan je onaj koji nosi akcenat, primarno dugme i bedž „Tvoj
+//     izbor" — a ne više uvek Pro. Jedan akcenat po ekranu ostaje (§7.1);
+//   · `?paket=` doskroluje do sekcije paketa i istakne baš taj paket;
+//   · put za gosta nosi njegov izbor: `?nazad=/cenovnik?plan=pro&ciklus=…`,
+//     pa se posle registracije ne bira ponovo.
+//
+// ‼️ Checkout se NAMERNO ne otvara sam na osnovu `?plan=`. Modal za plaćanje
+//    koji iskoči bez klika je i UX koji se ne traži i Paddle transakcija po
+//    svakom učitavanju strane — uključujući osvežavanje, „nazad" iz istorije i
+//    svakog bota koji otvori link. Namera preselektuje; klik ostaje čovekov.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   initializePaddle,
   type Paddle,
@@ -54,6 +70,13 @@ import {
   type Paket,
   type Tier,
 } from "@/lib/cenovnik";
+import type { PaketId } from "@sajtoskop/shared";
+import {
+  naRegistraciju,
+  putanjaZaPaket,
+  putanjaZaPlan,
+  type Namera,
+} from "@/lib/cenovnik-namera";
 import { paddleKonfig } from "@/lib/paddle-okruzenje";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
@@ -65,18 +88,19 @@ type Cene = Record<string, string>;
 type Stanje = "ucitavanje" | "spremno" | "greska";
 
 /**
- * Gde gost ide sa dugmeta „Uzmi plan".
+ * Gde gost ide sa dugmeta „Uzmi plan" kad nemamo ništa konkretnije.
  *
- * `/registracija` je redirekcija na `/?nalog=nov`, pa se ide direktno na cilj;
- * `nazad` je putanja na koju Clerk vraća posle ulaska. Vrednost se na serveru
- * proverava (mora biti interna putanja) — v. `app/page.tsx`.
+ * Od S24 se svaki klik vraća na SVOJ izbor (v. `naRegistraciju()` iz
+ * `lib/cenovnik-namera.ts`); ovo je rezerva za slučaj kad se sesija izgubi pre
+ * nego što se zna šta je kliknuto.
  */
-const NA_REGISTRACIJU = "/?nalog=nov&nazad=%2Fcenovnik";
+const NA_REGISTRACIJU = naRegistraciju("/cenovnik");
 
 export function CenovnikEkran({
   drzava,
   prijavljen,
   smePaket,
+  namera,
 }: {
   /**
    * ISO 3166-1 alpha-2, izveden na serveru iz `x-vercel-ip-country`.
@@ -97,9 +121,18 @@ export function CenovnikEkran({
    * nije kapija, pa provera koja stvarno drži stoji u ruti.
    */
   smePaket: boolean;
+  /**
+   * Šta je posetilac izabrao NA LANDINGU (`?plan=`, `?ciklus=`, `?paket=`).
+   *
+   * Pročitano na serveru i već očišćeno: nepoznata vrednost je stigla dovde kao
+   * `null`, pa ovde nema nijedne provere ispravnosti (`lib/cenovnik-namera-schema.ts`).
+   */
+  namera: Namera;
 }) {
   const { tema } = useTema();
-  const [ciklus, setCiklus] = useState<Ciklus>("month");
+  // Ciklus iz linka je POČETNA vrednost, ne zaključana: prekidač ostaje živ i
+  // čovek koji je sa landinga stigao na „godišnje" sme da se predomisli.
+  const [ciklus, setCiklus] = useState<Ciklus>(namera.ciklus ?? "month");
   const [paddle, setPaddle] = useState<Paddle | null>(null);
   const [cene, setCene] = useState<Cene>({});
   const [stanje, setStanje] = useState<Stanje>("ucitavanje");
@@ -193,13 +226,16 @@ export function CenovnikEkran({
   // kredita. Razliku zna server — `/api/billing/checkout` je izvodi iz kataloga
   // (`kupovinaZaPriceId`), a ne iz onoga što je pregledač poslao.
   const otvoriCheckout = useCallback(
-    async (priceId: string) => {
+    async (priceId: string, nazad?: string) => {
       if (!paddle || uToku) return;
 
       // Gost: nema `user_id`, pa nema ni čime da se poveže kupovina. Umesto
       // checkout-a koji bi primio novac bez naloga — registracija, pa nazad.
+      //
+      // Od S24 `nazad` nosi TAČNO ono što je kliknuto, pa se posle registracije
+      // ne bira ponovo. Putanju i dalje proverava server (`internaPutanja()`).
       if (!prijavljen) {
-        window.location.href = NA_REGISTRACIJU;
+        window.location.href = nazad ? naRegistraciju(nazad) : NA_REGISTRACIJU;
         return;
       }
 
@@ -215,7 +251,7 @@ export function CenovnikEkran({
 
         if (odgovor.status === 401) {
           // Sesija je istekla između učitavanja strane i klika.
-          window.location.href = NA_REGISTRACIJU;
+          window.location.href = nazad ? naRegistraciju(nazad) : NA_REGISTRACIJU;
           return;
         }
 
@@ -300,7 +336,13 @@ export function CenovnikEkran({
             spremno={spremno}
             ceka={uToku === tier.priceId[ciklus]}
             zakljucano={uToku !== null}
-            naKlik={() => void otvoriCheckout(tier.priceId[ciklus])}
+            // Namera sa landinga pomera akcenat: izabran plan dobija primarno
+            // dugme i bedž, a Pro ostaje običan. Bez namere sve je kao pre.
+            izabran={namera.plan === tier.id}
+            istaknut={namera.plan ? namera.plan === tier.id : tier.featured === true}
+            naKlik={() =>
+              void otvoriCheckout(tier.priceId[ciklus], putanjaZaPlan(tier.id, ciklus))
+            }
           />
         ))}
       </div>
@@ -311,7 +353,8 @@ export function CenovnikEkran({
         uToku={uToku}
         smePaket={smePaket}
         prijavljen={prijavljen}
-        naKlik={(priceId) => void otvoriCheckout(priceId)}
+        izabran={namera.paket}
+        naKlik={(priceId, nazad) => void otvoriCheckout(priceId, nazad)}
       />
 
       <p className="mt-8 text-center text-xs text-fg-muted">
@@ -347,6 +390,7 @@ function SekcijaPaketa({
   uToku,
   smePaket,
   prijavljen,
+  izabran,
   naKlik,
 }: {
   cene: Cene;
@@ -354,14 +398,27 @@ function SekcijaPaketa({
   uToku: string | null;
   smePaket: boolean;
   prijavljen: boolean;
-  naKlik: (priceId: string) => void;
+  /** Paket iz `?paket=` na landingu, ili `null`. */
+  izabran: PaketId | null;
+  naKlik: (priceId: string, nazad: string) => void;
 }) {
+  const okvir = useRef<HTMLElement | null>(null);
+
+  // `?paket=150` nema `#paketi` u sebi kad se sklopi bez sidra (npr. sa starijeg
+  // dugmeta na landingu), pa sekcija mora sama da se dovede u vidno polje —
+  // inače čovek stigne na vrh cenovnika i ne vidi ono zbog čega je došao.
+  // Jednom, i samo ako pregledač nije već odskrolovao po sidru.
+  useEffect(() => {
+    if (!izabran || window.location.hash === "#paketi") return;
+    okvir.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [izabran]);
+
   return (
     // `id` je odredište linkova `/cenovnik#paketi` iz modala pristupa i sa
     // strane `/zakljucano` — oni postoje od S19 i do S21 nisu vodili nikuda.
     // `scroll-mt` postoji jer strana ima lepljivo zaglavlje na `/` putanjama;
     // bez njega sidro završi tačno ispod njega.
-    <section id="paketi" className="mt-14 scroll-mt-24 sm:mt-16">
+    <section id="paketi" ref={okvir} className="mt-14 scroll-mt-24 sm:mt-16">
       <div className="rounded-2xl border border-border bg-bg-subtle p-6 sm:p-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="max-w-xl">
@@ -399,7 +456,8 @@ function SekcijaPaketa({
               zakljucano={uToku !== null}
               smePaket={smePaket}
               prijavljen={prijavljen}
-              naKlik={() => naKlik(paket.priceId)}
+              izabran={izabran === paket.id}
+              naKlik={() => naKlik(paket.priceId, putanjaZaPaket(paket.id))}
             />
           ))}
         </div>
@@ -436,6 +494,7 @@ function KarticaPaketa({
   zakljucano,
   smePaket,
   prijavljen,
+  izabran,
   naKlik,
 }: {
   paket: Paket;
@@ -445,14 +504,26 @@ function KarticaPaketa({
   zakljucano: boolean;
   smePaket: boolean;
   prijavljen: boolean;
+  /** Ovaj paket je došao iz `?paket=` sa landinga. */
+  izabran: boolean;
   naKlik: () => void;
 }) {
   return (
     // Bez `shadow`: kartica stoji UNUTAR panela, a §7.2 traži jednu senku po
     // elementu i zabranjuje kartice u karticama. Razdvaja je podloga i linija.
-    <div className="flex flex-col rounded-xl border border-border bg-bg-elev p-5">
+    // Izbor sa landinga se označava LINIJOM, ne drugom podlogom — akcenat na
+    // ekranu ostaje jedan i on je gore, na dugmetu istaknutog plana (§7.1).
+    <div
+      className={cn(
+        "flex flex-col rounded-xl border bg-bg-elev p-5",
+        izabran ? "border-border-accent" : "border-border",
+      )}
+    >
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-semibold">{paket.name}</h3>
+        <h3 className="text-sm font-semibold">
+          {paket.name}
+          {izabran && <span className="sr-only"> — tvoj izbor sa sajta</span>}
+        </h3>
         <span className="inline-flex items-center gap-1.5 rounded-md bg-accent-wash px-2 py-1 text-xs font-medium text-accent-text">
           <Coins className="h-3.5 w-3.5" aria-hidden />
           <span className="num">{paket.credits}</span> kredita
@@ -584,6 +655,8 @@ function KarticaPlana({
   spremno,
   ceka,
   zakljucano,
+  izabran,
+  istaknut,
   naKlik,
 }: {
   tier: Tier;
@@ -594,20 +667,44 @@ function KarticaPlana({
   ceka: boolean;
   /** Neko dugme čeka — ostala se gase da ne nastanu dve transakcije. */
   zakljucano: boolean;
+  /** Ovaj plan je stigao iz `?plan=` sa landinga. */
+  izabran: boolean;
+  /**
+   * Ovaj plan nosi akcenat i primarno dugme.
+   *
+   * Bez namere je to `tier.featured` (Pro). Sa namerom je to IZABRAN plan —
+   * §7.1 dozvoljava jedno primarno dugme po ekranu, a ono mora da bude ono
+   * zbog kog je čovek došao, ne ono koje mi najviše prodajemo.
+   */
+  istaknut: boolean;
   naKlik: () => void;
 }) {
+  // Bedž je jedan po kartici i ne mogu oba: kad je plan izabran sa landinga,
+  // „Tvoj izbor" ima prednost nad „Najčešći izbor" — potvrda onoga što je čovek
+  // već uradio je korisnija od naše preporuke.
+  const oznaka = izabran ? "Tvoj izbor" : tier.featured ? "Najčešći izbor" : null;
+
   return (
     <div
       className={cn(
         "relative flex h-full flex-col rounded-2xl border bg-bg-elev p-6 shadow-card sm:p-7",
         // Istaknut plan se izdvaja linijom i blagim podizanjem, ne drugom bojom
         // podloge — §7.1: jedan akcenat, i on je rezervisan za jedno dugme.
-        tier.featured ? "border-border-accent lg:-mt-3 lg:pb-9" : "border-border",
+        istaknut ? "border-border-accent lg:-mt-3 lg:pb-9" : "border-border",
       )}
     >
-      {tier.featured && (
-        <span className="absolute -top-2.5 left-6 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-accent-ink">
-          Najčešći izbor
+      {oznaka && (
+        <span
+          className={cn(
+            "absolute -top-2.5 left-6 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
+            // Bedž neistaknutog plana (Pro kad je izabran neko drugi) ne sme da
+            // nosi punu zelenu podlogu — to bi bio drugi akcenat na ekranu.
+            istaknut
+              ? "bg-accent text-accent-ink"
+              : "border border-border bg-bg-elev text-fg-muted",
+          )}
+        >
+          {oznaka}
         </span>
       )}
 
@@ -634,7 +731,7 @@ function KarticaPlana({
       </div>
 
       <Button
-        variant={tier.featured ? "primary" : "secondary"}
+        variant={istaknut ? "primary" : "secondary"}
         size="lg"
         className="mt-6 w-full"
         disabled={!spremno || !cena || zakljucano}

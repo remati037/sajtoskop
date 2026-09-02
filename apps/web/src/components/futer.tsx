@@ -13,12 +13,18 @@
 // `/privatnost`, `/povracaj`.
 
 import Link from "next/link";
+import { LANDING_URL } from "@/lib/veze";
 import { ZnakSaImenom } from "@/components/znak";
 
 /** Adresa podrške. Ista je i u `/welcome` i u poruci greške na `/cenovnik`. */
 export const KONTAKT_MEJL = "podrska@sajtoskop.com";
 
-const LINKOVI: { href: string; naziv: string }[] = [
+// „Početna" je JEDINA stavka koja izlazi sa poddomena — ostalo su strane
+// aplikacije. Zato je `href` apsolutan i renderuje se kao `<a>`, ne `<Link>`:
+// `next/link` prefetch-uje interne rute, a landing je drugi origin i njega ne
+// prefetch-uje niti sme.
+const LINKOVI: { href: string; naziv: string; spolja?: true }[] = [
+  { href: LANDING_URL, naziv: "Početna", spolja: true },
   { href: "/cenovnik", naziv: "Cenovnik" },
   { href: "/uslovi", naziv: "Uslovi korišćenja" },
   { href: "/privatnost", naziv: "Politika privatnosti" },
@@ -36,9 +42,13 @@ export function Futer({ className }: { className?: string }) {
       <div className="mx-auto w-full max-w-[1160px] px-5 py-9 sm:px-7 lg:px-8">
         <div className="flex flex-col gap-7 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
-            <Link href="/" className="inline-flex rounded-lg">
+            {/* Od S24 logo vodi na LANDING, ne na `/`. Na poddomenu je `/` ekran
+                za prijavu, a logo koji sa cenovnika vodi u formu za prijavu je
+                ćorsokak za nekoga ko je došao sa prodajne strane da čita cene
+                (`docs/LANSIRANJE.md` §1.7). */}
+            <a href={LANDING_URL} className="inline-flex rounded-lg">
               <ZnakSaImenom />
-            </Link>
+            </a>
             <p className="mt-2.5 max-w-xs text-xs leading-relaxed text-fg-muted">
               Biznisi u Srbiji kojima sajt ne valja — ili ga uopšte nema.
             </p>
@@ -47,18 +57,28 @@ export function Futer({ className }: { className?: string }) {
           {/* Kolone na telefonu ostaju u jednom redu koji se prelama: pet
               linkova ne traži zaglavlja sekcija ni tri kolone. */}
           <nav
-            aria-label="Pravno i cene"
+            aria-label="Početna, cene i pravno"
             className="flex flex-wrap gap-x-6 gap-y-2.5 text-sm md:justify-end"
           >
-            {LINKOVI.map(({ href, naziv }) => (
-              <Link
-                key={href}
-                href={href}
-                className="text-fg-muted transition-colors hover:text-fg"
-              >
-                {naziv}
-              </Link>
-            ))}
+            {LINKOVI.map(({ href, naziv, spolja }) =>
+              spolja ? (
+                <a
+                  key={href}
+                  href={href}
+                  className="text-fg-muted transition-colors hover:text-fg"
+                >
+                  {naziv}
+                </a>
+              ) : (
+                <Link
+                  key={href}
+                  href={href}
+                  className="text-fg-muted transition-colors hover:text-fg"
+                >
+                  {naziv}
+                </Link>
+              ),
+            )}
             <a
               href={`mailto:${KONTAKT_MEJL}`}
               className="text-fg-muted transition-colors hover:text-fg"

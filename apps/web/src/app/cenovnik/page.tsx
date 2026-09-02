@@ -15,6 +15,8 @@ import { headers } from "next/headers";
 import { smeDaKupiPaket } from "@sajtoskop/shared";
 import { getCurrentUserId } from "@/lib/auth";
 import { citajPristup } from "@/lib/pristup";
+import { citajNameru } from "@/lib/cenovnik-namera-schema";
+import { LANDING_URL } from "@/lib/veze";
 import { CenovnikEkran } from "@/components/cenovnik-ekran";
 import { Futer } from "@/components/futer";
 import { PrekidacTemeDugme } from "@/components/prekidac-teme";
@@ -47,8 +49,20 @@ function drzavaIzZaglavlja(vrednost: string | null): string | null {
   return kod;
 }
 
-export default async function Page() {
-  const [zaglavlja, userId, { pristup }] = await Promise.all([
+export default async function Page({
+  searchParams,
+}: {
+  /**
+   * Namera sa landinga: `?plan=`, `?ciklus=`, `?paket=` (§1.7).
+   *
+   * ‼️ Ništa odavde se ne veruje i ništa ne može da obori stranu — v.
+   *    `lib/cenovnik-namera.ts`. Nepoznata vrednost se ponaša kao da je nije
+   *    bilo, jer je ovo javan link sa tuđe strane, ne API.
+   */
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [upit, zaglavlja, userId, { pristup }] = await Promise.all([
+    searchParams,
     headers(),
     // `getCurrentUserId()`, ne `currentUser()`: treba nam samo POSTOJANJE sesije,
     // a `currentUser()` za to ide na Clerk API. Mejl se od S18 nigde ne koristi
@@ -68,6 +82,7 @@ export default async function Page() {
 
   const drzava = drzavaIzZaglavlja(zaglavlja.get("x-vercel-ip-country"));
   const prijavljen = userId !== null;
+  const namera = citajNameru(upit);
 
   return (
     // `flex flex-col` + `flex-1` na `<main>`: bez toga futer stoji odmah ispod
@@ -76,9 +91,11 @@ export default async function Page() {
       <div aria-hidden className="pozadina-aure pointer-events-none absolute inset-0 h-[32rem]" />
 
       <header className="relative mx-auto flex h-[68px] w-full max-w-[1160px] items-center justify-between px-5 sm:px-7 lg:px-8">
-        <Link href="/" className="rounded-lg">
+        {/* Logo vodi na landing (S24, §1.7) — posetilac koji je došao sa
+            prodajne strane očekuje nazad na nju, ne u formu za prijavu. */}
+        <a href={LANDING_URL} className="rounded-lg">
           <ZnakSaImenom imeKlase="text-base" />
-        </Link>
+        </a>
         <div className="flex items-center gap-2">
           <PrekidacTemeDugme />
           <Link
@@ -110,6 +127,7 @@ export default async function Page() {
             drzava={drzava}
             prijavljen={prijavljen}
             smePaket={smeDaKupiPaket(pristup ?? null)}
+            namera={namera}
           />
         </div>
       </main>

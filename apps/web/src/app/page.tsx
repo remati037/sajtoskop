@@ -2,17 +2,25 @@
 // Početna strana app-a JESTE ulaz u nalog — prijava ili registracija, sa
 // prekidačem između njih.
 //
-// Marketinški landing (hero, brojke iz seed izveštaja, FAQ) živi na
-// `sajtoskop.com` i radi se u F8. Držati privremenu verziju i ovde značilo bi
+// Marketinški landing (hero, brojke iz seed izveštaja, FAQ) živi na prodajnom
+// domenu, VAN ovog repozitorijuma. Držati privremenu verziju i ovde značilo bi
 // dva izvora istine za istu kopiju, pa je ovde nema.
+//
+// ── S24: ovo je poddomen, ne ceo sajt ──────────────────────
+// Aplikacija stoji na `app.` poddomenu, a prodajna strana na golom domenu
+// (`docs/LANSIRANJE.md` §1.7). Ova strana je zato jedini ekran koji nije
+// dostupan sa landinga preko loga, pa mora sama da ponudi put nazad — i logo i
+// jedan diskretan link ispod forme. Bez toga je forma za prijavu ćorsokak za
+// nekoga ko je kliknuo „Prijavi se" iz radoznalosti.
 //
 // Raspored: levo brend i jedna rečenica šta alat radi, desno forma. Na telefonu
 // ostaje samo desna kolona sa znakom iznad forme.
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Filter, MessageSquareText, Phone } from "lucide-react";
+import { ArrowLeft, Filter, MessageSquareText, Phone } from "lucide-react";
 import { getCurrentUserId } from "@/lib/auth";
+import { LANDING_URL } from "@/lib/veze";
 import { AuthEkran, type Rezim } from "@/components/auth-ekran";
 import { Futer } from "@/components/futer";
 import { PrekidacTemeDugme } from "@/components/prekidac-teme";
@@ -83,7 +91,9 @@ export default async function Page({
         <aside className="relative hidden flex-col justify-between overflow-hidden border-r border-border bg-bg-subtle/60 p-10 lg:flex xl:p-14">
           <div aria-hidden className="pozadina-aure pointer-events-none absolute inset-0" />
 
-          <ZnakSaImenom className="relative" imeKlase="text-base" />
+          <a href={LANDING_URL} className="relative inline-flex rounded-lg">
+            <ZnakSaImenom imeKlase="text-base" />
+          </a>
 
           <div className="relative max-w-md">
             <h1 className="text-3xl font-semibold leading-[1.12] tracking-tight xl:text-4xl">
@@ -128,7 +138,9 @@ export default async function Page({
             className="pozadina-aure pointer-events-none absolute inset-0 opacity-70 lg:hidden"
           />
 
-          <ZnakSaImenom className="relative lg:hidden" />
+          <a href={LANDING_URL} className="relative inline-flex rounded-lg lg:hidden">
+            <ZnakSaImenom />
+          </a>
 
           <AuthEkran key={pocetni} pocetni={pocetni} {...(posle ? { posle } : {})} />
 
@@ -152,6 +164,17 @@ export default async function Page({
             </Link>
             .
           </p>
+
+          {/* Put nazad na prodajnu stranu (S24). Diskretno i bez akcenta: ovo
+              je izlaz, a jedino primarno dugme na ekranu je ono u formi. Domen
+              se ne ispisuje — stoji u `lib/veze.ts` i menja se kroz env. */}
+          <a
+            href={LANDING_URL}
+            className="relative inline-flex items-center gap-1.5 rounded-lg text-xs text-fg-muted transition-colors hover:text-fg"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+            Nazad na početnu
+          </a>
         </main>
       </div>
 

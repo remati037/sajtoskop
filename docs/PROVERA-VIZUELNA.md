@@ -399,7 +399,7 @@
 - [ ] Stoji na `/`, `/cenovnik`, `/welcome` i sve tri pravne strane.
 - [ ] **Ne postoji nigde u grupi `(app)`** — proveri `/pretraga`, `/pipeline`, `/lista`,
       `/krediti`, `/dashboard`, `/utisci`.
-- [ ] Pet linkova plus kontakt; svi rade i vode gde piše.
+- [ ] Četiri unutrašnja linka plus **„Početna"** (landing, od S24) i kontakt; svi rade i vode gde piše.
 - [ ] Copyright notice ima godinu u `.num`.
 - [ ] Na `/` (kratak ekran) futer je **na dnu**, ne odmah ispod forme, i ne pravi suvišan
       skrol.
@@ -409,6 +409,90 @@
 - [ ] Na kartici **„Registracija"** stoji rečenica sa linkovima na Uslove i Privatnost.
 - [ ] Na kartici **„Prijava"** te rečenice **nema**.
 - [ ] Oba linka se otvaraju i vraćaju bez gubitka izabrane kartice.
+
+---
+
+## 7d. Poddomen i veze ka landingu (S24)
+
+> Aplikacija je na **`app.` poddomenu**, prodajna strana na golom domenu i **van ovog
+> repozitorijuma** (`docs/LANSIRANJE.md` §1.7). Sve ispod se proverava **odjavljen**, u
+> **obe teme** i na **telefonu ≤ 390 px**.
+>
+> ‼️ Lokalno `NEXT_PUBLIC_LANDING_URL` verovatno nije postavljen — tada linkovi vode na
+> podrazumevani domen iz `apps/web/src/lib/veze.ts`, i to je uredno stanje. Da bi se
+> proverilo da se env **poštuje**, postavi ga na nešto očigledno (`http://localhost:4321`)
+> i osveži: svi linkovi ispod moraju da se promene, **svi zajedno**.
+
+### Logo vodi na landing, ne na `/`
+- [ ] `/cenovnik` — klik na logo u zaglavlju izlazi na **prodajnu stranu**, ne u formu za
+      prijavu.
+- [ ] `/welcome` — isto.
+- [ ] `/uslovi`, `/privatnost`, `/povracaj` — isto (Paddle recenzent dolazi sa landinga i
+      mora da ima put nazad).
+- [ ] `/zakljucano` — isto. Do S24 je logo vodio na `/cenovnik`; **jedini primarni izlaz
+      ostaje dugme „Pogledaj planove"**, i dalje jedino primarno dugme na ekranu.
+- [ ] **Futer**, na svakoj strani na kojoj stoji — logo i nova stavka **„Početna"**.
+- [ ] `/` — logo (i na desktopu, levo gore, i na telefonu iznad forme) plus **diskretan link
+      „← Nazad na početnu"** ispod forme. Link je siv, **bez zelene**: primarno dugme na tom
+      ekranu je u formi.
+
+### Šta ostaje unutrašnje
+- [ ] Zaglavlje `/cenovnik`, desno: **„Prijava"** (gost) / **„Aplikacija"** (ulogovan) i dalje
+      vode **unutar** aplikacije, ne na landing.
+- [ ] Futer: **Cenovnik**, tri pravne strane i **Kontakt** ostaju unutrašnji; jedino
+      **„Početna"** izlazi na drugi domen.
+- [ ] Nijedan link ka landingu se **ne otvara u novom tabu** — isti proizvod, ne spoljna
+      referenca.
+
+### Namera sa landinga — ulogovan
+- [ ] `/cenovnik?plan=pro&ciklus=godisnje` → prekidač stoji na **„Godišnje"**, a **Pro** nosi
+      zelenu liniju, **primarno dugme** i bedž **„Tvoj izbor"**.
+- [ ] `/cenovnik?plan=starter` → **Starter** je istaknut, a **Pro** i dalje ima bedž
+      **„Najčešći izbor"** — ali **bez zelene podloge** i sa **sekundarnim** dugmetom.
+      Primarnih dugmadi na ekranu je i dalje **tačno jedno** (§7.1).
+- [ ] Prekidač mesečno/godišnje **i dalje radi** — ciklus iz linka je početna vrednost, ne
+      zaključana.
+- [ ] `/cenovnik` bez ijednog parametra izgleda **tačno kao pre S24**: Pro istaknut, prekidač
+      na „Mesečno".
+- [ ] ‼️ Paddle modal se **ne otvara sam**. Klik ostaje na čoveku — v. obrazloženje u
+      zaglavlju `components/cenovnik-ekran.tsx`.
+
+### Namera sa landinga — gost
+- [ ] Odjavljen, `/cenovnik?plan=pro&ciklus=godisnje` → klik na **„Uzmi Pro"** vodi na
+      `/?nalog=nov&nazad=%2Fcenovnik%3Fplan%3Dpro%26ciklus%3Dgodisnje` i otvara karticu
+      **„Registracija"**.
+- [ ] Posle registracije se vraća na `/cenovnik` **sa istim izborom** — Pro, godišnje,
+      preselektovano. **Ne bira ponovo.**
+- [ ] Isto za paket: klik na „Uzmi Dopuna 150" vraća na `?paket=150#paketi`.
+
+### Nepoznata vrednost se ignoriše, ne ruši
+> Ovo je javan link sa **tuđe** strane. Svaki red ispod mora da da **običan cenovnik**, bez
+> greške, bez `400` i bez crvenog ekrana.
+
+- [ ] `/cenovnik?plan=Pro` (veliko P)
+- [ ] `/cenovnik?plan=enterprise`
+- [ ] `/cenovnik?ciklus=annual`
+- [ ] `/cenovnik?paket=999`
+- [ ] `/cenovnik?plan=pro&ciklus=kvartalno` → **Pro ostaje preselektovan**, ciklus pada na
+      „Mesečno".
+- [ ] `/cenovnik?plan=<script>alert(1)</script>` → ništa se ne izvrši i ništa se ne ispiše.
+
+### Sidro `#paketi` sa landinga
+- [ ] `/cenovnik#paketi` (bez plana u query-ju) skroluje na sekciju paketa — **to je oblik
+      koji landing linkuje**.
+- [ ] `/cenovnik?paket=150` **bez** sidra takođe završi na sekciji, a **Dopuna 150** nosi
+      zelenu liniju.
+- [ ] `/cenovnik?paket=150#paketi` ne skroluje **dvaput** i ne trza.
+- [ ] Nalog koji ne sme da kupi paket (`dopuna`, zaključan, gost) i dalje vidi sekciju sa
+      objašnjenjem umesto dugmeta — istaknuta linija ništa ne otključava.
+
+### Poddomen u praksi (posle ručnih koraka R32–R38)
+- [ ] `app.sajtoskop.com` otvara aplikaciju; goli domen otvara **landing**, ne aplikaciju.
+- [ ] Prijava i registracija rade na poddomenu (Clerk instanca je prešla — **R32**).
+- [ ] Kupovina otvara Paddle modal i `successUrl` završi na
+      **`app.sajtoskop.com/welcome`** — ne na golom domenu (**R34**).
+- [ ] Landing → „Uzmi Pro" → registracija → checkout za **Pro**, bez ijednog ponovnog
+      biranja. **Ovo je definicija „gotovo" za S24.**
 
 ---
 

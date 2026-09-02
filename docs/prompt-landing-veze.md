@@ -83,7 +83,14 @@ Nijedan `app.sajtoskop.com` zakucan po komponentama.
    - daj mi spisak svih linkova ka app.sajtoskop.com koje si napravio, sa
      tekstom dugmeta uz svaki
 
-Napomena o redosledu: preselekcija plana iz `?plan=` još NE radi u aplikaciji —
-radi se u sesiji S24 tamo. Dotle svi ovi linkovi uredno otvaraju cenovnik, samo
-bez unapred izabranog plana. Zato ih pravi sada u konačnom obliku; ništa se
-posle ne menja.
+Napomena o redosledu: ‼️ OD 2. SEPTEMBRA 2026 OVO VIŠE NIJE NAPOMENA NEGO
+ZATEČENO STANJE — S24 je isporučen i preselekcija RADI. Link
+`?plan=pro&ciklus=godisnje` otvara cenovnik sa Pro već istaknutim, prekidačem na
+„Godišnje" i bedžom „Tvoj izbor"; `?paket=150` doskroluje do sekcije paketa i
+istakne Dopunu 150. Nepoznata vrednost (`?plan=Pro`, `?ciklus=annual`) se
+IGNORIŠE i strana se otvori kao običan cenovnik — nikad greška, jer je ovo
+javan link sa prodajne strane.
+
+Gost koji klikne dugme ide na registraciju i vraća se na ISTI izbor, pa
+preselekcija radi za oba slučaja. Oblik linkova iz tačke 1 je konačan i ništa
+se u njemu ne menja.

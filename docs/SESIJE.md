@@ -3066,3 +3066,110 @@ celom toku.
 - **Starije PRD faze se ne prepravljaju.** Njihove nadjačane tvrdnje su popisane na jednom
   mestu, u `00-kontekst.md` §6 — tamo se i gleda pre nego što se nešto iz F1–F12 primeni po
   inerciji.
+
+---
+
+## S24 — Preokret na `app.` poddomen i veze ka landingu ☑
+
+**Isporučeno 2. septembra 2026.** Izvor: `docs/LANSIRANJE.md` sesija S24 i §1.7. **Bez
+migracije**; ova isporuka ne dodiruje ni bazu, ni worker, ni red poslova. Preokret je
+mrežni i konfiguracioni, u kodu se menjaju samo **linkovi**.
+
+**Cilj, ispunjen:** aplikacija više ne misli da je sama na domenu. Logo na svakoj javnoj
+strani vodi na prodajnu stranu, futer ima stavku „Početna", `/` ima put nazad, a
+`/cenovnik` prima nameru sa landinga — pa čovek koji je kliknuo „Uzmi Pro" ne bira ponovo.
+
+### Šta je urađeno
+
+- **`lib/veze.ts`** — nov fajl i **jedino mesto u aplikaciji koje sme da zna domen
+  landinga**. `LANDING_URL` iz `NEXT_PUBLIC_LANDING_URL`, uz normalizaciju kose crte na
+  kraju (`landing("/cenovnik")` inače daje `//cenovnik`, što pregledač čita kao drugi
+  host). Namerno **bez `server-only`**: ovo renderuju i klijentske komponente, a landing URL
+  je javan po definiciji.
+- **Logo vodi na landing**, ne na `/`: `/cenovnik`, `/welcome`, `/zakljucano`, sve tri
+  pravne strane (kroz `components/pravni-okvir.tsx`), futer i `/` (i desktop i telefon).
+  Svuda `<a href>`, ne `next/link` — landing je drugi origin i njega se ne prefetch-uje.
+- **Futer** dobija stavku **„Početna"** kao jedini link koji izlazi sa poddomena; Cenovnik,
+  tri pravna teksta i Kontakt ostaju unutrašnji.
+- **`/`** dobija diskretan **„← Nazad na početnu"** ispod forme. Siv, bez akcenta: jedino
+  primarno dugme na tom ekranu je u formi.
+- **`lib/cenovnik-namera.ts` + `lib/cenovnik-namera-schema.ts`** — oblik namere odvojen od
+  njenog čitanja. Razlog je bundle: šemu uvozi Zod, a oblik uvozi klijentski
+  `cenovnik-ekran.tsx`; u istom modulu bi ceo Zod ušao u javnu stranu cena.
+- **`/cenovnik` prima `?plan=`, `?ciklus=` i `?paket=`.** Ulogovan dobija preselektovan plan
+  (akcenat, primarno dugme, bedž „Tvoj izbor") i ciklus na prekidaču. Gost dobija
+  `/?nalog=nov&nazad=/cenovnik?plan=…`, pa se posle registracije vraća **na isti izbor**.
+- **`test/veze.ts`** — nov test. Grepuje ceo `src/` da domen nije zakucan nigde van
+  `lib/veze.ts`, proverava da logo svake javne strane vodi na landing, i vozi nameru kroz
+  ~40 slučajeva, uključujući **zatvoren krug**: `putanjaZaPlan()` → `?nazad=` →
+  `internaPutanja()` → `citajNameru()` mora da vrati isti izbor.
+
+### Odluke koje nisu bile doslovno u zahtevu
+
+- **`www` oblik kao podrazumevana vrednost, ne goli domen.** Prompt sesije i ručni korak
+  **R33** su tražili `https://sajtoskop.com`, ali §1.7 nosi ‼️ napomenu da je kanonski oblik
+  `www`. Provereno ponovo pri isporuci: goli domen odgovara **`308`** i preusmerava na
+  `www`, pa bi svaki klik iz aplikacije plaćao suvišan skok. **R33 je ispravljen** u
+  `LANSIRANJE.md`.
+- **Checkout se NE otvara sam iz `?plan=`.** Kriterijum „gotovo kad" glasi „bez ijednog
+  ponovnog biranja", što se doslovno čita kao automatski modal. Nije urađeno tako iz dva
+  razloga: modal za plaćanje bez klika je UX koji niko nije tražio, a `/api/billing/checkout`
+  pravi **Paddle transakciju** — na svako učitavanje strane, uključujući osvežavanje, „nazad"
+  iz istorije i svakog bota koji otvori link sa landinga. Namera **preselektuje**; klik
+  ostaje čovekov. Obrazloženje stoji i u zaglavlju `cenovnik-ekran.tsx`.
+- **Akcenat se pomera sa Pro na izabran plan.** Do S24 je „Najčešći izbor" uvek bio Pro i
+  uvek je nosio primarno dugme. Sa `?plan=starter` bi to značilo da čovek koji je izabrao
+  Starter gleda ekran na kome je istaknuto nešto drugo. Sada bedž **„Tvoj izbor"** i primarno
+  dugme idu na izabran plan, a Pro zadržava svoj bedž bez zelene podloge. §7.1 je i dalje
+  poštovan: **jedno primarno dugme po ekranu**.
+- **`?paket=` sam doskroluje** do sekcije, i kad u linku nema `#paketi`. Bez toga čovek koji
+  je na landingu kliknuo „Dopuna 150" stigne na vrh cenovnika i ne vidi ono zbog čega je
+  došao.
+
+### Nađeno usput
+
+- **`/api/cron/utisci-slike` je u komentaru slao `curl` na goli domen.** Posle preokreta je
+  to landing, koji tu rutu nema — komanda bi vratila tuđ `404` i izgledala kao pao cron.
+  Ispravljeno i u kodu i u ručnom koraku **R29**.
+- **`apps/worker/src/lib/user-agent.ts`** nosi `https://sajtoskop.com/bot` u User-Agentu.
+  **Namerno nije dirano** — to je stranica na **landingu**, ne u aplikaciji, i pravilo 12
+  traži da postoji. Ulazi u ručne korake (v. niže).
+- **CSP ne traži nijednu izmenu**, i to je provereno, ne pretpostavljeno: `form-action 'self'`
+  važi za slanje formi, a mi landing samo **linkujemo** (navigacija, ne submit);
+  `frame-ancestors 'none'` govori ko sme da uokviri nas, a landing nas ne uokviruje;
+  `connect-src` bi bio potreban samo da aplikacija **zove** landing, a ne zove ga. `test/csp.ts`
+  ostaje netaknut.
+- **Nijedan redirect u kodu ne vodi na apsolutan domen** — provereno grepom za
+  `redirect("http`, `permanentRedirect` i `next.config` redirekcije. Svi su relativni i
+  ostaju tačni na poddomenu.
+- **Nijedan mejl šablon ne šalje ljude na goli domen.** `lib/admin-mail.ts` pominje
+  `sajtoskop.com` samo kao **tekst potpisa**, ne kao link — i to je tačno, jer je to i jeste
+  adresa prodajne strane.
+
+### Ostaje na meni
+
+Sve je **van koda** i ide ovim redom — **R38 prvi**, jer Clerk i Paddle verifikuju domen koji
+već mora da odgovara:
+
+| # | Gde | Šta se pokvari ako se zaboravi |
+|---|---|---|
+| **R38** | DNS zapis za `app.` | Ništa ispod ne može ni da počne — Vercel ne izda sertifikat, Clerk i Paddle ne verifikuju domen. |
+| **R33** | Vercel: domen `app.sajtoskop.com` + `NEXT_PUBLIC_LANDING_URL=https://www.sajtoskop.com` | Bez env-a logo vodi na podrazumevani domen (radi, ali se ne poštuje podešavanje). Ako goli domen ostane uperen na Vercel projekat aplikacije, **landing nestaje**. |
+| **R32** | Clerk: domen instance na poddomen, sign-in/sign-up ostaju `/`, webhook destination na `app.` URL | Prijava vodi u krug ili u tuđ origin; `user.created` ne stiže, pa **nov nalog nema profil**. |
+| **R34** | Paddle: default payment link na `app.sajtoskop.com`, verifikovan i odobren domen | `Checkout.open()` pukne sa „Something went wrong" — naplata ne radi uopšte. `successUrl` **ne traži ništa**: sklapa se iz `window.location.origin`. |
+| **R36** | Linkovi sa landinga (gotov prompt u `docs/prompt-landing-veze.md`) | Pravne strane nedostupne sa prodajne strane → **Paddle KYC pada**; CTA bez sluga → cenovnik bez preselekcije, dakle ceo S24 radi u prazno. |
+| **R35** | Cene na landingu naspram Paddle kataloga | Iznos na prodajnoj strani se razilazi sa naplaćenim — vidi se tek na računu. |
+| — | **Stranica `/bot` na landingu** | `apps/worker/src/lib/user-agent.ts` je linkuje u User-Agentu. `404` tamo je loš izgled prema administratoru sajta koji nas proverava u logovima (pravilo 12). |
+
+**Prompt za landing je već tačan** — `docs/prompt-landing-veze.md` opisuje baš ovaj oblik
+linkova (`?plan=`, `?ciklus=`, `?paket=`, `#paketi`) i njegova završna napomena je
+ažurirana: preselekcija više nije „radiće se u S24", nego radi.
+
+### Preneto dalje
+
+- **S27/S28 (onboarding):** `lib/veze.ts` je mesto za svaki nov link ka landingu. Domen se
+  i dalje ne kuca u JSX — `test/veze.ts` to obara.
+- **R28 (puna vizuelna provera):** dodata je sekcija **7d** u `docs/PROVERA-VIZUELNA.md`, sa
+  spiskom nepoznatih vrednosti u query-ju koje **moraju** da daju običan cenovnik.
+- **Rečenica o besplatnoj beti na `/`** je već ispravljena ranije (commit `09fc9c5`), pa
+  zaostatak prenet iz S22 više ne stoji.

@@ -17,6 +17,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CircleCheck } from "lucide-react";
 import { getCurrentUserId } from "@/lib/auth";
+import { LANDING_URL } from "@/lib/veze";
 import { Futer } from "@/components/futer";
 import { Button } from "@/components/ui/button";
 import { ZnakSaImenom } from "@/components/znak";
@@ -39,9 +40,10 @@ export default async function Page() {
       <div aria-hidden className="pozadina-aure pointer-events-none absolute inset-0 h-[28rem]" />
 
       <header className="relative mx-auto flex h-[68px] w-full max-w-[1160px] items-center px-5 sm:px-7 lg:px-8">
-        <Link href="/" className="rounded-lg">
+        {/* Logo vodi na landing (S24, §1.7). */}
+        <a href={LANDING_URL} className="rounded-lg">
           <ZnakSaImenom imeKlase="text-base" />
-        </Link>
+        </a>
       </header>
 
       <main className="relative mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center px-5 pb-24 text-center sm:px-7">

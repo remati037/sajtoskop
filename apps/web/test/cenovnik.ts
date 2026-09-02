@@ -201,9 +201,14 @@ console.log("\npaketi kredita");
   );
   // Jedno primarno dugme po ekranu (§7.1): ono je na istaknutom planu, pa
   // paketi moraju da ostanu sekundarni.
+  //
+  // ‼️ Od S24 uslov više nije `tier.featured` nego `istaknut`: namera sa
+  //    landinga (`?plan=`) pomera akcenat na IZABRAN plan, a Pro ostaje običan.
+  //    Tvrdnja koja se proverava je ista i nije oslabljena — primarnih dugmadi
+  //    je i dalje tačno jedno i vezano je za jedan izraz, a ne za više kartica.
   check(
     (ekran.match(/variant="primary"/g) ?? []).length === 0 &&
-      ekran.includes('tier.featured ? "primary" : "secondary"'),
+      ekran.includes('variant={istaknut ? "primary" : "secondary"}'),
     "paketi nemaju primarno dugme — ono ostaje na istaknutom planu",
   );
 
