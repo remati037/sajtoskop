@@ -6,7 +6,9 @@ i priprema outreach materijal za web dizajnere, frilensere i agencije.
 **Dva domena:** `sajtoskop.com` je **landing** i **nije u ovom repozitorijumu** —
 ne pravi ga i ne prepravljaj ga odavde. `app.sajtoskop.com` je aplikacija iz `apps/web`.
 Na landing se pokazuje kroz `NEXT_PUBLIC_LANDING_URL`, nikad zakucanim domenom; landing na
-aplikaciju pokazuje slugom plana, **nikad Paddle `pri_` ID-jem** (`docs/LANSIRANJE.md` §1.7).
+aplikaciju pokazuje slugom plana, **nikad Stripe `price_` ID-jem** (`docs/LANSIRANJE.md` §1.7).
+Naplata je **Stripe** (hosted Checkout + Customer Portal, `docs/naplata-stripe.md`); nijedan
+Stripe ID (`prod_`, `price_`, `cus_`, kupon) ne ulazi u kod — samo `lookup_key` iz `plans.ts` i env.
 
 Autor: Marko Milenković / Remati · Solo developer.
 
@@ -48,10 +50,10 @@ Red poslova: **Postgres tabela `job_queue`** sa `FOR UPDATE SKIP LOCKED`. Ne Red
 
 1. **Google polja imaju TTL 30 dana.** Nikad ne serviraj Google podatak stariji od 30 dana — proveri `google_refreshed_at`, pa zakaži refresh. `place_id` se čuva neograničeno.
 2. **Svaki Places poziv ima eksplicitan `X-Goog-FieldMask`.** Nikad `*`. Field mask određuje SKU i time ceo troškovni model.
-3. **Krediti se menjaju samo kroz `spend_credit_and_unlock`, `spend_credit_and_scan` ili `grant_credits`.** Nikad direktan `UPDATE profiles.credits_balance`. (`grant_monthly_credits` i `refund_scan` su izuzeci objašnjeni u migracijama 0004 i 0009.) Od F11/F12 postoje još dva omotača, oba `security definer` i oba samo za `service_role`: `grant_feedback_credits` (0011) i `admin_adjust_credits` (0012 — **jedini put za negativan iznos**, jer `grant_credits` po definiciji odbija negativan). `grant_credits` interno validira `reason`; nov razlog znači izmenu i `check` ograničenja i tela funkcije.
+3. **Krediti se menjaju samo kroz `spend_credit_and_unlock`, `spend_credit_and_scan` ili `grant_credits`.** Nikad direktan `UPDATE profiles.credits_balance`. (`grant_monthly_credits` i `refund_scan(job, pages)` su izuzeci objašnjeni u migracijama 0004, 0009 i 0025 — `refund_scan` od S25 vraća i **razliku** kad Google da manje stranica nego što je plaćeno.) Od F11/F12 postoje još dva omotača, oba `security definer` i oba samo za `service_role`: `grant_feedback_credits` (0011) i `admin_adjust_credits` (0012 — **jedini put za negativan iznos**, jer `grant_credits` po definiciji odbija negativan). Od S25 (0025) Stripe webhook ide isključivo kroz `apply_subscription` (stanje, bez kredita), `apply_invoice_paid` (mesečna dodela, ref `in_…`), `apply_trial_start` (10 probnih, jednom po nalogu), `expire_subscription_credits` (pražnjenje na `subscription.deleted`) i `apply_credit_pack` (paket, ref `pi_…`); komp pristup kroz `admin_open_komp` ili `redeem_invite`. `grant_credits` interno validira `reason`; nov razlog znači izmenu i `check` ograničenja i tela funkcije.
 4. **`unlocks` je PK `(user_id, place_id)`.** Korisnik nikad ne plaća isti lead dvaput.
 5. **Skupi enrichment ide isključivo lazy, na unlock.** Screenshot, PageSpeed i Claude poziv nikad u bulk scanu.
-5a. **Nijedan Places poziv iz weba nema besplatan put.** `scan` posao ulazi u red isključivo kroz `spend_credit_and_scan` (F9). Keš mlađi od 30 dana je besplatan; sve ostalo košta 1 kredit.
+5a. **Nijedan Places poziv iz weba nema besplatan put.** `scan` posao ulazi u red isključivo kroz `spend_credit_and_scan` (F9). Od S25 (D10) **i pristup kešu se plaća**: ista funkcija naplaćuje pristup (`search_access`, 30 dana, do plaćene dubine) — iz svežeg keša bez posla (`cached`, cena = broj stranica koje postoje), inače uz `scan` posao. Besplatno je samo ono što je korisnik već platio (`has_search_access`).
 6. **Ugly Score živi samo u `packages/shared/src/ugly-score.ts`.** Jedan izvor istine za web, worker i CLI. Ne duplirati logiku, ne „prilagoditi" kopiju.
 7. **Playwright i lančani HTTP fetch nikad u Vercel funkciji.** Samo worker.
 8. **`user_id` isključivo iz verifikovane Clerk sesije na serveru.** Nikad iz request body-ja, query parametra ni headera.
@@ -110,6 +112,9 @@ Ako predlažeš kod koji povećava broj Places poziva, reci mi to eksplicitno pr
 | feedback sa statusom | prijava (ekran „Moje prijave") |
 | prompt / survey | pitanje; nikad „anketa" |
 | changelog | Beta dnevnik |
+| komp (bivša beta) | komp pristup — nikad „beta nalog" |
+| trial | proba — nikad „trial" |
+| invite (pristupna) | pozivnica |
 | admin panel | admin konzola |
 | audit log | revizija |
 

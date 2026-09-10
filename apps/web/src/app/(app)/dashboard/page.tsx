@@ -22,7 +22,8 @@ import type { StanjeId } from "@sajtoskop/shared";
  * njegov nalog. Ceo tekst sa datumima je na `/krediti`.
  */
 const PODNASLOV_STANJA: Record<StanjeId, string> = {
-  beta: "beta pristup",
+  komp: "komp pristup",
+  proba: "proba, kartica se naplaćuje na kraju probe",
   aktivan: "pretplata aktivna",
   otkazan: "otkazana, traje do kraja perioda",
   dopuna: "bez pretplate, radi na kreditima",

@@ -1,17 +1,18 @@
 "use client";
 
 // apps/web/src/components/kes-lista.tsx
-// Lista besplatnih pretraga (F9 §4.3).
+// Lista keša (F9 §4.3, S25 D10).
 //
-// Ovo je „izlog" proizvoda: sve što je bilo ko već platio, svima je besplatno
-// narednih 30 dana. Zato red nosi i broj prospekata bez sajta — to je jedina
-// cifra koja govori ima li tu posla, a ne samo koliko ima firmi.
+// Ovo je „izlog" proizvoda: sve što je bilo ko već skenirao stiže ODMAH, bez
+// čekanja na Google — po istoj ceni kao skeniranje (manje kad firmi ima manje),
+// za pristup od 30 dana. Besplatno je samo ono što je OVAJ korisnik već platio
+// (blok „Tvoji pristupi"). Zato red nosi i broj prospekata bez sajta — to je
+// jedina cifra koja govori ima li tu posla, a ne samo koliko ima firmi.
 //
 // [S17] Red nosi i DUBINU do koje je kombinacija skenirana. Bez nje korisnik ne
-// zna zašto je jedna pretraga besplatna a druga nije: red skeniran na jednu
-// stranicu je besplatan za „Brzo", a za „Duboko" traži kredite — a spolja obe
-// izgledaju kao isti „besplatan" red. Klik na red zato i spušta izabranu dubinu
-// na keširanu (v. `izKesa`), da lista ne bi obećala nešto što naplaćuje.
+// zna zašto jedna pretraga stiže odmah a druga traži Google: red skeniran na
+// jednu stranicu pokriva „Brzo", a za „Duboko" mora ponovo. Klik na red zato i
+// spušta izabranu dubinu na keširanu (v. `izKesa`).
 //
 // Dva stanja, po tome da li na strani već stoje rezultati:
 //   pre pretrage  — puna lista sa uvodnim tekstom, ovo je glavna stvar na ekranu
@@ -40,7 +41,7 @@ type Props = {
   stavke: KesStavka[];
   cityLabels: Record<string, string>;
   nicheLabels: Record<string, string>;
-  /** Klik na red popunjava formu i odmah pokreće besplatnu pretragu. */
+  /** Klik na red popunjava formu: plaćen pristup otvara listu, ostalo ide kroz modal sa cenom. */
   onIzaberi: (city: string, niche: string) => void;
   /** Na strani već stoje rezultati — lista se povlači u jedan red. */
   sazeto?: boolean;
@@ -63,27 +64,34 @@ export function KesLista({
   useEffect(() => setOtvorena(!sazeto), [sazeto]);
 
   // Istekle kombinacije stižu u istom nizu (traci cene trebaju), ali u listi
-  // besplatnih pretraga nemaju šta da traže — po kliku bi tražile kredit.
-  const besplatne = useMemo(() => stavke.filter((s) => s.fresh), [stavke]);
+  // keša nemaju šta da traže — po kliku bi tražile Google ponovo.
+  const sveze = useMemo(() => stavke.filter((s) => s.fresh), [stavke]);
 
-  const { moje, ostalo } = useMemo(() => {
+  const { placeno, ostalo } = useMemo(() => {
     const q = foldForSearch(filter.trim());
 
     const vidljivo = q
-      ? besplatne.filter((s) => {
+      ? sveze.filter((s) => {
           const grad = foldForSearch(cityLabels[s.city] ?? s.city);
           const nisa = foldForSearch(nicheLabels[s.niche] ?? s.niche);
           return grad.includes(q) || nisa.includes(q);
         })
-      : besplatne;
+      : sveze;
+
+    // [S25] „Tvoji pristupi" = ono što je ovaj korisnik PLATIO i još važi —
+    // jedini blok koji se otvara bez kredita. `mine` (tražio ranije) više nije
+    // dovoljan razlog za zaseban blok: ranija pretraga bez važećeg pristupa
+    // košta isto kao tuđa.
+    const sada = Date.now();
+    const imaPristup = (s: KesStavka) => s.pristup !== null && Date.parse(s.pristup.expiresAt) > sada;
 
     return {
-      moje: vidljivo.filter((s) => s.mine),
-      ostalo: vidljivo.filter((s) => !s.mine),
+      placeno: vidljivo.filter(imaPristup),
+      ostalo: vidljivo.filter((s) => !imaPristup(s)),
     };
-  }, [besplatne, filter, cityLabels, nicheLabels]);
+  }, [sveze, filter, cityLabels, nicheLabels]);
 
-  const ukupno = besplatne.length;
+  const ukupno = sveze.length;
 
   // Sklopljena lista bez ijedne stavke nije ni traka ni poruka — samo šum.
   if (sazeto && ukupno === 0) return null;
@@ -100,7 +108,7 @@ export function KesLista({
       >
         <span className="flex items-center gap-2 text-sm font-medium">
           <Sparkles className="h-4 w-4 text-accent-text" aria-hidden />
-          Besplatne pretrage
+          U kešu
           <span className="num text-fg-muted">· {ukupno}</span>
         </span>
         <span className="flex items-center gap-1.5 text-xs text-fg-muted">
@@ -117,21 +125,22 @@ export function KesLista({
         <div className="max-w-xl">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <Sparkles className="h-4 w-4 text-accent-text" aria-hidden />
-            {sazeto ? "Besplatne pretrage" : "Izaberi grad i nišu."}
+            {sazeto ? "U kešu" : "Izaberi grad i nišu."}
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-fg-muted">
             {ukupno === 0 ? (
               <>
-                U kešu još nema nijedne kombinacije. Prva pretraga bilo koje košta{" "}
-                <span className="num">1–3 kredita</span>, po izabranoj dubini — i posle nje je ta
-                kombinacija besplatna svima 30 dana.
+                U kešu još nema nijedne kombinacije. Skeniranje košta{" "}
+                <span className="num">1–3 kredita</span>, po izabranoj dubini — i daje ti pristup
+                toj kombinaciji 30 dana.
               </>
             ) : (
               <>
-                Sve što je već u kešu je besplatno i neograničeno — klik na red otvara pretragu
-                bez ijednog kredita, do dubine koja piše uz njega. Kombinacija koje nema, koja je
-                starija od 30 dana, ili koju tražiš dublje nego što je skenirana, košta{" "}
-                <span className="num">1 kredit po stranici rezultata</span>.
+                Sve što je u kešu stiže odmah, po istoj ceni —{" "}
+                <span className="num">1 kredit po stranici rezultata</span>, do dubine koja piše
+                uz red, i manje kad firmi ima manje. Plaćen pristup važi 30 dana: listanje,
+                filteri i osvežavanje su tada bez kredita. Kombinacija koje nema, koja je starija
+                od 30 dana, ili koju tražiš dublje nego što je skenirana, traži Google ponovo.
               </>
             )}
           </p>
@@ -143,7 +152,7 @@ export function KesLista({
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filtriraj po gradu ili niši"
-              aria-label="Filtriraj keširane pretrage"
+              aria-label="Filtriraj kombinacije u kešu"
               className="w-full sm:w-56"
             />
           )}
@@ -162,22 +171,22 @@ export function KesLista({
       </div>
 
       {ukupno > 0 &&
-        (moje.length === 0 && ostalo.length === 0 ? (
+        (placeno.length === 0 && ostalo.length === 0 ? (
           <p className="mt-4 text-xs text-fg-muted">
-            Nijedna keširana pretraga ne odgovara filteru.
+            Nijedna kombinacija u kešu ne odgovara filteru.
           </p>
         ) : (
           <div className="mt-4 space-y-5">
             <Blok
-              naslov="Tvoje pretrage"
-              stavke={moje}
+              naslov="Tvoji pristupi"
+              stavke={placeno}
               cityLabels={cityLabels}
               nicheLabels={nicheLabels}
               onIzaberi={onIzaberi}
               disabled={disabled}
             />
             <Blok
-              naslov={moje.length > 0 ? "Ostalo u kešu" : "U kešu"}
+              naslov={placeno.length > 0 ? "Ostalo u kešu" : "U kešu"}
               stavke={ostalo}
               cityLabels={cityLabels}
               nicheLabels={nicheLabels}
@@ -243,7 +252,11 @@ function Red({
   onIzaberi: (city: string, niche: string) => void;
   disabled?: boolean;
 }) {
-  const dana = daniDo(stavka.expiresAt);
+  // [S25] Plaćen pristup ima svoj rok (kraći ili jednak roku keša); neplaćen
+  // red pokazuje do kad je u kešu. Različit tekst, isti broj dana.
+  const pristup = stavka.pristup && Date.parse(stavka.pristup.expiresAt) > Date.now() ? stavka.pristup : null;
+  const rok = pristup ? pristup.expiresAt : stavka.expiresAt;
+  const dana = daniDo(rok);
   const uskoro = dana <= USKORO_DANA;
 
   return (
@@ -282,7 +295,9 @@ function Red({
           title={
             `Skenirano do ${DUBINA_OPIS[dubinaZaRezultate(stavka.pages * PLACES_PAGE_SIZE)].maxResults} prospekata ` +
             `(${stavka.pages} ${plural(stavka.pages, "stranica", "stranice", "stranica")}). ` +
-            `Besplatno je do te dubine; dublje skeniranje se plaća.`
+            (pristup
+              ? `Plaćen pristup do ${pristup.pages} ${plural(pristup.pages, "stranice", "stranice", "stranica")}; dublje traži Google ponovo.`
+              : `Iz keša stiže odmah do te dubine; dublje traži Google ponovo.`)
           }
           className="num rounded-full border border-border bg-bg-subtle px-2 py-0.5 text-[10px] font-medium text-fg-muted"
         >
@@ -300,12 +315,14 @@ function Red({
           </span>
         )}
 
-        <span className={cn("num whitespace-nowrap", uskoro ? "text-warn-text" : "text-fg-muted")}>
+        <span className={cn("num whitespace-nowrap", uskoro ? "text-warn-text" : pristup ? "text-accent-text" : "text-fg-muted")}>
           {uskoro
             ? dana <= 0
               ? "ističe danas"
               : `još ${dana} ${plural(dana, "dan", "dana", "dana")}`
-            : `besplatno do ${formatDatumKratko(stavka.expiresAt)}`}
+            : pristup
+              ? `plaćeno do ${formatDatumKratko(rok)}`
+              : `u kešu do ${formatDatumKratko(rok)}`}
         </span>
       </span>
     </button>

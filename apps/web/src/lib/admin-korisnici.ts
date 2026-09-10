@@ -36,7 +36,7 @@ import { inGrupe } from "./upiti";
 /** Stranica po 25 (F12 §3.1). Menja se ovde i nigde više. */
 export const PO_STRANI = 25;
 
-export type FilterKorisnika = "svi" | "aktivni7" | "admini" | "bez_aktivnosti";
+export type FilterKorisnika = "svi" | "aktivni7" | "admini" | "bez_aktivnosti" | "proba";
 export type SortKorisnika = "created_at" | "credits" | "unlocks" | "last_seen";
 export type Smer = "asc" | "desc";
 
@@ -59,14 +59,23 @@ export type UpitKorisnika = {
  * ako je računica jedna (LANSIRANJE §1.5).
  */
 export function pristupIzReda(r: AdminUserRow): Pristup {
+  // `cancel_at_period_end` lista ne nosi — otkazivanje zakazano za kraj
+  // perioda Stripe javlja i kroz `canceled_at`, koji lista ima, pa stanje ostaje
+  // tačno; detalj korisnika čita pun red.
   const pretplata: PretplataZaPristup | null = r.sub_status
-    ? { status: r.sub_status, currentPeriodEnd: r.sub_period_end, canceledAt: r.sub_canceled_at }
+    ? {
+        status: r.sub_status,
+        currentPeriodEnd: r.sub_period_end,
+        trialEnd: r.sub_trial_end,
+        cancelAtPeriodEnd: false,
+        canceledAt: r.sub_canceled_at,
+      }
     : null;
 
   return stanjePristupa(
     {
       plan: r.plan,
-      betaExpiresAt: r.beta_expires_at,
+      kompExpiresAt: r.komp_expires_at,
       planExpiresAt: r.plan_expires_at,
       creditsTopup: r.credits_topup,
     },
@@ -104,20 +113,20 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
   const [profili, pretplate] = await Promise.all([
     db
       .from("profiles")
-      .select("id, plan, beta_expires_at, plan_expires_at, credits_topup")
+      .select("id, plan, komp_expires_at, plan_expires_at, credits_topup")
       .limit(MAX_ZA_FILTER_STANJA)
       .returns<
         {
           id: string;
           plan: string;
-          beta_expires_at: string | null;
+          komp_expires_at: string | null;
           plan_expires_at: string | null;
           credits_topup: number;
         }[]
       >(),
     db
       .from("subscriptions")
-      .select("user_id, status, current_period_end, canceled_at")
+      .select("user_id, status, current_period_end, trial_end, cancel_at_period_end, canceled_at")
       // Merodavna je ona koja traje najduže — isti izbor kao u `citajPretplatu()`.
       .order("current_period_end", { ascending: false, nullsFirst: false })
       .limit(MAX_ZA_FILTER_STANJA)
@@ -126,6 +135,8 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
           user_id: string;
           status: PretplataZaPristup["status"];
           current_period_end: string | null;
+          trial_end: string | null;
+          cancel_at_period_end: boolean;
           canceled_at: string | null;
         }[]
       >(),
@@ -145,6 +156,8 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
     poKorisniku.set(s.user_id, {
       status: s.status,
       currentPeriodEnd: s.current_period_end,
+      trialEnd: s.trial_end,
+      cancelAtPeriodEnd: s.cancel_at_period_end,
       canceledAt: s.canceled_at,
     });
   }
@@ -155,7 +168,7 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
         stanjePristupa(
           {
             plan: p.plan,
-            betaExpiresAt: p.beta_expires_at,
+            kompExpiresAt: p.komp_expires_at,
             planExpiresAt: p.plan_expires_at,
             creditsTopup: p.credits_topup,
           },
@@ -299,13 +312,13 @@ export type DetaljKorisnika = {
   profil: ProfileRow;
   /**
    * Najsvežija pretplata, svedena na ono što odluka o pristupu koristi.
-   * `null` znači „nikad je nije ni bilo" — beta i dopuna nemaju pretplatu.
+   * `null` znači „nikad je nije ni bilo" — komp i dopuna nemaju pretplatu.
    */
   pretplata: PretplataZaPristup | null;
   /**
    * Stanje pristupa i IZVEDENI datumi (`punDo`, `citanjeDo`).
    *
-   * Blok „Pristup" ih samo ispisuje. Sabiranje `beta_expires_at` i
+   * Blok „Pristup" ih samo ispisuje. Sabiranje `komp_expires_at` i
    * `plan_expires_at` na strani bi bila druga računica o pristupu — tačno ono
    * što §1.5 zabranjuje, i to na ekranu sa kog se pristup dodeljuje.
    */
@@ -396,7 +409,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
     // korisnika iz sesije — ovde se čita TUĐI red.
     db
       .from("subscriptions")
-      .select("status, current_period_end, canceled_at")
+      .select("status, current_period_end, trial_end, cancel_at_period_end, canceled_at")
       .eq("user_id", id)
       .order("current_period_end", { ascending: false, nullsFirst: false })
       .limit(1)
@@ -404,6 +417,8 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
         {
           status: PretplataZaPristup["status"];
           current_period_end: string | null;
+          trial_end: string | null;
+          cancel_at_period_end: boolean;
           canceled_at: string | null;
         }[]
       >(),
@@ -453,6 +468,8 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
     ? {
         status: redPretplate.status,
         currentPeriodEnd: redPretplate.current_period_end,
+        trialEnd: redPretplate.trial_end,
+        cancelAtPeriodEnd: redPretplate.cancel_at_period_end,
         canceledAt: redPretplate.canceled_at,
       }
     : null;
@@ -463,7 +480,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
     pristup: stanjePristupa(
       {
         plan: profil.plan,
-        betaExpiresAt: profil.beta_expires_at,
+        kompExpiresAt: profil.komp_expires_at,
         planExpiresAt: profil.plan_expires_at,
         creditsTopup: profil.credits_topup,
       },

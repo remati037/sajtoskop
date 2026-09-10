@@ -21,7 +21,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarClock, Loader2, MinusCircle, PlusCircle, RotateCcw, Send, ShieldCheck, ShieldOff, Sparkles, Trash2, UserX } from "lucide-react";
 import type { AdminRole } from "@sajtoskop/shared";
-import { BETA_PREDLOG, PLAN_OPCIJE, type RadnjaOdgovor } from "@/lib/admin-radnje-schema";
+import { KOMP_PREDLOG, PLAN_OPCIJE, type RadnjaOdgovor } from "@/lib/admin-radnje-schema";
 import { cn } from "@/lib/cn";
 import { formatDatum } from "@/lib/ui-tekst";
 import { Alert } from "./ui/alert";
@@ -40,12 +40,12 @@ export type RadnjeProps = {
   cacheMissLimit: number;
   /** Ključ idempotencije, generisan na SERVERU pri otvaranju ove strane. */
   refId: string;
-  /** Isto, ali za beta obrazac — dve radnje, dva ključa. */
-  betaRefId: string;
-  /** `profiles.beta_expires_at`. `null` uz `jeBeta` znači NEOGRANIČENO (§1.5). */
-  betaDo: string | null;
-  /** Je li `profiles.plan` već `beta` — od toga zavisi tekst, ne dozvola. */
-  jeBeta: boolean;
+  /** Isto, ali za komp obrazac — dve radnje, dva ključa. */
+  kompRefId: string;
+  /** `profiles.komp_expires_at`. `null` uz `jeKomp` znači NEOGRANIČENO (§1.5). */
+  kompDo: string | null;
+  /** Je li `profiles.plan` već `komp` — od toga zavisi tekst, ne dozvola. */
+  jeKomp: boolean;
   /** Gleda li admin sopstveni nalog. Tada nema uloge, blokade ni brisanja. */
   jaSam: boolean;
   /** `null` znači da Clerk nije odgovorio — stanje se ne zna, pa se ne nudi. */
@@ -57,7 +57,7 @@ export type RadnjeProps = {
 export function RadnjeNadKorisnikom(props: RadnjeProps) {
   const {
     id, email, plan, role, cacheMissCount, cacheMissLimit, refId, jaSam, blokiran,
-    betaRefId, betaDo, jeBeta,
+    kompRefId, kompDo, jeKomp,
   } = props;
 
   const router = useRouter();
@@ -74,8 +74,8 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
   // Poruka korisniku
   const [naslovPoruke, setNaslovPoruke] = useState("");
   const [telo, setTelo] = useState("");
-  // Beta: jedan obrazac za otvaranje naloga, jedan red za sam rok
-  const [betaKredita, setBetaKredita] = useState(String(BETA_PREDLOG.krediti));
+  // Komp: jedan obrazac za otvaranje naloga, jedan red za sam rok
+  const [kompKredita, setKompKredita] = useState(String(KOMP_PREDLOG.krediti));
   // Prazan početak, pa popuna u `useEffect` — namerno.
   //
   // Podrazumevani datum je „danas + 30 dana", a „danas" na serveru (UTC na
@@ -83,33 +83,33 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
   // pri renderu, vrednost polja bi se razlikovala između servera i klijenta i
   // React bi prijavio neslaganje pri hidraciji — na obrascu koji dodeljuje
   // pristup, i to tačno u satima kad se najčešće radi.
-  const [betaDatum, setBetaDatum] = useState("");
-  const [betaNeograniceno, setBetaNeograniceno] = useState(false);
-  const [betaProslostOk, setBetaProslostOk] = useState(false);
+  const [kompDatum, setKompDatum] = useState("");
+  const [kompNeograniceno, setKompNeograniceno] = useState(false);
+  const [kompProslostOk, setKompProslostOk] = useState(false);
   // Opasna zona
   const [potvrda, setPotvrda] = useState("");
 
   useEffect(() => {
-    setBetaDatum((v) => v || zaDana(BETA_PREDLOG.dana));
+    setKompDatum((v) => v || zaDana(KOMP_PREDLOG.dana));
   }, []);
 
   const mejl = (email ?? "").trim().toLowerCase();
   const potvrdjeno = mejl.length > 0 && potvrda.trim().toLowerCase() === mejl;
   const zauzeto = radi !== null || ceka;
 
-  // ── beta: šta se stvarno šalje ────────────────────────────
+  // ── komp: šta se stvarno šalje ────────────────────────────
   // `null` je NEOGRANIČENO (§1.5) i jedina vrednost koju server tumači.
-  const betaRok = betaNeograniceno ? null : krajDana(betaDatum);
-  const betaKreditaBroj = Number(betaKredita);
-  const uProslosti = betaRok !== null && Date.parse(betaRok) <= Date.now();
+  const kompRok = kompNeograniceno ? null : krajDana(kompDatum);
+  const kompKreditaBroj = Number(kompKredita);
+  const uProslosti = kompRok !== null && Date.parse(kompRok) <= Date.now();
   /** Dovoljno za „Samo rok": ispravan datum (ili neograničeno) i potvrda za prošlost. */
-  const rokSpreman = (betaNeograniceno || betaRok !== null) && (!uProslosti || betaProslostOk);
+  const rokSpreman = (kompNeograniceno || kompRok !== null) && (!uProslosti || kompProslostOk);
   /** Otvaranje traži još i ispravan broj kredita — `PATCH` ga uopšte ne šalje. */
-  const betaSpremna =
+  const kompSpremna =
     rokSpreman &&
-    Number.isInteger(betaKreditaBroj) &&
-    betaKreditaBroj >= 0 &&
-    betaKreditaBroj <= 500;
+    Number.isInteger(kompKreditaBroj) &&
+    kompKreditaBroj >= 0 &&
+    kompKreditaBroj <= 2000;
 
   async function posalji(
     kljuc: string,
@@ -302,35 +302,35 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
         </div>
 
         <Napomena>
-          Plana <span className="num">beta</span> ovde nema namerno: beta nije samo plan nego i rok
-          i krediti, pa ide kroz obrazac ispod. Plan bez roka bi bio neograničena beta.
+          Plana <span className="num">komp</span> ovde nema namerno: komp nije samo plan nego i rok
+          i krediti, pa ide kroz obrazac ispod. Plan bez roka bi bio neograničen komp.
         </Napomena>
 
         <Odgovor poruka={poruke.plan} />
       </div>
 
-      {/* ── BETA ────────────────────────────────────────────── */}
-      {/* Jedina radnja u konzoli koja menja tri stvari jednim pozivom, i jedini
-          put kojim plan sme da postane `beta` (LANSIRANJE §1.1, odluka D1).
-          Sve tri izmene su u jednoj transakciji u bazi — pola otvorenog beta
-          naloga je gore nego nijedan. */}
+      {/* ── KOMP ────────────────────────────────────────────── */}
+      {/* Jedina radnja u konzoli koja menja tri stvari jednim pozivom, i (uz
+          pozivnicu) jedini put kojim plan sme da postane `komp` (LANSIRANJE §1.1,
+          odluka D1). Sve tri izmene su u jednoj transakciji u bazi — pola
+          otvorenog komp naloga je gore nego nijedan. UI pozivnica je K3. */}
       <Pregrada />
-      <NaslovSekcije>Beta nalog</NaslovSekcije>
+      <NaslovSekcije>Komp nalog</NaslovSekcije>
       <div className="mt-2 space-y-2.5">
         <p className="text-[13px] text-fg-muted">
-          {jeBeta ? (
-            betaDo ? (
+          {jeKomp ? (
+            kompDo ? (
               <>
-                U beti do <span className="num text-fg">{formatDatum(betaDo)}</span>
-                {Date.parse(betaDo) <= Date.now() && " — rok je prošao, beta je ugašena."}
+                Komp do <span className="num text-fg">{formatDatum(kompDo)}</span>
+                {Date.parse(kompDo) <= Date.now() && " — rok je prošao, komp je ugašen."}
               </>
             ) : (
               <>
-                U beti <span className="text-fg">bez roka</span> — traje dok je ne ugasiš.
+                Komp <span className="text-fg">bez roka</span> — traje dok ga ne ugasiš.
               </>
             )
           ) : (
-            "Nije u beti."
+            "Nije komp."
           )}
         </p>
 
@@ -341,9 +341,9 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
               type="number"
               inputMode="numeric"
               min={0}
-              max={500}
-              value={betaKredita}
-              onChange={(e) => setBetaKredita(e.target.value)}
+              max={2000}
+              value={kompKredita}
+              onChange={(e) => setKompKredita(e.target.value)}
               className="num"
               disabled={zauzeto}
             />
@@ -353,13 +353,13 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
             <Label>Rok</Label>
             <Input
               type="date"
-              value={betaDatum}
+              value={kompDatum}
               onChange={(e) => {
-                setBetaDatum(e.target.value);
-                setBetaProslostOk(false);
+                setKompDatum(e.target.value);
+                setKompProslostOk(false);
               }}
               className="num"
-              disabled={zauzeto || betaNeograniceno}
+              disabled={zauzeto || kompNeograniceno}
             />
           </label>
         </div>
@@ -367,10 +367,10 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
         <label className="flex items-center gap-2 text-[13px] text-fg-muted">
           <input
             type="checkbox"
-            checked={betaNeograniceno}
+            checked={kompNeograniceno}
             onChange={(e) => {
-              setBetaNeograniceno(e.target.checked);
-              setBetaProslostOk(false);
+              setKompNeograniceno(e.target.checked);
+              setKompProslostOk(false);
             }}
             disabled={zauzeto}
             className="h-4 w-4 accent-accent"
@@ -378,15 +378,15 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
           Neograničeno (bez roka)
         </label>
 
-        {/* Rok u prošlosti je LEGITIMAN — tako se beta gasi (§1.5). Ali je i
+        {/* Rok u prošlosti je LEGITIMAN — tako se komp gasi (§1.5). Ali je i
             najčešća omaška (pogrešna godina), a posledica je da čovek istog
             trenutka ispadne iz aplikacije. Zato potvrda, a ne zabrana. */}
         {uProslosti && (
           <label className="flex items-start gap-2 rounded-lg bg-warn-wash px-3 py-2 text-[13px] text-warn-text">
             <input
               type="checkbox"
-              checked={betaProslostOk}
-              onChange={(e) => setBetaProslostOk(e.target.checked)}
+              checked={kompProslostOk}
+              onChange={(e) => setKompProslostOk(e.target.checked)}
               disabled={zauzeto}
               className="mt-0.5 h-4 w-4 accent-accent"
             />
@@ -400,20 +400,20 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
           <Button
             size="sm"
             variant="secondary"
-            disabled={zauzeto || !betaSpremna}
+            disabled={zauzeto || !kompSpremna}
             onClick={() =>
-              void posalji("beta", "/beta", {
+              void posalji("komp", "/komp", {
                 method: "POST",
                 body: JSON.stringify({
-                  do: betaRok,
-                  krediti: Number(betaKredita),
-                  refId: betaRefId,
+                  do: kompRok,
+                  krediti: Number(kompKredita),
+                  refId: kompRefId,
                 }),
               })
             }
           >
-            {radi === "beta" ? <Loader2 className="animate-spin" /> : <Sparkles />}
-            {jeBeta ? "Obnovi betu" : "Otvori beta nalog"}
+            {radi === "komp" ? <Loader2 className="animate-spin" /> : <Sparkles />}
+            {jeKomp ? "Obnovi komp" : "Otvori komp"}
           </Button>
 
           <Button
@@ -422,25 +422,25 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
             disabled={zauzeto || !rokSpreman}
             title="Menja samo rok — plan i krediti ostaju kakvi jesu."
             onClick={() =>
-              void posalji("beta-rok", "/beta", {
+              void posalji("komp-rok", "/komp", {
                 method: "PATCH",
-                body: JSON.stringify({ do: betaRok }),
+                body: JSON.stringify({ do: kompRok }),
               })
             }
           >
-            {radi === "beta-rok" ? <Loader2 className="animate-spin" /> : <CalendarClock />}
+            {radi === "komp-rok" ? <Loader2 className="animate-spin" /> : <CalendarClock />}
             Samo rok
           </Button>
         </div>
 
         <Napomena>
           Otvaranje upisuje plan, rok i kredite u jednom potezu; dvostruki klik ne daje dva
-          paketa kredita. „Samo rok" ne dira ni plan ni kredite — njime se beta i produžava i
+          paketa kredita. „Samo rok" ne dira ni plan ni kredite — njime se komp i produžava i
           gasi.
         </Napomena>
 
-        <Odgovor poruka={poruke.beta} />
-        <Odgovor poruka={poruke["beta-rok"]} />
+        <Odgovor poruka={poruke.komp} />
+        <Odgovor poruka={poruke["komp-rok"]} />
       </div>
 
       {/* ── DNEVNI LIMIT ────────────────────────────────────── */}
@@ -522,7 +522,7 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
               <Input
                 value={naslovPoruke}
                 onChange={(e) => setNaslovPoruke(e.target.value)}
-                placeholder="Pitanje o beti"
+                placeholder="Pitanje o nalogu"
                 maxLength={120}
                 disabled={zauzeto}
               />
@@ -681,10 +681,10 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
   );
 }
 
-// ── datumi u beta obrascu ────────────────────────────────────
+// ── datumi u komp obrascu ────────────────────────────────────
 // `<input type="date">` radi sa `YYYY-MM-DD` po LOKALNOM danu, a baza čuva
 // trenutak. Prevod je namerno „kraj izabranog dana, po vremenu admina": kad
-// upišem 21. septembar, beta traje ceo 21. septembar — a ne ističe u ponoć na
+// upišem 21. septembar, komp traje ceo 21. septembar — a ne ističe u ponoć na
 // početku tog dana, što bi bilo za jedan dan manje nego što piše.
 
 /** Lokalni `YYYY-MM-DD` za „danas + n dana". */

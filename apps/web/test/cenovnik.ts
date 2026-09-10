@@ -23,9 +23,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
-  ALL_PRICE_IDS,
+  ALL_LOOKUP_KEYS,
   CREDIT_PACKS,
-  PLAN_PRICE_IDS,
+  formatEur,
+  kupovinaZaLookupKey,
+  PLAN_PRICES,
   sledecaDodelaKredita,
   smeDaKupiPaket,
   stanjePristupa,
@@ -108,12 +110,15 @@ console.log("\nportal");
     !/req\.json\(\)|request\.json\(\)|searchParams/.test(kod),
     "telo i query se NE čitaju — nema `customerId` spolja (pravilo 8)",
   );
-  check(/404\s*\)/.test(kod), "nalog bez Paddle kupca dobija 404");
+  check(/404\s*\)/.test(kod), "nalog bez Stripe kupca dobija 404");
   check(!/\b403\b/.test(bezKomentara(kod)), "nigde 403 — postojanje portala se ne otkriva");
   check(
-    kod.includes("urls.general.overview") && !/json\(\s*(sesija|session)\s*[,)]/.test(kod),
+    kod.includes("billingPortal.sessions.create") &&
+      kod.includes("url: sesija.url") &&
+      !/json\(\s*(sesija|session)\s*[,)]/.test(kod),
     "nazad ide samo URL, ne ceo objekat sesije",
   );
+  check(kod.includes("return_url") && kod.includes('appUrl("/krediti")'), "portal se vraća na /krediti, kroz appUrl (nikad window.location)");
   check(kod.includes("proveriIpTempo"), "ruta ima IP tempo kao i checkout");
 
   // Nepodešena naplata NIJE prolazan kvar. Ruta koja na praznu env promenljivu
@@ -134,6 +139,7 @@ console.log("\nportal");
     );
   }
   check(kod.includes('"nodejs"'), "runtime je nodejs — SDK ne radi na edge-u");
+  check(!/customerPortalSessions|merchant of record/i.test(kod), "portal ne zna za starog provajdera");
 
   const dugme = izvor("components/portal-dugme.tsx");
   check(
@@ -153,22 +159,31 @@ console.log("\nprofil pre naplate");
   // izvan grupe `(app)`, pa `ensureProfile()` iz layouta nikad nije ni pozvan.
   // Bez profila `nadjiKorisnika()` vrati `null`, webhook to prijavi kao TRAJAN
   // neuspeh (200, bez ponavljanja) i naplaćeni krediti se izgube.
-  check(kod.includes("ensureProfile("), "checkout pravi profil pre transakcije");
+  check(kod.includes("ensureProfile("), "checkout pravi profil pre sesije");
 
-  // Redosled je cela poenta: `ensureProfile` mora da bude PRE `transactions.create`.
+  // Redosled je cela poenta: `ensureProfile` mora da bude PRE `checkout.sessions.create`.
   const iProfil = kod.indexOf("ensureProfile(");
-  const iTxn = kod.indexOf("transactions.create(");
+  const iSesija = kod.indexOf("checkout.sessions.create(");
   check(
-    iProfil > 0 && iTxn > 0 && iProfil < iTxn,
-    "ensureProfile ide PRE nego što transakcija nastane",
+    iProfil > 0 && iSesija > 0 && iProfil < iSesija,
+    "ensureProfile ide PRE nego što Checkout sesija nastane",
   );
 
   // Webhook, nasuprot tome, NE sme da pravi profile: identitet mu dolazi iz
-  // Paddle payload-a, ne iz verifikovane sesije (pravilo 8).
+  // Stripe payload-a, ne iz verifikovane sesije (pravilo 8).
   check(
     !izvor("app/api/billing/webhook/route.ts").includes("ensureProfile"),
     "webhook NE pravi profile (identitet mu nije iz sesije)",
   );
+
+  // [S25] Identitet kupca ide u `client_reference_id` i `metadata.user_id`,
+  // kartica pre probe (D2), i nijedan `price_` u kodu.
+  check(kod.includes("client_reference_id: userId"), "sesija nosi client_reference_id iz Clerk sesije");
+  check(kod.includes('payment_method_collection: "always"'), "kartica PRE probe (D2)");
+  check(kod.includes("trial_period_days: TRIAL_DAYS"), "proba iz TRIAL_DAYS, ne upisan broj");
+  check(kod.includes("imaoProbuRanije("), "drugu probu isti nalog ne dobija");
+  check(!/price_[0-9A-Za-z]{8}/.test(kod) && kod.includes("priceIdZa("), "nijedan price_ ID u kodu — ključ ide kroz stripe-katalog");
+  check(kod.includes('appUrl("/welcome?sesija={CHECKOUT_SESSION_ID}")'), "success_url je apsolutan, kroz appUrl");
 }
 
 // ── 3. paketi na cenovniku ─────────────────────────────────
@@ -180,17 +195,21 @@ console.log("\npaketi kredita");
   check(ekran.includes('id="paketi"'), "sidro `#paketi` postoji (linkovi iz S19 vode ovamo)");
   check(ekran.includes("PAKETI.map"), "oba paketa se crtaju iz `plans.ts`, ne ručno");
   check(
-    ekran.includes("SVI_PRICE_ID.map") &&
-      (bezKomentara(ekran).match(/\.PricePreview\(/g) ?? []).length === 1,
-    "i dalje JEDAN `PricePreview()` poziv za sve cene",
+    ekran.includes("formatEur(") && !/PricePreview|initializeP|Checkout\.open/.test(ekran),
+    "cifra dolazi iz plans.ts kroz formatEur — nema klijentskog SDK-a naplate",
   );
+  check(
+    ekran.includes("window.location.assign(odg.url)") && ekran.includes('"/api/billing/checkout"'),
+    "klik ide POST /api/billing/checkout → location.assign(url)",
+  );
+  check(!/price_[0-9A-Za-z]/.test(bezKomentara(ekran)), "nijedan ID cene u ekranu — šalje se slug plana/paketa");
   check(
     /Krediti iz paketa ne ističu/.test(ekran.replace(/<[^>]+>/g, "")),
     "kopija kaže da krediti iz paketa ne ističu",
   );
   check(
     ekran.includes("Paket nije zamena za plan") &&
-      ekran.includes("Paket traži aktivan plan ili betu"),
+      ekran.includes("Paket traži aktivan plan ili komp"),
     "kopija kaže i da paket nije zamena za plan i da traži plan",
   );
   // Stara kopija je tvrdila SUPROTNO od pravila koje ruta sada sprovodi. Ostavka
@@ -212,15 +231,21 @@ console.log("\npaketi kredita");
     "paketi nemaju primarno dugme — ono ostaje na istaknutom planu",
   );
 
-  // Katalog: cene paketa moraju da budu u istom spisku koji ide u PricePreview,
-  // inače se sekcija nacrta bez ijedne cifre.
+  // Katalog: svih 8 ključeva, svaki sa iznosom, i `formatEur` bez Intl.
   for (const [id, p] of Object.entries(CREDIT_PACKS)) {
-    check(ALL_PRICE_IDS.includes(p.priceId), `paket ${id} je u ALL_PRICE_ID`);
+    check(ALL_LOOKUP_KEYS.includes(p.lookupKey), `paket ${id} je u ALL_LOOKUP_KEYS`);
+    check(kupovinaZaLookupKey(p.lookupKey)?.kind === "pack", `paket ${id}: ključ → pack`);
   }
   check(
-    ALL_PRICE_IDS.length === Object.values(PLAN_PRICE_IDS).length * 2 + 2,
-    `ALL_PRICE_ID ima 8 cena (${ALL_PRICE_IDS.length})`,
+    ALL_LOOKUP_KEYS.length === Object.values(PLAN_PRICES).length * 2 + 2,
+    `ALL_LOOKUP_KEYS ima 8 cena (${ALL_LOOKUP_KEYS.length})`,
   );
+  check(
+    Object.values(PLAN_PRICES).every((c) => c.year.eur === c.month.eur * 10),
+    "godišnja cena je 10 mesečnih na sva tri plana (GODISNJI_BONUS)",
+  );
+  check(formatEur(29) === "€29" && formatEur(1190) === "€1.190", "formatEur: €29, €1.190 (tačka kao razdvajač hiljada)");
+  check(kupovinaZaLookupKey("price_nepoznat") === null && kupovinaZaLookupKey(null) === null, "nepoznat ključ → null, nikad podrazumevana kupovina");
 }
 
 // ── 3b. ko sme da kupi paket (odluka 26.8.) ────────────────
@@ -233,47 +258,54 @@ console.log("\npaket traži pristup");
 
   /** Najmanji profil koji daje traženo stanje. */
   const stanje = (id: StanjeId) => {
+    const bez = { trialEnd: null, cancelAtPeriodEnd: false };
     switch (id) {
-      case "beta":
+      case "komp":
         return stanjePristupa(
-          { plan: "beta", betaExpiresAt: null, planExpiresAt: null, creditsTopup: 0 },
+          { plan: "komp", kompExpiresAt: null, planExpiresAt: null, creditsTopup: 0 },
           null,
+          SADA,
+        );
+      case "proba":
+        return stanjePristupa(
+          { plan: "starter", kompExpiresAt: null, planExpiresAt: zaDana(7), creditsTopup: 0 },
+          { status: "trialing", currentPeriodEnd: zaDana(7), trialEnd: zaDana(7), cancelAtPeriodEnd: false, canceledAt: null },
           SADA,
         );
       case "aktivan":
         return stanjePristupa(
-          { plan: "pro", betaExpiresAt: null, planExpiresAt: zaDana(10), creditsTopup: 0 },
-          { status: "active", currentPeriodEnd: zaDana(10), canceledAt: null },
+          { plan: "pro", kompExpiresAt: null, planExpiresAt: zaDana(10), creditsTopup: 0 },
+          { status: "active", currentPeriodEnd: zaDana(10), canceledAt: null, ...bez },
           SADA,
         );
       case "otkazan":
         return stanjePristupa(
-          { plan: "pro", betaExpiresAt: null, planExpiresAt: zaDana(10), creditsTopup: 0 },
-          { status: "canceled", currentPeriodEnd: zaDana(10), canceledAt: zaDana(-1) },
+          { plan: "pro", kompExpiresAt: null, planExpiresAt: zaDana(10), creditsTopup: 0 },
+          { status: "canceled", currentPeriodEnd: zaDana(10), canceledAt: zaDana(-1), ...bez },
           SADA,
         );
       case "dopuna":
         return stanjePristupa(
-          { plan: "dopuna", betaExpiresAt: null, planExpiresAt: null, creditsTopup: 50 },
+          { plan: "dopuna", kompExpiresAt: null, planExpiresAt: null, creditsTopup: 50 },
           null,
           SADA,
         );
       case "grace":
         return stanjePristupa(
-          { plan: "pro", betaExpiresAt: null, planExpiresAt: zaDana(-5), creditsTopup: 0 },
+          { plan: "pro", kompExpiresAt: null, planExpiresAt: zaDana(-5), creditsTopup: 0 },
           null,
           SADA,
         );
       case "zakljucan":
         return stanjePristupa(
-          { plan: "pro", betaExpiresAt: null, planExpiresAt: zaDana(-90), creditsTopup: 0 },
+          { plan: "pro", kompExpiresAt: null, planExpiresAt: zaDana(-90), creditsTopup: 0 },
           null,
           SADA,
         );
     }
   };
 
-  for (const id of ["aktivan", "otkazan", "beta"] as StanjeId[]) {
+  for (const id of ["aktivan", "otkazan", "komp", "proba"] as StanjeId[]) {
     const p = stanje(id);
     check(p.stanje === id && smeDaKupiPaket(p), `${id} SME da kupi paket`);
   }
@@ -288,17 +320,17 @@ console.log("\npaket traži pristup");
   check(!smeDaKupiPaket(null), "nepoznato stanje (gost, kvar veze) NE sme — pada zatvoreno");
 
   check(
-    STANJA_ZA_PAKET.length === 3 && !STANJA_ZA_PAKET.includes("dopuna"),
-    `spisak stanja je tri člana (${STANJA_ZA_PAKET.join(", ")})`,
+    STANJA_ZA_PAKET.length === 4 && !STANJA_ZA_PAKET.includes("dopuna"),
+    `spisak stanja je četiri člana (${STANJA_ZA_PAKET.join(", ")})`,
   );
 
   // ‼️ Kapija koja stvarno drži. Skriveno dugme nije zaštita — telo zahteva se
-  //    sastavlja u pregledaču, pa bez ove grane svako ko pošalje `pri_` paketa
-  //    dobije transakciju bez obzira na stanje naloga (isti princip kao
-  //    pravilo 9: CSS blur nije bezbednost).
+  //    sastavlja u pregledaču, pa bez ove grane svako ko pošalje slug paketa
+  //    dobije sesiju bez obzira na stanje naloga (isti princip kao pravilo 9:
+  //    CSS blur nije bezbednost).
   const ruta = izvor("app/api/billing/checkout/route.ts");
   check(
-    ruta.includes("smeDaKupiPaket(") && /kupovina\.kind === "pack"/.test(ruta),
+    ruta.includes("smeDaKupiPaket(") && /telo\.vrsta === "paket"/.test(ruta),
     "checkout ruta sprovodi pravilo na serveru, ne samo na ekranu",
   );
   check(/403,?\s*\)/.test(ruta), "odbijenica je 403 (stanje naloga), ne 402 (novčanik)");

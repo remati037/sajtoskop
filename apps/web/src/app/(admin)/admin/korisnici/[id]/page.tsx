@@ -160,17 +160,17 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           </Blok>
 
           {/* ── 2. PRISTUP ───────────────────────────────────── */}
-          {/* Sve ispod je IZVEDENO iz dva ulaza (`beta_expires_at` i
+          {/* Sve ispod je IZVEDENO iz dva ulaza (`komp_expires_at` i
               `plan_expires_at`) — `stanjePristupa()` ih sabira, ova strana ih
               samo ispisuje. Treći skladišteni datum bi se razišao sa prva dva
-              čim se pomeri rok bete (LANSIRANJE §1.5). */}
+              čim se pomeri rok kompa (LANSIRANJE §1.5). */}
           <Blok naslov="Pristup">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <Badge variant={STANJE_PRISTUPA[pristup.stanje].variant}>
                 {STANJE_PRISTUPA[pristup.stanje].label}
               </Badge>
-              {pristup.stanje === "beta" && pristup.punDo === null && (
-                <Badge variant="warning" title="Beta bez roka — traje dok je neko ne ugasi rukom.">
+              {pristup.stanje === "komp" && pristup.punDo === null && (
+                <Badge variant="warning" title="Komp bez roka — traje dok ga neko ne ugasi rukom.">
                   <Beskonacno />
                   NEOGRANIČENO
                 </Badge>
@@ -182,17 +182,17 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             </p>
 
             <dl className="divide-y divide-border">
-              <Red naziv="Rok bete" vrednost={rokTekst(profil.beta_expires_at, profil.plan)} mono />
+              <Red naziv="Rok kompa" vrednost={rokTekst(profil.komp_expires_at, profil.plan)} mono />
               <Red
                 naziv="Rok pretplate"
                 vrednost={profil.plan_expires_at ? formatDatum(profil.plan_expires_at) : "—"}
-                napomena={detalj.pretplata ? `Paddle: ${detalj.pretplata.status}` : "nema pretplate"}
+                napomena={detalj.pretplata ? `Stripe: ${detalj.pretplata.status}` : "nema pretplate"}
                 mono
               />
               <Red
                 naziv="Pun pristup do"
                 vrednost={pristup.punDo ? formatDatum(pristup.punDo) : "—"}
-                napomena="max(rok bete, rok pretplate)"
+                napomena="max(rok kompa, rok pretplate)"
                 mono
               />
               <Red
@@ -405,7 +405,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         </div>
 
         {/* ── RADNJE ───────────────────────────────────────── */}
-        {/* `betaRefId` je ZASEBAN ključ, ne isti kao `refId`: dva obrasca su
+        {/* `kompRefId` je ZASEBAN ključ, ne isti kao `refId`: dva obrasca su
             dve radnje i dve idempotencije, pa slanje jednog ne sme da „potroši"
             ključ drugog. */}
         <div className="lg:sticky lg:top-8 lg:self-start">
@@ -417,9 +417,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             cacheMissCount={profil.cache_miss_count}
             cacheMissLimit={plan.cacheMissPerDay}
             refId={noviRefId()}
-            betaRefId={noviRefId()}
-            betaDo={profil.beta_expires_at}
-            jeBeta={profil.plan === "beta"}
+            kompRefId={noviRefId()}
+            kompDo={profil.komp_expires_at}
+            jeKomp={profil.plan === "komp"}
             jaSam={jaSam}
             blokiran={clerk ? clerk.blokiran : null}
             poslednjiAdmin={profil.role === "admin" && admina <= 1}
@@ -431,15 +431,15 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 }
 
 /**
- * Rok bete, sa jedinom zamkom iz §1.5 ispisanom, a ne prećutanom.
+ * Rok kompa, sa jedinom zamkom iz §1.5 ispisanom, a ne prećutanom.
  *
- * `null` znači dve različite stvari: uz plan `beta` je NEOGRANIČENO, uz svaki
- * drugi plan je „bete nema". Ista prazna kolona, dva suprotna značenja — pa
- * ekran sa kog se beta dodeljuje mora da kaže koje je u pitanju.
+ * `null` znači dve različite stvari: uz plan `komp` je NEOGRANIČENO, uz svaki
+ * drugi plan je „kompa nema". Ista prazna kolona, dva suprotna značenja — pa
+ * ekran sa kog se komp dodeljuje mora da kaže koje je u pitanju.
  */
 function rokTekst(rok: string | null, plan: string): string {
   if (rok) return formatDatum(rok);
-  return plan === "beta" ? "neograničeno" : "—";
+  return plan === "komp" ? "neograničeno" : "—";
 }
 
 // ── sitni delovi ─────────────────────────────────────────────

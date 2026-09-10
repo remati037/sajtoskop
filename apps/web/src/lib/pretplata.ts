@@ -4,14 +4,14 @@
 // ── zašto je odvojeno od `lib/pristup.ts` ───────────────────
 // `citajPretplatu()` tamo vraća namerno osiromašen oblik — tačno tri polja koja
 // `stanjePristupa()` sme da vidi (`PretplataZaPristup` u shared paketu). To je
-// dobro i ostaje tako: kapiju pristupa ne zanima koji je `pri_` kupljen ni kako
-// se pretplata zove kod Paddle-a, a svako polje koje bi joj se dodalo postalo
-// bi polje po kome neko sme da zaključa.
+// dobro i ostaje tako: kapiju pristupa ne zanima koji je `lookup_key` kupljen ni
+// kako se pretplata zove kod Stripe-a, a svako polje koje bi joj se dodalo
+// postalo bi polje po kome neko sme da zaključa.
 //
-// Ekranu stanja pretplate i portalu, međutim, trebaju baš ta polja: `price_id`
-// (iz njega se izvodi ciklus, dakle „mesečno" ili „godišnje") i
-// `paddle_subscription_id` (bez njega portal nema šta da otvori). Zato drugi
-// čitač, a ne šire polje u kapiji.
+// Ekranu stanja pretplate, međutim, trebaju baš ta polja: `ciklus` („mesečno"
+// ili „godišnje"), `lookup_key` (iz njega cenovnik zna iznos) i
+// `stripe_subscription_id` (za „Aktiviraj odmah", K2). Zato drugi čitač, a ne
+// šire polje u kapiji.
 //
 // ── zašto admin klijent ─────────────────────────────────────
 // `subscriptions` ima `enable`/`force row level security` BEZ IJEDNE POLITIKE
@@ -21,7 +21,7 @@
 
 import "server-only";
 import { cache } from "react";
-import { kupovinaZaPriceId, type Ciklus, type SubscriptionRow } from "@sajtoskop/shared";
+import { kupovinaZaLookupKey, type Ciklus, type SubscriptionRow } from "@sajtoskop/shared";
 import { adminSupabase } from "./supabase";
 
 /** Ono što ekran i portal traže od pretplate. Više od kapije, manje od cele tabele. */
@@ -29,34 +29,49 @@ export type PretplataZaEkran = {
   subscriptionId: string;
   status: SubscriptionRow["status"];
   plan: SubscriptionRow["plan"];
-  priceId: string | null;
+  lookupKey: string | null;
   /**
-   * Izveden iz `price_id` kroz katalog, ne skladišten. Drugi izvor bi značio da
-   * ekran ume da kaže „mesečno" nad godišnjom pretplatom kad se katalog promeni.
-   * `null` = `pri_` koji katalog ne poznaje (stara cena, ručno napravljena
-   * pretplata u Paddle panelu).
+   * Iz kolone `ciklus` koju upisuje webhook; kad je prazna (pretplata sa cenom
+   * koju katalog ne poznaje), izvodi se iz `lookup_key` kroz katalog. `null` =
+   * ni jedno ni drugo (ručno napravljena pretplata u Stripe panelu).
    */
   ciklus: Ciklus | null;
+  /** Iznos u evrima iz `plans.ts` po `lookup_key`; `null` kad ključ nije naš. */
+  eur: number | null;
   currentPeriodEnd: string | null;
+  trialEnd: string | null;
+  cancelAtPeriodEnd: boolean;
   canceledAt: string | null;
 };
 
-const KOLONE = "paddle_subscription_id, status, plan, price_id, current_period_end, canceled_at";
+const KOLONE =
+  "stripe_subscription_id, status, plan, ciklus, lookup_key, current_period_end, trial_end, cancel_at_period_end, canceled_at";
 
 type Red = Pick<
   SubscriptionRow,
-  "paddle_subscription_id" | "status" | "plan" | "price_id" | "current_period_end" | "canceled_at"
+  | "stripe_subscription_id"
+  | "status"
+  | "plan"
+  | "ciklus"
+  | "lookup_key"
+  | "current_period_end"
+  | "trial_end"
+  | "cancel_at_period_end"
+  | "canceled_at"
 >;
 
 function uEkran(r: Red): PretplataZaEkran {
-  const kupovina = kupovinaZaPriceId(r.price_id);
+  const kupovina = kupovinaZaLookupKey(r.lookup_key);
   return {
-    subscriptionId: r.paddle_subscription_id,
+    subscriptionId: r.stripe_subscription_id,
     status: r.status,
     plan: r.plan,
-    priceId: r.price_id,
-    ciklus: kupovina?.kind === "subscription" ? kupovina.ciklus : null,
+    lookupKey: r.lookup_key,
+    ciklus: r.ciklus ?? (kupovina?.kind === "subscription" ? kupovina.ciklus : null),
+    eur: kupovina?.kind === "subscription" ? kupovina.eur : null,
     currentPeriodEnd: r.current_period_end,
+    trialEnd: r.trial_end,
+    cancelAtPeriodEnd: r.cancel_at_period_end,
     canceledAt: r.canceled_at,
   };
 }
@@ -90,31 +105,3 @@ export const citajPretplatuZaEkran = cache(
     return data ? uEkran(data) : null;
   },
 );
-
-/**
- * SVI `sub_` ID-jevi korisnika, za `customerPortalSessions.create`.
- *
- * Ne samo najsveži: Paddle vraća po jedan skup dubokih linkova (otkazivanje,
- * izmena kartice) za svaki prosleđen ID, a korisnik koji je menjao plan ima u
- * tabeli i stare redove. Prazan niz je ispravan ulaz — portal i dalje otvara
- * pregled računa i podataka za plaćanje.
- *
- * Otkazane pretplate se NE filtriraju: račun za otkazanu pretplatu se i dalje
- * preuzima, a to je pola razloga zbog kog portal postoji.
- */
-export async function citajIdPretplata(userId: string): Promise<string[]> {
-  const { data, error } = await adminSupabase()
-    .from("subscriptions")
-    .select("paddle_subscription_id")
-    .eq("user_id", userId)
-    .order("current_period_end", { ascending: false, nullsFirst: false })
-    .limit(20)
-    .returns<{ paddle_subscription_id: string }[]>();
-
-  if (error) {
-    console.error("[pretplata] čitanje ID-jeva nije uspelo:", error.message);
-    return [];
-  }
-
-  return (data ?? []).map((r) => r.paddle_subscription_id);
-}

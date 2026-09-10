@@ -157,17 +157,28 @@ export async function recordScan(args: {
 }
 
 /**
- * Vrati kredit svima koji su platili ovaj scan (F9 §2).
+ * Vrati kredit svima koji su platili ovaj scan (F9 §2) — ceo, ili RAZLIKU.
  *
- * Dva pozivaoca: `runScan` kad Google ne vrati nijednu firmu, i petlja workera
- * kad posao konačno padne. Idempotentno je u bazi, pa dvostruki poziv ne dodaje
- * kredit dvaput.
+ * `pagesUsed` je koliko je Places poziva worker STVARNO napravio (`apiCalls`).
+ * `0` = vrati sve: pad posla, prazan rezultat, neupisan registar. Broj veći od
+ * nule = vrati `plaćeno − iskorišćeno` (naplata-stripe.md §14.4): Google
+ * prestaje da vraća `nextPageToken` kad nema više rezultata, pa je razlika
+ * tačno ono što nije koštalo. Pristup (`search_access`) se pri tom spušta na
+ * ono što je stvarno stiglo.
+ *
+ * Tri pozivaoca: `runScan` (prazan rezultat, neupisan registar, manje stranica
+ * od plaćenih), petlja workera kad posao konačno padne, i metla nad palim
+ * poslovima. Idempotentno je u bazi po (korisnik, posao), pa dvostruki poziv ne
+ * dodaje kredit dvaput.
  *
  * Vraća koliko je povraćaja upisano — nula je uobičajena (posao pokrenut iz
  * CLI-a nema platioca).
  */
-export async function refundScan(jobId: number): Promise<number> {
-  const { data, error } = await supabaseAdmin().rpc("refund_scan", { p_job_id: jobId });
+export async function refundScan(jobId: number, pagesUsed = 0): Promise<number> {
+  const { data, error } = await supabaseAdmin().rpc("refund_scan", {
+    p_job_id: jobId,
+    p_pages_used: pagesUsed,
+  });
 
   if (error) {
     // Ovo je jedina greška u ovom fajlu koja košta korisnika stvaran kredit, pa

@@ -7,11 +7,11 @@
 // istom modulu, ceo Zod bi ušao u bundle javne strane cena, koju otvara svako
 // ko klikne dugme na landingu.
 //
-// ── zašto slug, a ne `pri_` ID ─────────────────────────────
-// `docs/LANSIRANJE.md` §1.7: landing NIKAD ne zna Paddle price ID. Da ga zna,
-// prelazak sandbox → produkcija tražio bi izmenu i na landingu — na mestu gde
-// se greška ne vidi dok neko ne plati. Preslikavanje slug → `pri_` ostaje u
-// aplikaciji, gde već postoji (`lib/cenovnik.ts` → `PLAN_PRICE_IDS`).
+// ── zašto slug, a ne Stripe ID ─────────────────────────────
+// `docs/LANSIRANJE.md` §1.7: landing NIKAD ne zna Stripe price ID. Da ga zna,
+// prelazak test → live tražio bi izmenu i na landingu — na mestu gde se greška
+// ne vidi dok neko ne plati. Preslikavanje slug → `lookup_key` → `price_`
+// ostaje u aplikaciji (`plans.ts` → `lib/stripe-katalog.ts`).
 
 import type { Ciklus, PaidPlanId, PaketId } from "@sajtoskop/shared";
 
@@ -19,9 +19,9 @@ import type { Ciklus, PaidPlanId, PaketId } from "@sajtoskop/shared";
 export const PLANOVI_U_LINKU = ["starter", "pro", "advanced"] as const;
 
 /**
- * Ciklus u linku je na srpskom, u kodu je Paddle-ov `month` / `year`.
+ * Ciklus u linku je na srpskom, u kodu je Stripe-ov `month` / `year`.
  *
- * Landing piše ono što piše i na dugmetu („godišnje"), ne Paddle-ov rečnik.
+ * Landing piše ono što piše i na dugmetu („godišnje"), ne Stripe-ov rečnik.
  * Preslikavanje je ovde, na granici, i nigde više.
  */
 export const CIKLUS_IZ_LINKA = {
@@ -32,13 +32,14 @@ export const CIKLUS_IZ_LINKA = {
 /**
  * Paket se u linku prepoznaje po BROJU KREDITA, ne po internom id-ju.
  *
- * Na landingu piše „Dopuna 150", pa je `?paket=150` jedini oblik koji čovek
- * može da pročita iz adresne trake i proveri. Interni `dopuna-150` je naše ime
- * i nema razloga da izlazi iz aplikacije.
+ * Na landingu piše „Dopuna 200", pa je `?paket=200` jedini oblik koji čovek
+ * može da pročita iz adresne trake i proveri. Interni `dopuna-200` je naše ime
+ * i nema razloga da izlazi iz aplikacije. Brojevi su iz naplata-stripe.md §14.6
+ * (75 / 200; do S25 50 / 150).
  */
 export const PAKET_IZ_LINKA = {
-  "50": "dopuna-50",
-  "150": "dopuna-150",
+  "75": "dopuna-75",
+  "200": "dopuna-200",
 } as const satisfies Record<string, PaketId>;
 
 /** Šta je posetilac izabrao na landingu. `null` znači „nije rekao". */
@@ -66,7 +67,7 @@ export function putanjaZaPlan(plan: PaidPlanId, ciklus: Ciklus): string {
 
 /** Isto, za paket. Sidro `#paketi` vraća čoveka tačno na sekciju. */
 export function putanjaZaPaket(paket: PaketId): string {
-  const uLinku = paket === "dopuna-150" ? "150" : "50";
+  const uLinku = paket === "dopuna-200" ? "200" : "75";
   return `/cenovnik?paket=${uLinku}#paketi`;
 }
 

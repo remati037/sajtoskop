@@ -334,6 +334,11 @@ grant execute on function admin_open_beta(text, integer, timestamptz, text)
 
 drop function if exists admin_users_page(text, text, text, text, text, integer, integer);
 drop function if exists admin_users_page(text, text, text, text, text, integer, integer, text[]);
+-- [S25] 0025 menja POVRATNI TIP ove funkcije (dodaje `komp_expires_at` i
+-- `sub_trial_end`), pa drugi prolaz `pnpm check:sql` ovde puca na „cannot
+-- change return type" ako se ne drop-uje i sopstveni potpis. Bezopasno u
+-- produkciji: 0025 je odmah iza i pravi je iznova.
+drop function if exists admin_users_page(text, text, text, text, text, integer, integer, text[], text[]);
 
 create or replace function admin_users_page(
   p_q         text    default null,   -- mejl, ILIKE

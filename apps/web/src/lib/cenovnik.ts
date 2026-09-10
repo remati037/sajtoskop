@@ -1,40 +1,41 @@
 // apps/web/src/lib/cenovnik.ts
 // Ekran cena: imena planova, kopi i redosled kartica.
 //
-// Šta ovde VIŠE NIJE, a bilo je: `pri_` ID-jevi i brojevi iz ponude. Oboje sada
-// dolazi iz `packages/shared/src/plans.ts`, i to je poenta — webhook iz S18 mora
-// da preslika `pri_` → plan, a on ne sme da uvozi fajl ekrana cena. Da su
-// ID-jevi ostali i ovde, razilaženje bi se videlo tek kad neko plati, kao
+// Šta ovde VIŠE NIJE, a bilo je: ID-jevi cena i brojevi iz ponude. Oboje sada
+// dolazi iz `packages/shared/src/plans.ts`, i to je poenta — webhook mora da
+// preslika `lookup_key` → plan, a on ne sme da uvozi fajl ekrana cena. Da su
+// ključevi ostali i ovde, razilaženje bi se videlo tek kad neko plati, kao
 // „platio Pro, dobio Starter". Ovako drugog spiska nema.
 //
 // Ostaje ovde: KOPI. Ime plana, rečenica kome je namenjen, tekst pogodnosti i
 // nivo podrške — sve što je odluka o prodaji, a ne o proizvodu.
 //
-// Šta ovde NIJE i ne sme da bude: iznosi. Cenu ispisuje isključivo Paddle, kroz
-// `formattedTotals.total` iz `PricePreview()` — već formatirana, u valuti
-// posetioca, sa porezom po njegovoj zemlji. Broj upisan ovde bi bio četvrti
-// izvor istine (Paddle, checkout, faktura, pa ovaj fajl) i razišao bi se prvog
-// dana kad se cena promeni ili kad neko otvori stranu iz Nemačke, gde je u
-// prikazanoj cifri i 19% PDV-a.
+// [S25] Iznosi JESU ovde, ali kroz `PLAN_PRICES` iz `plans.ts` — Stripe hosted
+// Checkout nema `PricePreview`, pa cenovnik mora da zna cifru pre nego što
+// čovek ode na Stripe. Jedan izvor (§4): Stripe se proverava naspram
+// `plans.ts` (`pnpm stripe:doktor`), ne obrnuto. Puna prepravka ekrana cena
+// (K2) dolazi u S26; ovde je samo ono što ekran već čita.
 
 import {
-  ALL_PRICE_IDS,
   CREDIT_PACKS,
-  PLAN_PRICE_IDS,
+  PLAN_PRICES,
   PLANS,
+  type CenaPlana,
   type Ciklus,
   type PaidPlanId,
   type PaketId,
 } from "@sajtoskop/shared";
 
 export type { Ciklus };
+export { GODISNJI_BONUS, formatEur } from "@sajtoskop/shared";
 
 export interface Tier {
   id: PaidPlanId;
   name: "Starter" | "Pro" | "Advanced";
   description: string;
   features: string[];
-  priceId: Record<Ciklus, string>;
+  /** Iznos i `lookup_key` po ciklusu — iz `PLAN_PRICES`, jedinog izvora. */
+  cena: Record<Ciklus, CenaPlana>;
   /**
    * Istaknut plan. Tačno jedan sme da bude `true`: §7.1 dizajn sistema traži
    * jedno primarno dugme po ekranu, pa je ovo polje ono koje ga određuje.
@@ -63,11 +64,9 @@ function broj(n: number): string {
  * broj. Cenovnik na kome kartice nose različite spiskove tera posetioca da ih
  * čita jednu po jednu; ovako se porede pogledom niz kolonu.
  *
- * Šta NIJE ovde, iako je bilo: „AI poruke po kanalu — mejl, Viber, Instagram"
- * kao Pro pogodnost. Kod daje sve kanale svima i nema razloga da ih uzima
- * Starteru. Razlika je umesto toga dnevni broj AI VARIJANTI poruke — jedini AI
- * poziv koji korisnik ponavlja iz radoznalosti, dakle jedini koji košta po
- * kliku (docs/LANSIRANJE.md §1.3).
+ * [S25, D10] „Pretraga po kešu, neograničeno" je otišla — pristup kešu se
+ * plaća. Umesto nje stoji obećanje iz §14.4 koje je ista stvar viđena s druge
+ * strane: plaćaš samo ono što stvarno stigne.
  */
 function pogodnosti(plan: PaidPlanId, podrska: string): string[] {
   const p = PLANS[plan];
@@ -76,7 +75,7 @@ function pogodnosti(plan: PaidPlanId, podrska: string): string[] {
     `Do ${broj(p.cacheMissPerDay)} skeniranja dnevno`,
     `${broj(p.aiRewritePerDay)} AI varijanti poruke dnevno`,
     `Izvoz u CSV do ${broj(p.exportPerDay)} redova dnevno`,
-    "Pretraga po kešu, neograničeno",
+    "Ako nađemo manje firmi nego što si tražio, razliku vraćamo",
     podrska,
   ];
 }
@@ -87,14 +86,14 @@ export const TIERS: Tier[] = [
     name: "Starter",
     description: "Za frilensera koji radi sam i uzima nekoliko klijenata mesečno.",
     features: pogodnosti("starter", "Podrška mejlom"),
-    priceId: PLAN_PRICE_IDS.starter,
+    cena: PLAN_PRICES.starter,
   },
   {
     id: "pro",
     name: "Pro",
     description: "Za studio ili agenciju kojoj outreach ide svakog dana.",
     features: pogodnosti("pro", "Prioritet u podršci"),
-    priceId: PLAN_PRICE_IDS.pro,
+    cena: PLAN_PRICES.pro,
     featured: true,
   },
   {
@@ -102,21 +101,18 @@ export const TIERS: Tier[] = [
     name: "Advanced",
     description: "Za tim koji pokriva celu Srbiju i radi u više niša odjednom.",
     features: pogodnosti("advanced", "Odgovor u istom radnom danu"),
-    priceId: PLAN_PRICE_IDS.advanced,
+    cena: PLAN_PRICES.advanced,
   },
 ];
 
 // ── paketi kredita ──────────────────────────────────────────
-// Jednokratna kupovina, bez `billing_cycle`. Krediti iz paketa NE ISTIČU i žive
-// u `profiles.credits_topup` — odvojenoj kasi od pretplatnih kredita, koji se
+// Jednokratna kupovina, bez `recurring`. Krediti iz paketa NE ISTIČU i žive u
+// `profiles.credits_topup` — odvojenoj kasi od pretplatnih kredita, koji se
 // resetuju svakog meseca (v. docs/LANSIRANJE.md §1.4 i migraciju 0022).
 //
-// Cena po kreditu je NAMERNO viša nego u pretplati (+31% i +13% naspram Startera):
+// Cena po kreditu je NAMERNO viša nego u pretplati (+31% i +27% naspram Startera):
 // paket je dopuna, ne jeftinija zamena za plan. Trećeg, većeg paketa nema — da bi
 // ostao iznad Startera morao bi da košta više od Advanced plana za manje kredita.
-//
-// ‼️ Ovo je PODATAK, ne ekran. Sekcija koja pakete prikazuje dolazi u S21;
-//    njihove cene se već učitavaju u istom `PricePreview()` pozivu (v. `SVI_PRICE_ID`).
 
 export interface Paket {
   id: PaketId;
@@ -124,45 +120,28 @@ export interface Paket {
   /** Koliko kredita se dodeljuje. Izvor je `CREDIT_PACKS` iz `plans.ts`. */
   credits: number;
   description: string;
-  priceId: string;
+  /** Iznos u evrima, iz `CREDIT_PACKS`. */
+  eur: number;
 }
 
 export const PAKETI: Paket[] = [
   {
-    id: "dopuna-50",
-    name: "Dopuna 50",
+    id: "dopuna-75",
+    name: "Dopuna 75",
     description: "Za povremenu potrebu, kad plan nije isplativ.",
-    ...CREDIT_PACKS["dopuna-50"],
+    credits: CREDIT_PACKS["dopuna-75"].credits,
+    eur: CREDIT_PACKS["dopuna-75"].eur,
   },
   {
-    id: "dopuna-150",
-    name: "Dopuna 150",
+    id: "dopuna-200",
+    name: "Dopuna 200",
     description: "Kad meseca ponestane, a posao ne stane.",
-    ...CREDIT_PACKS["dopuna-150"],
+    credits: CREDIT_PACKS["dopuna-200"].credits,
+    eur: CREDIT_PACKS["dopuna-200"].eur,
   },
 ];
 
-/**
- * Bedž uz „Godišnje" na prekidaču.
- *
- * Stoji ovde, a ne u komponenti, jer je tvrdnja o KATALOGU, ne o dizajnu:
- * godišnja cena je deset mesečnih na sva tri plana. Ako se taj odnos ikad
- * promeni u Paddle-u, menja se i ovaj tekst — ili se briše. Namerno se ne
- * računa iz Paddle-ovog odgovora: to bi bila računica nad cenama u pregledaču,
- * a nju ne radimo (v. komentar na vrhu fajla).
- */
-export const GODISNJI_BONUS = "2 meseca gratis";
-
-/**
- * Svi `pri_` ID-jevi, za jedan `PricePreview()` poziv umesto osam.
- *
- * Paketi su ovde iako ih ekran cena još ne prikazuje (to je S21): jedan mrežni
- * poziv je isti posao za šest i za osam cena, a kad sekcija sa paketima stigne,
- * njihove cene su već učitane.
- */
-export const SVI_PRICE_ID: readonly string[] = ALL_PRICE_IDS;
-
-/** Nastavak uz cenu: „€29.00 / mesečno". */
+/** Nastavak uz cenu: „€29 / mesečno". */
 export const CIKLUS_SUFIKS: Record<Ciklus, string> = {
   month: "mesečno",
   year: "godišnje",

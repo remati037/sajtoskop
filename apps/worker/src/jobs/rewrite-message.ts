@@ -15,6 +15,13 @@
 // Poslednja stavka je cela poenta. Model koji uvede emodži, uzvičnik ili link u
 // Viber poruku ne dobija priliku da to pošalje korisniku — pravila kopija su
 // merena u praksi i ne pregovaraju se sa modelom.
+//
+// ── [S25, B1] dnevni limit po korisniku ─────────────────────
+// Ruta je PRE upisa posla rezervisala jedno mesto u dnevnom limitu plana
+// (`claim_ai_rewrite`). Svaki pad posle toga — neotključan lead, nestao
+// prospekt, generator odbio, globalni cap, model bez upotrebljivog izlaza —
+// vraća rezervaciju (`release_ai_rewrite`), da korisnik ne plati limitom nešto
+// što nije dobio. Uspeh je ne vraća: to je jedina varijanta koja se broji.
 
 import Anthropic from "@anthropic-ai/sdk";
 import {
@@ -145,13 +152,22 @@ export async function runRewriteMessage(payload: unknown, ctx: JobContext): Prom
     .maybeSingle<{ place_id: string }>();
 
   if (uErr) throw new Error(`Provera otključanja nije uspela: ${uErr.message}`);
-  if (!unlock) return { note: `${placeId} nije otključan za ${userId} — posao odbijen` };
+  if (!unlock) {
+    await vratiRezervaciju(db, userId);
+    return { note: `${placeId} nije otključan za ${userId} — posao odbijen` };
+  }
 
   const ulaz = await ucitajUlaz(db, placeId, senderName);
-  if (!ulaz) return { note: `${placeId} više ne postoji u bazi` };
+  if (!ulaz) {
+    await vratiRezervaciju(db, userId);
+    return { note: `${placeId} više ne postoji u bazi` };
+  }
 
   const sablon = napisiPoruke(ulaz);
-  if (!sablon.ok) return { note: `generator odbio poruku: ${sablon.razlog}` };
+  if (!sablon.ok) {
+    await vratiRezervaciju(db, userId);
+    return { note: `generator odbio poruku: ${sablon.razlog}` };
+  }
 
   const original = sablon.poruke[channel];
 
@@ -167,11 +183,13 @@ export async function runRewriteMessage(payload: unknown, ctx: JobContext): Prom
   const budzet = await consumeSide(SIDE_KIND.aiOutreach);
   if (!budzet.ok) {
     ctx.log(capMessage(SIDE_KIND.aiOutreach, budzet));
+    await vratiRezervaciju(db, userId);
     return { note: "dnevni cap za ai:outreach — varijanta nije pisana", partial: true };
   }
 
   const varijanta = await pitajModel(original, channel, senderName, ctx);
   if (!varijanta) {
+    await vratiRezervaciju(db, userId);
     return { note: "model nije dao upotrebljiv izlaz — ništa nije upisano", partial: true };
   }
 
@@ -304,6 +322,17 @@ async function pitajModel(
     ctx.log(`Anthropic poziv nije uspeo: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
+}
+
+/**
+ * Vrati mesto u dnevnom limitu koje je ruta rezervisala (`claim_ai_rewrite`).
+ *
+ * Ne baca: posao je već pao iz svog razloga, a neuspeo `release` je greška koja
+ * korisnika košta jednu varijantu do LA ponoći — u log, ne u red poslova.
+ */
+async function vratiRezervaciju(db: ReturnType<typeof supabaseAdmin>, userId: string): Promise<void> {
+  const { error } = await db.rpc("release_ai_rewrite", { p_user: userId });
+  if (error) console.error(`[rewrite] release_ai_rewrite(${userId}) nije uspeo: ${error.message}`);
 }
 
 async function upisi(

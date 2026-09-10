@@ -62,49 +62,47 @@ const cronSchema = z.object({
 });
 
 /**
- * S18: serverski Paddle ključevi. Obe promenljive su u ISTOJ šemi i obe BACAJU
- * kad fale — po uzoru na `webhookSecret()`, ne na `cronSecret()`.
+ * S25: serverski Stripe ključevi (naplata-stripe.md §11). Sve BACAJU kad fale —
+ * po uzoru na `webhookSecret()`, ne na `cronSecret()`.
  *
  * ── zašto baca, a ne pada na `null` ─────────────────────────
  * Cron bez tajne ne uradi ništa i to je uredno stanje. Webhook bez tajne je
  * suprotno: to je javan POST endpoint koji dodeljuje kredite. Ruta koja bi
  * „preskočila proveru jer tajne nema" bila bi poklon svakome ko pogodi URL, pa
- * radije odbija da radi. Isto važi za API ključ: bez njega checkout ne može da
- * upiše `custom_data.user_id`, a kupovina bez tog podatka je novac koji je
- * stigao i ne zna se čiji je.
+ * radije odbija da radi. Isto važi za tajni ključ: bez njega checkout ne može
+ * da napravi sesiju sa `client_reference_id`, a kupovina bez tog podatka je
+ * novac koji je stigao i ne zna se čiji je.
  *
- * ── zašto zajedno, iako ih koriste dve različite rute ───────
+ * ── zašto zajedno, iako ih koriste različite rute ───────────
  * Naplata je jedna funkcija. Podešena polovično znači ili checkout koji vodi u
  * plaćanje koje niko neće obraditi, ili webhook koji čeka kupovinu koja ne može
  * da nastane. Bolje je da obe rute stanu odmah nego da jedna radi u prazno.
  *
- * Prefiksi se proveravaju iz istog razloga kao kod Clerk ključeva: pogrešno
- * nalepljen ključ inače pukne tek u Paddle-ovom odgovoru, kao `403` bez ijedne
- * druge reči. Ukrštena provera sa `NEXT_PUBLIC_PADDLE_ENV` NIJE ovde nego u
- * `lib/paddle-server.ts` — ovaj fajl ne zna za klijentsko okruženje.
+ * `NEXT_PUBLIC_APP_URL` je ovde jer `success_url` i `cancel_url` MORAJU da budu
+ * apsolutni i serverski (ruta ne vidi `window.location`). Prefiksi se
+ * proveravaju iz istog razloga kao kod Clerk ključeva: pogrešno nalepljen ključ
+ * inače pukne tek u Stripe odgovoru. Ukrštena provera `sk_live_` ↔ produkcija
+ * NIJE ovde nego u `lib/stripe-server.ts`.
  */
-const paddleServerSchema = z.object({
-  PADDLE_API_KEY: z
+const stripeServerSchema = z.object({
+  STRIPE_SECRET_KEY: z
     .string()
-    .regex(/^pdl_(sdbx|live)_/, {
-      message: "mora počinjati sa pdl_sdbx_ (sandbox) ili pdl_live_ (produkcija)",
-    }),
-  PADDLE_WEBHOOK_SECRET: z
-    .string()
-    .regex(/^pdl_ntfset_/, { message: "mora počinjati sa pdl_ntfset_" }),
+    .regex(/^sk_(test|live)_/, { message: "mora počinjati sa sk_test_ ili sk_live_" }),
+  STRIPE_WEBHOOK_SECRET: z.string().regex(/^whsec_/, { message: "mora počinjati sa whsec_" }),
+  STRIPE_COUPON_FIRST_MONTH: z.string().min(1),
+  NEXT_PUBLIC_APP_URL: z.url({ message: "mora biti pun URL, npr. https://app.sajtoskop.com" }),
 });
 
 /**
- * `PADDLE_BETA_DISCOUNT_ID` je NAMERNO van šeme iznad i NAMERNO ne baca.
- *
- * Bez njega se popust za betu prosto ne primenjuje sam — a kod `BETA2026` i
- * dalje može ručno da se ukuca u checkout-u, jer je u Paddle-u podešen sa
- * `enabled_for_checkout: true`. Dva puta do istog popusta; nedostatak jednog
- * nije kvar naplate i ne sme da je obori.
+ * Ime prodavca na računu i u pravnim tekstovima (odluka A4). Opciono: prazno
+ * pada na LLC — ime firme nije tajna i nije kvar, pa aplikacija ne sme da
+ * stane zbog njega.
  */
-const paddleDiscountSchema = z.object({
-  PADDLE_BETA_DISCOUNT_ID: z.string().regex(/^dsc_/).optional(),
+const sellerSchema = z.object({
+  NEXT_PUBLIC_SELLER_NAME: z.string().trim().min(1).optional(),
 });
+
+export const PODRAZUMEVANI_PRODAVAC = "Remati LLC";
 
 export type ServerEnv = z.infer<typeof serverSchema>;
 
@@ -212,28 +210,26 @@ export function feedbackMailEnv(): FeedbackMailConfig {
   };
 }
 
-export type PaddleServerEnv = z.infer<typeof paddleServerSchema>;
+export type StripeServerEnv = z.infer<typeof stripeServerSchema>;
 
 /**
- * API ključ i webhook tajna, ili baciti sa razlogom (v. `paddleServerSchema`).
+ * Tajni ključ, webhook tajna, kupon i javni URL aplikacije — ili baciti sa
+ * razlogom (v. `stripeServerSchema`).
  *
  * Vrednosti se ne keširaju u modulu i ne loguju nigde: jedini put kojim smeju
- * da izađu iz procesa je zaglavlje ka `api.paddle.com`.
+ * da izađu iz procesa je zaglavlje ka `api.stripe.com`.
  */
-export function paddleServerEnv(): PaddleServerEnv {
-  const parsed = paddleServerSchema.safeParse(process.env);
+export function stripeServerEnv(): StripeServerEnv {
+  const parsed = stripeServerSchema.safeParse(process.env);
   if (!parsed.success) fail(parsed.error);
   return parsed.data;
 }
 
 /**
- * ID popusta za beta korisnike, ili `null` kad nije podešen.
- *
- * Ne baca nikad — v. `paddleDiscountSchema`. Prazna vrednost i vrednost
- * pogrešnog oblika daju isti odgovor: popust se ne primenjuje sam.
+ * Ime prodavca. Ne baca nikad. `NEXT_PUBLIC_` je zato što ga ispisuju i
+ * klijentske komponente (cenovnik, futer) — ime firme je javno po definiciji.
  */
-export function paddleBetaDiscountId(): string | null {
-  const parsed = paddleDiscountSchema.safeParse(process.env);
-  if (!parsed.success) return null;
-  return parsed.data.PADDLE_BETA_DISCOUNT_ID ?? null;
+export function sellerName(): string {
+  const parsed = sellerSchema.safeParse(process.env);
+  return (parsed.success && parsed.data.NEXT_PUBLIC_SELLER_NAME) || PODRAZUMEVANI_PRODAVAC;
 }

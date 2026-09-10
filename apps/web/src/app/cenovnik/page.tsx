@@ -11,9 +11,9 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { headers } from "next/headers";
 import { smeDaKupiPaket } from "@sajtoskop/shared";
 import { getCurrentUserId } from "@/lib/auth";
+import { sellerName } from "@/lib/env";
 import { citajPristup } from "@/lib/pristup";
 import { citajNameru } from "@/lib/cenovnik-namera-schema";
 import { LANDING_URL } from "@/lib/veze";
@@ -31,24 +31,6 @@ export const metadata: Metadata = {
     "kredita kao dopuna uz plan, čiji krediti ne ističu.",
 };
 
-/**
- * Zemlja posetioca iz CDN zaglavlja.
- *
- * Vercel postavlja `x-vercel-ip-country` na svaki zahtev. Lokalno ga nema, a na
- * nepoznatoj lokaciji ume da stigne `XX` — oba slučaja su `null`, i to je bolje
- * od pogađanja: bez `address` Paddle sam odredi zemlju po IP-u posetioca, iz
- * pregledača, dakle tačnije nego što bismo mi umeli sa servera.
- *
- * Vrednost se ne prosleđuje dalje sirova. Paddle prima ISO 3166-1 alpha-2 i
- * odbija sve ostalo, pa se oblik proverava ovde.
- */
-function drzavaIzZaglavlja(vrednost: string | null): string | null {
-  if (!vrednost) return null;
-  const kod = vrednost.trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(kod) || kod === "XX") return null;
-  return kod;
-}
-
 export default async function Page({
   searchParams,
 }: {
@@ -61,9 +43,8 @@ export default async function Page({
    */
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [upit, zaglavlja, userId, { pristup }] = await Promise.all([
+  const [upit, userId, { pristup }] = await Promise.all([
     searchParams,
-    headers(),
     // `getCurrentUserId()`, ne `currentUser()`: treba nam samo POSTOJANJE sesije,
     // a `currentUser()` za to ide na Clerk API. Mejl se od S18 nigde ne koristi
     // — kupovinu vezuje `user_id`, ne adresa sa koje je plaćeno.
@@ -80,7 +61,6 @@ export default async function Page({
     }),
   ]);
 
-  const drzava = drzavaIzZaglavlja(zaglavlja.get("x-vercel-ip-country"));
   const prijavljen = userId !== null;
   const namera = citajNameru(upit);
 
@@ -113,8 +93,8 @@ export default async function Page({
           <h1 className="h1 mt-3">Plati po tome koliko tražiš</h1>
           <p className="lede mx-auto mt-4 max-w-xl">
             Kredit je jedan otključan prospekt ili jedna stranica skeniranja — do 20 rezultata.
-            Pretraga po onome što je već skenirano ne troši ništa i neograničena je na svim
-            planovima. Kad ti plan ne bude dovoljan,{" "}
+            Ono što je već u kešu stiže odmah, po istoj ceni, a plaćen pristup važi 30 dana bez
+            daljih kredita. Kad ti plan ne bude dovoljan,{" "}
             <a href="#paketi" className="font-medium text-accent-text underline underline-offset-4">
               paket kredita
             </a>{" "}
@@ -124,10 +104,10 @@ export default async function Page({
 
         <div className="mt-10 sm:mt-12">
           <CenovnikEkran
-            drzava={drzava}
             prijavljen={prijavljen}
             smePaket={smeDaKupiPaket(pristup ?? null)}
             namera={namera}
+            prodavac={sellerName()}
           />
         </div>
       </main>

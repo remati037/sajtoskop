@@ -5,7 +5,7 @@
 // ── zašto komponente, a ne markdown ────────────────────────
 // Tekstovi su živi: menjaju se kad se promeni model naplate, a moraju da nose i
 // linkove ka `/cenovnik` i međusobno. Markdown bi značio ili renderer sa
-// `dangerouslySetInnerHTML` (na strani koju čita i Paddle recenzent) ili paket
+// `dangerouslySetInnerHTML` (na strani koju čita i recenzent naplate) ili paket
 // više u bundle-u. Tri komponente su jeftinije od oba.
 //
 // ── <POPUNITI: …> ──────────────────────────────────────────
@@ -161,7 +161,7 @@ export function PravniOkvir({
       <div aria-hidden className="pozadina-aure pointer-events-none absolute inset-0 h-[28rem]" />
 
       <header className="relative mx-auto flex h-[68px] w-full max-w-[1160px] items-center justify-between px-5 sm:px-7 lg:px-8">
-        {/* Logo vodi na landing (S24, §1.7). Paddle recenzent pravne strane
+        {/* Logo vodi na landing (S24, §1.7). Recenzent naplate pravne strane
             otvara sa prodajne strane i mora da ima put nazad na nju. */}
         <a href={LANDING_URL} className="rounded-lg">
           <ZnakSaImenom imeKlase="text-base" />

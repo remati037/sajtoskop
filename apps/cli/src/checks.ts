@@ -184,7 +184,7 @@ async function checkSeed(db: SupabaseClient): Promise<void> {
     console.log(`   ⚠ ${stale} biznisa ima Google podatke starije od 30 dana — ne smeju se servirati (pravilo 1)`);
   }
 
-  console.log(`   plan beta: ${PLANS.beta.monthlyCredits} kredita, ${PLANS.beta.cacheMissPerDay} pretraga van keša dnevno`);
+  console.log(`   plan komp: ${PLANS.komp.monthlyCredits} kredita, ${PLANS.komp.cacheMissPerDay} skeniranja dnevno`);
 }
 
 // ── main ───────────────────────────────────────────────────

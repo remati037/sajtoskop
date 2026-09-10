@@ -108,7 +108,14 @@ function scanKey(countryCode: string, city: string, niche: string, stranica: num
  * `enqueueScan` je obrisana namerno: dok je postojala, postojao je i besplatan
  * ulaz u Places kvotu koji se lako pozove „samo za ovaj slučaj".
  *
- * `charged: false` uz `ok: true` znači dupli klik — posao je isti i već plaćen.
+ * [S25, D10] Ista funkcija naplaćuje i PRISTUP svežem kešu: `reason: "cached"`
+ * znači da je kredit skinut, `search_access` upisan, a posla NEMA (nula Places
+ * poziva). `already_paid` sa `jobId: null` je pristup nastao iz keša koji još
+ * važi. `cost` je ono što je stvarno skinuto — iz keša je to broj stranica koje
+ * postoje, ne koje su tražene (§14.4).
+ *
+ * `charged: false` uz `ok: true` znači dupli klik ili važeći pristup — ništa
+ * nije skinuto.
  */
 export type ScanCharge = {
   ok: boolean;
@@ -117,6 +124,7 @@ export type ScanCharge = {
   joined: boolean;
   charged: boolean;
   creditsLeft: number;
+  cost: number;
 };
 
 export async function spendCreditAndScan(args: {
@@ -152,7 +160,36 @@ export async function spendCreditAndScan(args: {
     joined: row.joined,
     charged: row.charged,
     creditsLeft: row.credits_left,
+    cost: row.cost,
   };
+}
+
+/**
+ * Ima li korisnik PLAĆEN pristup ovoj kombinaciji do tražene dubine (D10).
+ *
+ * Zove je `POST /api/search` bez `pay`: pristup postoji → lista iz keša,
+ * paginacija, filteri i osvežavanja su besplatni unutar pristupa; ne postoji →
+ * `needs_scan` sa cenom. Odluka je u SQL-u (`has_search_access`, 0025 §6), iz
+ * istog izvora iz kog `spend_credit_and_scan` upisuje pristup.
+ */
+export async function hasSearchAccess(args: {
+  userId: string;
+  countryCode: string;
+  city: string;
+  niche: string;
+  /** Tražena dubina — pristup na 1 stranicu ne pokriva zahtev za 3. */
+  maxResults: number;
+}): Promise<boolean> {
+  const { data, error } = await adminSupabase().rpc("has_search_access", {
+    p_user: args.userId,
+    p_country: args.countryCode,
+    p_city: args.city,
+    p_niche: args.niche,
+    p_pages: stranicaZaRezultate(args.maxResults),
+  });
+
+  if (error) throw new Error(`Provera pristupa nije uspela: ${error.message}`);
+  return data === true;
 }
 
 /**

@@ -41,14 +41,19 @@ export const RAZLOG_KREDITA: Record<CreditReason, string> = {
   // „Dopuna": izvod mora da kaže odakle su krediti, ne šta rade.
   credit_pack: "Kupljen paket",
   onboarding: "Dobrodošlica",
-  // S20 (0024). Paket koji ide uz otvaranje beta naloga — odvojen od „Ručne
-  // izmene", jer je „koliko je otišlo na betu" drugo pitanje od „koliko je
-  // dodeljeno rukom".
+  // S20 (0024). Istorijski redovi — od S25 ovaj razlog niko ne piše.
   beta_grant: "Beta paket",
+  // S25 (0025). Komp paket je nasledio ulogu beta paketa; proba i istek su
+  // Stripe životni ciklus — izvod mora da kaže odakle su krediti došli i kuda
+  // su otišli.
+  komp_grant: "Komp paket",
+  trial_grant: "Probni krediti",
+  expire: "Istek pretplate",
 };
 
 /**
- * Šest stanja pristupa (LANSIRANJE §1.5) u obliku u kom ih čita čovek.
+ * Sedam stanja pristupa (LANSIRANJE §1.5, naplata-stripe.md §7) u obliku u kom
+ * ih čita čovek.
  *
  * Koristi ih ISKLJUČIVO admin konzola: kolona na `/admin/korisnici` i blok
  * „Pristup" na detalju. Korisnik svoje stanje nikad ne vidi kao ime — njemu ide
@@ -61,10 +66,15 @@ export const STANJE_PRISTUPA: Record<
   StanjeId,
   { label: string; variant: "primary" | "success" | "info" | "neutral" | "warning" | "danger"; opis: string }
 > = {
-  beta: {
-    label: "Beta",
+  komp: {
+    label: "Komp",
     variant: "primary",
-    opis: "Beta nalog — pun pristup dok rok traje. Prazan rok znači neograničeno.",
+    opis: "Komp nalog — pun pristup bez Stripe-a dok rok traje. Prazan rok znači neograničeno.",
+  },
+  proba: {
+    label: "Proba",
+    variant: "info",
+    opis: "Proba: kartica je uzeta, prva naplata je na kraju probe. Pun pristup, 10 probnih kredita.",
   },
   aktivan: { label: "Aktivan", variant: "success", opis: "Pretplata je aktivna." },
   otkazan: {
@@ -103,7 +113,7 @@ export const STANJE_PRISTUPA: Record<
  * Ostala četiri imena su ista kao u katalogu, jer su to imena koja je i kupio.
  */
 export const PLAN_IME: Record<PlanId, string> = {
-  beta: "Beta",
+  komp: "Komp",
   dopuna: "Bez pretplate",
   starter: "Starter",
   pro: "Pro",

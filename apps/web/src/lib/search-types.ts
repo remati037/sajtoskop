@@ -101,27 +101,36 @@ export type SearchSummary = {
 /**
  * `queued` postoji od F3: kombinacija koje nema u kešu pokreće posao.
  *
- * `needs_scan` je od F9 i zamenjuje raniji `not_scanned`: kombinacija nije u
- * kešu, starija je od 30 dana, ili je skenirana pliće nego što se traži (S17);
- * skeniranje košta i korisnik cenu još nije potvrdio. Uz taj status NE IZLAZI
- * nijedan lead — ni ime, ni grad.
+ * `needs_scan` je od F9 i zamenjuje raniji `not_scanned`: korisnik nema plaćen
+ * pristup — kombinacija nije u kešu, starija je od 30 dana, skenirana je pliće
+ * nego što se traži (S17), ili JESTE sveža ali još nije plaćena (S25, D10);
+ * košta i korisnik cenu još nije potvrdio. Uz taj status NE IZLAZI nijedan
+ * lead — ni ime, ni grad.
+ *
+ * `cache` od S25 stiže i uz `charged: true`: pristup je upravo plaćen iz keša,
+ * bez posla, i lista je odmah tu.
  */
 export type SearchStatus = "cache" | "needs_scan" | "queued";
 
-/** Prvo skeniranje kombinacije ili osvežavanje one kojoj je istekao TTL. */
 /**
+ * Zašto se plaća — četiri rečenice korisniku.
+ *
  * `plice` je od S17: kombinacija JESTE u kešu i JESTE sveža, ali je skenirana
- * plitko a korisnik traži dublje. Nije osvežavanje (podaci nisu stari) i nije
- * prvo skeniranje (nešto već postoji) — treća vrsta, treća rečenica.
+ * plitko a korisnik traži dublje. `kes` je od S25 (D10): sveža je i dovoljno
+ * duboka, pa pristup stiže ODMAH, bez Places poziva — ali se plaća, po broju
+ * stranica koje postoje.
  */
-export type ScanKind = "prvo" | "osvezavanje" | "plice";
+export type ScanKind = "prvo" | "osvezavanje" | "plice" | "kes";
 
 /**
  * Cena koju server nudi klijentu uz `needs_scan`. Klijent ne računa ništa sam —
  * ni cenu, ni preostali balans, ni to da li je u pitanju prvo skeniranje.
  */
 export type ScanCost = {
-  /** Cena u kreditima = broj stranica izabrane dubine (S17). */
+  /**
+   * Cena u kreditima = broj stranica izabrane dubine (S17); iz keša
+   * `min(stranica, ceil(total/20))` (S25, §14.4).
+   */
   cost: number;
   kind: ScanKind;
   /** Kad je kombinacija poslednji put skenirana. `null` = nikad. */
@@ -161,7 +170,10 @@ export type SearchResponse = {
    * Razlikuje se od „filteri su preuski" — zato zaseban podatak, ne `total === 0`.
    */
   emptyScan?: boolean;
-  /** `true` kad je ovaj zahtev skinuo kredit. Klijent po tome javlja poruku. */
+  /**
+   * `true` kad je ovaj zahtev skinuo kredit. Klijent po tome javlja poruku.
+   * Stiže i uz `status: "cache"` (pristup iz keša, S25).
+   */
   charged?: boolean;
   /** Koliko je kredita skinuto (S17: 1/2/3). Popunjeno samo uz `charged: true`. */
   cost?: number;
@@ -170,8 +182,8 @@ export type SearchResponse = {
 };
 
 /**
- * Jedan red u listi besplatnih pretraga (F9 §3). Ovo NIJE lead — nema nijednog
- * podatka o firmi, samo koliko ih ima. Zato sme da se čita bez ijedne provere
+ * Jedan red u listi keša (F9 §3, D10). Ovo NIJE lead — nema nijednog podatka o
+ * firmi, samo koliko ih ima. Zato sme da se čita bez ijedne provere
  * otključavanja.
  */
 export type KesStavka = {
@@ -182,9 +194,9 @@ export type KesStavka = {
   scannedAt: string;
   expiresAt: string;
   /**
-   * Mlađe od 30 dana, dakle stvarno besplatno. Istekli redovi se šalju klijentu
-   * ali se u listi ne prikazuju — služe traci cene, da ume da kaže „starije od
-   * 30 dana" umesto „nije u kešu".
+   * Mlađe od 30 dana, dakle pristup stiže odmah (i plaća se). Istekli redovi se
+   * šalju klijentu ali se u listi ne prikazuju — služe traci cene, da ume da
+   * kaže „starije od 30 dana" umesto „nije u kešu".
    */
   fresh: boolean;
   /** Korisnik je ovu kombinaciju već tražio — ide u blok „Tvoje pretrage". */
@@ -196,10 +208,16 @@ export type KesStavka = {
   /**
    * [S17] Koliko je stranica povukao poslednji scan (1–3).
    *
-   * Bez ovoga korisnik ne zna zašto je jedna pretraga besplatna a druga nije:
-   * red keširan plitko je besplatan za „Brzo", a naplaćuje se za „Duboko".
+   * Bez ovoga korisnik ne zna zašto jedna pretraga stiže odmah a druga traži
+   * skeniranje: red keširan plitko pokriva „Brzo", a za „Duboko" Google mora
+   * ponovo.
    */
   pages: number;
+  /**
+   * [S25, D10] Plaćen pristup OVOG korisnika: do koje dubine i do kad. `null` =
+   * nije plaćeno — klik na red otvara modal sa cenom, ne listu.
+   */
+  pristup: { pages: number; expiresAt: string } | null;
 };
 
 /** Ono što vraća `GET /api/job/:id`. Klijent po ovome crta stanje pretrage. */

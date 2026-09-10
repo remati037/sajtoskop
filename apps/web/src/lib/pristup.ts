@@ -10,7 +10,7 @@
 //
 // ── pravilo koje ovaj fajl čuva ─────────────────────────────
 // Ako se ikad zatekne druga računica o pristupu bilo gde u kodu — poređenje
-// `plan_expires_at` sa `new Date()`, `if (plan === "beta")` kao dozvola, bilo
+// `plan_expires_at` sa `new Date()`, `if (plan === "komp")` kao dozvola, bilo
 // šta — `stanjePristupa()` je izgubio smisao. Kapija se dodaje pozivom odavde,
 // nikad novim `if`-om uz podatak.
 //
@@ -52,13 +52,15 @@ import { formatDatum } from "./ui-tekst";
 export const citajPretplatu = cache(async (userId: string): Promise<PretplataZaPristup | null> => {
   const { data, error } = await adminSupabase()
     .from("subscriptions")
-    .select("status, current_period_end, canceled_at")
+    .select("status, current_period_end, trial_end, cancel_at_period_end, canceled_at")
     .eq("user_id", userId)
     .order("current_period_end", { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle<{
       status: PretplataZaPristup["status"];
       current_period_end: string | null;
+      trial_end: string | null;
+      cancel_at_period_end: boolean;
       canceled_at: string | null;
     }>();
 
@@ -72,6 +74,8 @@ export const citajPretplatu = cache(async (userId: string): Promise<PretplataZaP
   return {
     status: data.status,
     currentPeriodEnd: data.current_period_end,
+    trialEnd: data.trial_end,
+    cancelAtPeriodEnd: data.cancel_at_period_end,
     canceledAt: data.canceled_at,
   };
 });
@@ -132,7 +136,7 @@ export function pristupZaProfil(
   return stanjePristupa(
     {
       plan: profile.plan,
-      betaExpiresAt: profile.beta_expires_at,
+      kompExpiresAt: profile.komp_expires_at,
       planExpiresAt: profile.plan_expires_at,
       creditsTopup: profile.credits_topup,
     },

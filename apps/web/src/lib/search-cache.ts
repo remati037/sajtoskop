@@ -1,22 +1,25 @@
 // apps/web/src/lib/search-cache.ts
 // Registar keširanih kombinacija (F9, migracija 0009).
 //
-// Ovaj fajl je jedini koji odgovara na pitanje „da li ova pretraga košta". I
-// ruta i strana i lista čitaju odavde, kroz iste dve RPC funkcije — da se
-// prikazana cena i naplaćena cena ne bi mogle razići.
+// Ovaj fajl odgovara na pitanje „šta je u kešu i koliko je sveže". Od S25 (D10)
+// više NE odgovara na „da li ova pretraga košta": košta uvek — i iz keša — a
+// besplatno je samo ono što je korisnik već PLATIO (`search_access`, v.
+// `hasSearchAccess` u `lib/jobs.ts`). Nekadašnja `besplatno()` je zato obrisana;
+// `stanjeKesa` ostaje jer UI treba svežina i broj firmi za tekst „u kešu,
+// 47 firmi, 2 kredita".
 //
 // Sve ide kroz `adminSupabase()`: `search_cache` ima RLS `using (false)`, isto
 // kao `businesses`. Ovde to nije ni ograničenje — u odgovoru nema nijednog
 // podatka o firmi, samo brojevi i datumi.
 
 import "server-only";
-import { GOOGLE_TTL_DAYS } from "@sajtoskop/shared";
+import { GOOGLE_TTL_DAYS, PLACES_PAGE_SIZE } from "@sajtoskop/shared";
 import { adminSupabase } from "./supabase";
 import type { KesStavka } from "./search-types";
 
 export const COUNTRY = "RS";
 
-/** Kad keš skeniran u `scannedAt` prestaje da bude besplatan. */
+/** Kad keš skeniran u `scannedAt` ističe (pravilo 1) — i kad najkasnije ističe pristup njemu. */
 export function istekKesa(scannedAt: string): string {
   return new Date(new Date(scannedAt).getTime() + GOOGLE_TTL_DAYS * 86_400_000).toISOString();
 }
@@ -25,8 +28,9 @@ export type StanjeKesa = {
   /** `null` znači da kombinacija nikad nije skenirana. */
   scannedAt: string | null;
   /**
-   * Skenirana i mlađa od 30 dana. To je NUŽAN, ali od S17 ne i dovoljan uslov
-   * da pretraga bude besplatna — v. `besplatno()`.
+   * Skenirana i mlađa od 30 dana. Uz `pages >= tražena dubina` to znači da
+   * pristup može da nastane IZ KEŠA, bez Places poziva (D10) — ali i dalje
+   * košta, v. `pokrivaKes()`.
    */
   fresh: boolean;
   total: number;
@@ -41,17 +45,29 @@ export type StanjeKesa = {
 };
 
 /**
- * Da li je zahtev za `trazenoStranica` nad ovim stanjem BESPLATAN.
+ * Da li keš MOŽE da posluži zahtev za `trazenoStranica` — dakle da li pristup
+ * nastaje iz keša (bez Places poziva) ili traži novo skeniranje.
  *
- * Jedno mesto za ceo uslov, jer se u ruti proverava tri puta (pre besplatnog
- * puta, pre cene, i posle naplate kad se odlučuje da li se keš uopšte prikazuje).
- * Dva uslova, oba nužna:
+ * ‼️ Ovo NIJE „besplatno" (to je bilo do S25). Pristup iz keša košta isto
+ *    koliko i skeniranje, samo stiže odmah (D10). Jedno mesto za ceo uslov, jer
+ *    se u ruti proverava više puta. Dva uslova, oba nužna:
  *
  *   svežina  — pravilo 1, Google podatak stariji od 30 dana se ne servira
  *   obim     — S17, keširane 1 stranica ne pokriva zahtev za 3
  */
-export function besplatno(stanje: StanjeKesa, trazenoStranica: number): boolean {
+export function pokrivaKes(stanje: StanjeKesa, trazenoStranica: number): boolean {
   return stanje.fresh && stanje.pages >= trazenoStranica;
+}
+
+/**
+ * Cena pristupa iz keša: broj stranica koje STVARNO postoje, ne koje su
+ * tražene — „Duboko" nad kešom sa 25 firmi košta 2, ne 3 (§14.4). Ista formula
+ * kao `v_cache_pages` u `spend_credit_and_scan` (0025 §6). Van keša je cena
+ * puna dubina.
+ */
+export function cenaIzKesa(stanje: StanjeKesa, trazenoStranica: number): number {
+  if (!pokrivaKes(stanje, trazenoStranica)) return trazenoStranica;
+  return Math.min(trazenoStranica, Math.max(1, Math.ceil(stanje.total / PLACES_PAGE_SIZE)));
 }
 
 /**
@@ -120,11 +136,14 @@ export async function stanjeKesa(city: string, niche: string): Promise<StanjeKes
 }
 
 /**
- * Ceo registar za stranu Pretraga.
+ * Ceo registar za stranu Pretraga, sa PRISTUPIMA ovog korisnika (D10).
  *
- * Vraća i istekle kombinacije, sa `fresh: false`. Lista „Besplatne pretrage" ih
- * ne prikazuje — ona mora da bude istinita — ali traka cene iznad nje bez njih
- * ne ume da razlikuje „nikad skenirano" od „starije od 30 dana".
+ * Vraća i istekle kombinacije, sa `fresh: false`. Lista „U kešu" ih ne
+ * prikazuje — ona mora da bude istinita — ali traka cene iznad nje bez njih ne
+ * ume da razlikuje „nikad skenirano" od „starije od 30 dana".
+ *
+ * `pristup` dolazi iz `search_access` po `userId` iz sesije (pravilo 8) — to
+ * je ono što razlikuje „u kešu, 2 kredita" od „plaćeno, otvori bez kredita".
  */
 export async function listaKesa(userId: string): Promise<KesStavka[]> {
   const { data, error } = await adminSupabase().rpc("search_cache_overview", {
@@ -151,7 +170,7 @@ export async function listaKesa(userId: string): Promise<KesStavka[]> {
   // Ovde se pad SME progutati, za razliku od `stanjeKesa`: ova lista ništa ne
   // naplaćuje. Bez dubine red prikazuje najplići mogući obim (1 stranica), pa
   // je najgori ishod da lista potceni kombinaciju — a naplatu ionako odlučuje
-  // `stanjeKesa`, gde pad baca.
+  // `spend_credit_and_scan`, u bazi.
   const dodatno = new Map<string, { partial: boolean; pages: number }>();
   try {
     const { data: p } = await adminSupabase()
@@ -166,8 +185,28 @@ export async function listaKesa(userId: string): Promise<KesStavka[]> {
     // ukras — ne ruši listu
   }
 
+  // [S25, D10] Plaćeni pristupi ovog korisnika. Pad se isto guta: bez ovoga
+  // lista prikazuje cenu nad kombinacijom koju je čovek već platio, a ruta mu
+  // je svejedno servira bez kredita (`has_search_access` odlučuje, ne lista).
+  const pristupi = new Map<string, { pages: number; expiresAt: string }>();
+  try {
+    const { data: a } = await adminSupabase()
+      .from("search_access")
+      .select("city_slug, niche_slug, pages, expires_at")
+      .eq("user_id", userId)
+      .eq("country_code", COUNTRY)
+      .gt("expires_at", new Date().toISOString())
+      .returns<{ city_slug: string; niche_slug: string; pages: number; expires_at: string }[]>();
+    for (const r of a ?? []) {
+      pristupi.set(`${r.city_slug}:${r.niche_slug}`, { pages: r.pages, expiresAt: r.expires_at });
+    }
+  } catch {
+    // ukras — ne ruši listu
+  }
+
   return rows.map((r) => {
-    const d = dodatno.get(`${r.city_slug}:${r.niche_slug}`);
+    const kljuc = `${r.city_slug}:${r.niche_slug}`;
+    const d = dodatno.get(kljuc);
     return {
       city: r.city_slug,
       niche: r.niche_slug,
@@ -180,6 +219,7 @@ export async function listaKesa(userId: string): Promise<KesStavka[]> {
       empty: r.total === 0,
       partial: d?.partial ?? false,
       pages: d?.pages ?? 1,
+      pristup: pristupi.get(kljuc) ?? null,
     };
   });
 }

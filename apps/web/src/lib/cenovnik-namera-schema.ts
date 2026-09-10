@@ -25,7 +25,7 @@ import {
 const nameraSchema = z.object({
   plan: z.enum(PLANOVI_U_LINKU).optional().catch(undefined),
   ciklus: z.enum(["mesecno", "godisnje"]).optional().catch(undefined),
-  paket: z.enum(["50", "150"]).optional().catch(undefined),
+  paket: z.enum(["75", "200"]).optional().catch(undefined),
 });
 
 /**

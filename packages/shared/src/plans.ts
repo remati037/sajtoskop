@@ -3,12 +3,12 @@
 //
 // Ovo je JEDAN IZVOR ISTINE za tri stvari koje se inače raziđu:
 //   1. šta koji plan daje (krediti, dnevni limiti)
-//   2. koji Paddle `pri_` ID je koji plan / koliko kredita
+//   2. koliko koji plan i paket KOŠTA — Stripe katalog se proverava naspram ovoga
 //   3. koliko Places poziva sme da se potroši globalno
 //
-// Tabela planova je prepis docs/LANSIRANJE.md §1.3; paketi su §1.4. Kad se
+// Tabela planova je iz docs/naplata-stripe.md §4 i §14.6; paketi su §14.6. Kad se
 // ponuda menja, menja se OVDE, pa se ekran cena (`apps/web/src/lib/cenovnik.ts`)
-// prilagodi — ne obrnuto.
+// i Stripe katalog (`pnpm stripe:doktor`) prilagode — ne obrnuto.
 
 /** Kako se plaća pretplata. Isti ključ koristi i prekidač na ekranu cena. */
 export type Ciklus = "month" | "year";
@@ -16,16 +16,18 @@ export type Ciklus = "month" | "year";
 /**
  * Pet stanja plana. Samo tri se KUPUJU — v. `PaidPlanId`.
  *
- * `beta`    — postavlja ISKLJUČIVO admin, kroz konzolu (LANSIRANJE §1.1).
- *             Nikad iz registracije, nikad iz kupona, nikad iz webhooka. Rok
- *             trajanja je `profiles.beta_expires_at`; `NULL` je neograničeno.
+ * `komp`    — pun pristup bez Stripe-a (naplata-stripe.md §9, odluka D4). Nastaje
+ *             ISKLJUČIVO kroz `admin_open_komp` (admin konzola) ili `redeem_invite`
+ *             (pozivnica tipa `komp`). Nikad iz registracije, nikad iz webhooka.
+ *             Rok je `profiles.komp_expires_at`; `NULL` je neograničeno. Limiti
+ *             su Advanced (A3). Do S25 se zvao `beta`.
  * `dopuna`  — nije plan koji se kupuje, nego stanje korisnika BEZ pretplate
  *             koji ima kredite iz paketa (`credits_topup > 0`). Nikad ne dobija
  *             mesečnu dodelu; dnevne limite deli sa Starterom.
  */
-export type PlanId = "beta" | "dopuna" | "starter" | "pro" | "advanced";
+export type PlanId = "komp" | "dopuna" | "starter" | "pro" | "advanced";
 
-/** Planovi koji postoje kao proizvod u Paddle-u. */
+/** Planovi koji postoje kao proizvod u Stripe katalogu. */
 export type PaidPlanId = "starter" | "pro" | "advanced";
 
 export type Plan = {
@@ -64,22 +66,25 @@ export type Plan = {
 };
 
 export const PLANS: Record<PlanId, Plan> = {
-  beta:     { monthlyCredits:  50, cacheMissPerDay:  15, exportPerDay:   500, aiRewritePerDay:  5 },
-  dopuna:   { monthlyCredits:   0, cacheMissPerDay:  30, exportPerDay:   500, aiRewritePerDay:  5 },
-  starter:  { monthlyCredits: 100, cacheMissPerDay:  30, exportPerDay:   500, aiRewritePerDay:  5 },
-  pro:      { monthlyCredits: 300, cacheMissPerDay:  60, exportPerDay:  2000, aiRewritePerDay: 20 },
-  advanced: { monthlyCredits: 800, cacheMissPerDay: 120, exportPerDay: 10000, aiRewritePerDay: 60 },
+  // komp = pun pristup bez Stripe-a; limiti Advanced (A3). monthlyCredits je
+  // ono što worker POSTAVLJA prvog u mesecu dok komp traje (naplata-stripe.md §10).
+  komp:     { monthlyCredits:  300, cacheMissPerDay: 120, exportPerDay: 10000, aiRewritePerDay: 60 },
+  dopuna:   { monthlyCredits:    0, cacheMissPerDay:  30, exportPerDay:   500, aiRewritePerDay:  5 },
+  // Brojevi iz naplata-stripe.md §14.6: 150 / 450 / 1.200.
+  starter:  { monthlyCredits:  150, cacheMissPerDay:  30, exportPerDay:   500, aiRewritePerDay:  5 },
+  pro:      { monthlyCredits:  450, cacheMissPerDay:  60, exportPerDay:  2000, aiRewritePerDay: 20 },
+  advanced: { monthlyCredits: 1200, cacheMissPerDay: 120, exportPerDay: 10000, aiRewritePerDay: 60 },
 };
 
 /**
  * Podrazumevan plan — i za nov nalog, i kao pad kad u bazi stoji vrednost koju
  * kod ne poznaje.
  *
- * ‼️ NIJE `beta`, i to je odluka D1 (LANSIRANJE §1.1), zatvorena u S20.
- *    Do migracije 0024 je ovde stajalo `beta`, uz `profiles.plan default 'beta'`
- *    — a `beta_expires_at IS NULL` po §1.5 znači NEOGRANIČENO. Zajedno je to
- *    značilo da svaka registracija otvara doživotan besplatan nalog, i da
- *    nepoznata vrednost u koloni radi isto.
+ * ‼️ NIJE `komp` (nekadašnja `beta`), i to je odluka D1 (LANSIRANJE §1.1),
+ *    zatvorena u S20. Do migracije 0024 je ovde stajalo `beta`, uz
+ *    `profiles.plan default 'beta'` — a prazan rok po §1.5 znači NEOGRANIČENO.
+ *    Zajedno je to značilo da svaka registracija otvara doživotan besplatan
+ *    nalog, i da nepoznata vrednost u koloni radi isto.
  *
  * `dopuna` je „korisnik bez pretplate": sa nula kredita u obe kase
  * `stanjePristupa()` ga čita kao `zakljucan` i vodi na cenovnik, a čim kupi
@@ -107,105 +112,141 @@ export function planFor(id: string | null | undefined): Plan {
 export const GRACE_DAYS = 30;
 
 /**
- * Podrazumevana dužina bete u danima (LANSIRANJE §1.5, odluka P6).
+ * Podrazumevana dužina komp pristupa u danima (naplata-stripe.md §9, odluka D4).
  *
- * Broj kredita koje beta nalog dobija pri otvaranju NIJE ovde nego u
- * `PLANS.beta.monthlyCredits` — to je isti podatak i ne sme da postoji dvaput.
+ * Broj kredita koje komp nalog dobija pri otvaranju NIJE ovde nego u
+ * `PLANS.komp.monthlyCredits` — to je isti podatak i ne sme da postoji dvaput.
  *
- * Oba su samo PREDLOG koji obrazac u konzoli popuni; admin sme da postavi drugi
- * datum, „neograničeno" ili drugi broj kredita.
+ * Oba su samo PREDLOG koji obrazac u konzoli (ili pozivnica) popuni; admin sme
+ * da postavi drugi datum, „neograničeno" ili drugi broj kredita.
  */
-export const BETA_DEFAULT_DAYS = 30;
+export const KOMP_DEFAULT_DAYS = 30;
+
+// ── proba (D2) ──────────────────────────────────────────────
+// Kartica pre probe, 7 dana, 10 kredita; prva naplata osmog dana
+// (naplata-stripe.md §2.3, §7). Proba se šalje iz koda u svaki Checkout
+// Session, ne podešava se na ceni — Stripe „free trial days" na Price ne
+// postoji kao stalan atribut.
+
+/** Koliko dana traje proba. */
+export const TRIAL_DAYS = 7;
+
+/** Koliko kredita nosi proba. Jednom po NALOGU, ref `trial:<user>` (§3.4). */
+export const TRIAL_CREDITS = 10;
 
 // ═══════════════════════════════════════════════════════════
-// PADDLE KATALOG
+// CENE — JEDINI IZVOR. STRIPE SE PROVERAVA NASPRAM OVOGA.
 // ═══════════════════════════════════════════════════════════
-// ‼️ ID-jevi su iz SANDBOX naloga. Sandbox i produkcija su odvojeni katalozi —
-//    `pri_` iz jednog ne postoji u drugom i Paddle.js na njemu vrati „price not
-//    found". Pri prelasku na produkciju menjaju se ovaj spisak,
-//    NEXT_PUBLIC_PADDLE_CLIENT_TOKEN i NEXT_PUBLIC_PADDLE_ENV — sve troje zajedno.
+// naplata-stripe.md §4. Stripe hosted Checkout prikazuje iznos na svojoj
+// strani; naš cenovnik ga mora prikazati PRE toga, i on ga čita odavde.
+// Stripe katalog se PROVERAVA naspram ovog fajla (`pnpm stripe:doktor`), ne
+// obrnuto.
 //
-// Zašto u `packages/shared`, a ne u `apps/web/src/lib/cenovnik.ts` gde su bili:
-// webhook (S18) mora da preslika `pri_` → plan, a webhook je serverski kod koji
-// ne sme da zavisi od fajla ekrana cena. Da su ID-jevi ostali na dva mesta,
-// razilaženje bi se videlo tek kad neko plati — i to kao „platio Pro, dobio
-// Starter". Ovako je ekran cena taj koji uvozi odavde, pa razilaženje ne može
-// ni da nastane: nema drugog spiska.
+// ‼️ Nijedan Stripe ID (`prod_`, `price_`, `cus_`, kupon) ne ulazi u kod.
+//    `lookup_key` je stabilan preko test/live naloga; `price_` ID-jevi su u
+//    ta dva naloga RAZLIČITI i zato ih server nalazi tek u trenutku checkout-a
+//    (`apps/web/src/lib/stripe-katalog.ts`), po ključu odavde.
 //
-// Cene NAMERNO nisu ovde. Iznos ispisuje isključivo Paddle, kroz `PricePreview()`,
-// već formatiran i sa porezom po zemlji posetioca. Broj upisan u kod bio bi
-// četvrti izvor istine (Paddle, checkout, faktura, kod) i razišao bi se prvog
-// dana kad se cena promeni.
-//
-// Nema nijednog `unit_price_overrides` za `RS` (odluka P7): jedna EUR cena za
-// ceo svet. Paddle ne podržava RSD, pa je override bio sniženi evro za kupce iz
-// Srbije — ostatak napuštenog pokušaja da cena bude u dinarima. Vraća se, ako
-// ikad zatreba, JEDNIM poljem na ceni u Paddle panelu: bez migracije, bez
-// izmene koda, bez deploya.
+// Iznos na Stripe ceni se NE menja (Stripe cene su nepromenljive) — pravi se
+// nova cena sa istim `lookup_key` i `transfer_lookup_key: true`, stara se
+// arhivira (§14.8). Postojeći pretplatnici ostaju na staroj ceni.
 
-export const PLAN_PRICE_IDS: Record<PaidPlanId, Record<Ciklus, string>> = {
-  starter: {
-    month: "pri_01m0d1ev6hhw8gkr8wep26ccwq",
-    year:  "pri_01m0d1evasz8q3cjr825r47875",
-  },
-  pro: {
-    month: "pri_01m0d1evmksy2njzrwh6hgcxf1",
-    year:  "pri_01m0d1evrkaph19esyfjkgvrq4",
-  },
-  advanced: {
-    month: "pri_01m0d1ew18pfyjwe4de9jc7tqw",
-    year:  "pri_01m0d1ew53ndkee89grn2dc1w3",
-  },
+/** `lookup_key` je stabilan preko test/live; `price_` ID nikad ne ulazi u kod. */
+export type LookupKey = `${PaidPlanId}_${Ciklus}` | `pack_${number}`;
+
+export type CenaPlana = { eur: number; lookupKey: LookupKey };
+
+export const PLAN_PRICES: Record<PaidPlanId, Record<Ciklus, CenaPlana>> = {
+  starter:  { month: { eur: 29,  lookupKey: "starter_month"  }, year: { eur: 290,  lookupKey: "starter_year"  } },
+  pro:      { month: { eur: 59,  lookupKey: "pro_month"      }, year: { eur: 590,  lookupKey: "pro_year"      } },
+  advanced: { month: { eur: 119, lookupKey: "advanced_month" }, year: { eur: 1190, lookupKey: "advanced_year" } },
 };
 
 /**
- * Paketi kredita (LANSIRANJE §1.4). Jednokratna kupovina, krediti NE ISTIČU.
+ * Paketi kredita (naplata-stripe.md §14.6). Jednokratna kupovina, krediti NE ISTIČU.
  *
- * Cena po kreditu je namerno viša nego u pretplati (+31% i +13% naspram
+ * Cena po kreditu je namerno viša nego u pretplati (+31% i +27% naspram
  * Startera): paket je dopuna, ne jeftinija zamena za plan. Trećeg, većeg paketa
  * nema — da bi ostao iznad Startera morao bi da košta više od Advanced plana za
  * manje kredita.
  */
-export type PaketId = "dopuna-50" | "dopuna-150";
+export type PaketId = "dopuna-75" | "dopuna-200";
 
-export const CREDIT_PACKS: Record<PaketId, { credits: number; priceId: string }> = {
-  "dopuna-50":  { credits:  50, priceId: "pri_01m0ffx0j4pyxenvfxrjwz55pf" },
-  "dopuna-150": { credits: 150, priceId: "pri_01m0ffx0q683zv2z0d7dh0qm3v" },
+export const CREDIT_PACKS: Record<PaketId, { credits: number; eur: number; lookupKey: LookupKey }> = {
+  "dopuna-75":  { credits:  75, eur: 19, lookupKey: "pack_75"  },
+  "dopuna-200": { credits: 200, eur: 49, lookupKey: "pack_200" },
 };
 
-/**
- * `pri_` → plan. Gradi se IZ `PLAN_PRICE_IDS`, ne piše se ručno: ručno pisana
- * obrnuta mapa je drugi spisak istih ID-jeva, dakle tačno ono što ovaj fajl
- * postoji da spreči.
- */
-const PLAN_BY_PRICE_ID: Readonly<Record<string, PaidPlanId>> = Object.fromEntries(
-  (Object.entries(PLAN_PRICE_IDS) as [PaidPlanId, Record<Ciklus, string>][]).flatMap(
-    ([plan, ids]) => [
-      [ids.month, plan],
-      [ids.year, plan],
-    ],
-  ),
-);
-
-const CREDITS_BY_PRICE_ID: Readonly<Record<string, number>> = Object.fromEntries(
-  Object.values(CREDIT_PACKS).map((p) => [p.priceId, p.credits]),
-);
-
-/** Koji plan je kupljen. `null` = `pri_` koji nije naš plan (paket ili tuđ katalog). */
-export function planForPriceId(priceId: string | null | undefined): PaidPlanId | null {
-  return priceId ? PLAN_BY_PRICE_ID[priceId] ?? null : null;
-}
-
-/** Koliko kredita nosi kupljen paket. `null` = `pri_` koji nije naš paket. */
-export function creditsForPriceId(priceId: string | null | undefined): number | null {
-  return priceId ? CREDITS_BY_PRICE_ID[priceId] ?? null : null;
-}
-
-/** Svi `pri_` iz kataloga — za jedan `PricePreview()` poziv umesto osam. */
-export const ALL_PRICE_IDS: readonly string[] = [
-  ...Object.values(PLAN_PRICE_IDS).flatMap((ids) => [ids.month, ids.year]),
-  ...Object.values(CREDIT_PACKS).map((p) => p.priceId),
+/** Svih osam ključeva — za `prices.list({ lookup_keys })` i za `stripe:doktor`. */
+export const ALL_LOOKUP_KEYS: readonly LookupKey[] = [
+  ...Object.values(PLAN_PRICES).flatMap((c) => [c.month.lookupKey, c.year.lookupKey]),
+  ...Object.values(CREDIT_PACKS).map((p) => p.lookupKey),
 ];
+
+/**
+ * Šta je tačno kupljeno za dati `lookup_key`.
+ *
+ * Postoji da bi checkout i webhook grananje radili nad ISTIM spiskom. Zatvoren
+ * rezultat (`Kupovina | null`) tera pozivaoca da odbije nepoznat ključ
+ * eksplicitno, umesto da mu se odsustvo grane provuče kao grana — ključ iz tuđeg
+ * kataloga na novčanoj putanji ne sme da završi kao paket od `null` kredita.
+ *
+ * `credits` je za pretplatu MESEČNA dodela — ista i za godišnji ciklus, jer se
+ * godišnja pretplata naplaćuje jednom a krediti stižu svakog meseca (§10).
+ */
+export type Kupovina =
+  | { kind: "subscription"; plan: PaidPlanId; ciklus: Ciklus; credits: number; eur: number; lookupKey: LookupKey }
+  | { kind: "pack"; paket: PaketId; credits: number; eur: number; lookupKey: LookupKey };
+
+const BY_LOOKUP: Readonly<Record<string, Kupovina>> = Object.fromEntries([
+  ...(Object.entries(PLAN_PRICES) as [PaidPlanId, Record<Ciklus, CenaPlana>][]).flatMap(([plan, c]) =>
+    (["month", "year"] as const).map((ciklus) => [
+      c[ciklus].lookupKey,
+      {
+        kind: "subscription",
+        plan,
+        ciklus,
+        credits: PLANS[plan].monthlyCredits,
+        eur: c[ciklus].eur,
+        lookupKey: c[ciklus].lookupKey,
+      } satisfies Kupovina,
+    ]),
+  ),
+  ...(Object.entries(CREDIT_PACKS) as [PaketId, (typeof CREDIT_PACKS)[PaketId]][]).map(([paket, p]) => [
+    p.lookupKey,
+    { kind: "pack", paket, credits: p.credits, eur: p.eur, lookupKey: p.lookupKey } satisfies Kupovina,
+  ]),
+]);
+
+/** `lookup_key` → šta se dobija. `null` = nije naš katalog → odbij. */
+export function kupovinaZaLookupKey(key: string | null | undefined): Kupovina | null {
+  return key ? (BY_LOOKUP[key] ?? null) : null;
+}
+
+/** Plan + ciklus → `lookup_key`. Ovo šalje checkout ruta u `prices.list`. */
+export function lookupKeyZaPlan(plan: PaidPlanId, ciklus: Ciklus): LookupKey {
+  return PLAN_PRICES[plan][ciklus].lookupKey;
+}
+
+export function lookupKeyZaPaket(paket: PaketId): LookupKey {
+  return CREDIT_PACKS[paket].lookupKey;
+}
+
+/**
+ * „€29", „€1.190" — ručno, bez `Intl`, zbog hydration-a: ispisuje se i na
+ * serveru i u pregledaču, a razlika u ICU podacima daje neslaganje nad brojem
+ * koji je deo ponude (isti razlog kao `broj()` u `cenovnik.ts`).
+ */
+export function formatEur(n: number): string {
+  return "€" + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+/**
+ * Bedž uz „Godišnje" na prekidaču. Tvrdnja o KATALOGU: godišnja cena je deset
+ * mesečnih na sva tri plana (`PLAN_PRICES`). Ako se odnos promeni, menja se i
+ * ovaj tekst — ili se briše.
+ */
+export const GODISNJI_BONUS = "2 meseca gratis";
 
 // ═══════════════════════════════════════════════════════════
 // GLOBALNI KAPOVI — BUDŽET, NE PROIZVOLJAN BROJ
@@ -240,8 +281,9 @@ export const PLACES_FREE_CALLS_MONTH = 1000;
  *    preko koje se skeniranje zaustavlja i vraća `partial: true`, kao i danas.
  *
  * ‼️ BUDŽET MORA DA RASTE SA BROJEM PRETPLATNIKA. Jedan Advanced korisnik ima
- *    800 kredita mesečno, dakle u najgorem režimu sam troši skoro trećinu celog
- *    kapa. Ovo ulazi u nedeljnu rutinu: uporedi tempo u `api_budget` sa brojem
+ *    1.200 kredita mesečno, dakle u najgorem režimu sam troši 1.200 od 2.875
+ *    poziva — naplata-stripe.md §14.6 zato traži da `PLACES_MONTHLY_BUDGET_EUR`
+ *    ode na €100 pre nego što se otvori peti pretplatnik. Ovo ulazi u nedeljnu rutinu: uporedi tempo u `api_budget` sa brojem
  *    aktivnih pretplata i podigni `PLACES_MONTHLY_BUDGET_EUR` PRE nego što cap
  *    počne da odbija skeniranje plaćenom korisniku. Odbijeno skeniranje je
  *    povraćaj i loša reč — skuplje od svakog Places računa.
@@ -313,8 +355,13 @@ export const AI_DAILY_CAP = 60;
  * Ovo je granica nad MOJIM računom kod Anthropica. Granica po korisniku je
  * `Plan.aiRewritePerDay` i to su dva različita pitanja: ovaj cap štiti mene i
  * kad se svi jave istog dana, onaj štiti ponudu (Starter nije Pro).
+ *
+ * [S25] Dignut sa 40 na 200 (naplata-stripe.md §14.2, B1): 40 je bilo ISPOD
+ * onoga što jedan Advanced plan obećava (60 dnevno), pa bi tri Advanced
+ * korisnika istog dana udarila u moj cap pre nego u svoj. 200 = 60 × 3 uz
+ * rezervu; najgori trošak je uračunat u §14.7.
  */
-export const AI_OUTREACH_DAILY_CAP = 40;
+export const AI_OUTREACH_DAILY_CAP = 200;
 
 /** Google resetuje kvotu u 09:00 po lokalnom vremenu Kalifornije. */
 export const BUDGET_TIMEZONE = "America/Los_Angeles";
@@ -477,61 +524,4 @@ export function dubinaZaRezultate(maxResults: number): Dubina {
 /** Nepoznata vrednost iz URL-a ili tela zahteva ne sme da sruši ekran. */
 export function dubinaIli(raw: unknown, rezerva: Dubina = PODRAZUMEVANA_DUBINA): Dubina {
   return DUBINE.find((d) => d === raw) ?? rezerva;
-}
-
-/**
- * Šta je tačno kupljeno za dati `pri_`.
- *
- * Postoji da bi checkout (S18) i webhook (S18) grananje radili nad ISTIM
- * spiskom. Ranije su postojale dve poluge — `planForPriceId` i
- * `creditsForPriceId` — i svaki pozivalac je sam sklapao „ako nije plan, valjda
- * je paket". To „valjda" je na novčanoj putanji: `pri_` iz tuđeg kataloga bi
- * prošao kroz obe provere kao `null` i završio kao paket od `null` kredita.
- *
- * Zatvoren rezultat (`Kupovina | null`) tera pozivaoca da odbije nepoznat ID
- * eksplicitno, umesto da mu se odsustvo grane provuče kao grana.
- */
-export type Kupovina =
-  | { kind: "subscription"; plan: PaidPlanId; ciklus: Ciklus; credits: number }
-  | { kind: "pack"; paket: PaketId; credits: number };
-
-const CIKLUS_BY_PRICE_ID: Readonly<Record<string, Ciklus>> = Object.fromEntries(
-  Object.values(PLAN_PRICE_IDS).flatMap((ids) => [
-    [ids.month, "month" as Ciklus],
-    [ids.year, "year" as Ciklus],
-  ]),
-);
-
-const PAKET_BY_PRICE_ID: Readonly<Record<string, PaketId>> = Object.fromEntries(
-  (Object.entries(CREDIT_PACKS) as [PaketId, { credits: number; priceId: string }][]).map(
-    ([paket, p]) => [p.priceId, paket],
-  ),
-);
-
-/**
- * `pri_` → šta se za njega dobija. `null` znači „nije iz našeg kataloga" i
- * jedini ispravan odgovor na njega je odbijanje, ne podrazumevana vrednost.
- *
- * `credits` je za pretplatu MESEČNA dodela — ista i za godišnji ciklus, jer se
- * godišnja pretplata naplaćuje jednom a krediti stižu svakog meseca. Godišnja
- * obnova kredita zato NE ide iz ovog broja nego iz mesečne dodele
- * (`grant_monthly_credits`, `creditMonth()` kao ključ idempotencije).
- */
-export function kupovinaZaPriceId(priceId: string | null | undefined): Kupovina | null {
-  if (!priceId) return null;
-
-  const plan = PLAN_BY_PRICE_ID[priceId];
-  if (plan) {
-    return {
-      kind: "subscription",
-      plan,
-      ciklus: CIKLUS_BY_PRICE_ID[priceId] ?? "month",
-      credits: PLANS[plan].monthlyCredits,
-    };
-  }
-
-  const paket = PAKET_BY_PRICE_ID[priceId];
-  if (paket) return { kind: "pack", paket, credits: CREDIT_PACKS[paket].credits };
-
-  return null;
 }

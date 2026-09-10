@@ -110,7 +110,7 @@ export default async function Page() {
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
         naslov="Pretraga prospekata"
-        opis="Biznisi poređani po tome koliko im sajt loše stoji. Prvo oni koji sajt uopšte nemaju. Sve što je već u kešu je besplatno."
+        opis="Biznisi poređani po tome koliko im sajt loše stoji. Prvo oni koji sajt uopšte nemaju. Sve što je u kešu stiže odmah, po istoj ceni; plaćen pristup važi 30 dana."
       />
 
       <PretragaEkran

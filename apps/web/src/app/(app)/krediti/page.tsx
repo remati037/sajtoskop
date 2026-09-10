@@ -48,8 +48,8 @@ export default async function Page() {
   // nje se kroz `Promise.all` uredno propagira.
   //
   // S21: uz to ide i čitanje pretplate za ekran. Nije isti upit kao onaj koji
-  // hrani kapiju (`citajPretplatu`) — ovaj vraća i `price_id`, iz kog se izvodi
-  // ciklus. Razlog za dva čitača stoji u `lib/pretplata.ts`.
+  // hrani kapiju (`citajPretplatu`) — ovaj vraća i `lookup_key`, iz kog se
+  // izvode ciklus i iznos. Razlog za dva čitača stoji u `lib/pretplata.ts`.
   const [{ profile, pristup }, pretplata, istorija] = await Promise.all([
     zahtevajCitanje(),
     citajPretplatuZaEkran(userId),
@@ -76,14 +76,14 @@ export default async function Page() {
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
         naslov="Krediti"
-        opis="Kredit se troši na otključavanje prospekta i na skeniranje kombinacije koje nema u kešu. Pretraga po kešu je besplatna i neograničena."
+        opis="Kredit se troši na otključavanje prospekta i na pristup kombinaciji — iz keša odmah, ili skeniranjem. Plaćen pristup važi 30 dana bez daljih kredita."
       />
 
       <PretplataBlok
         pristup={pristup}
         plan={profile.plan}
         pretplata={pretplata}
-        imaPaddleKupca={profile.paddle_customer_id !== null}
+        imaStripeKupca={profile.stripe_customer_id !== null}
         izPretplate={profile.credits_balance}
         dokupljeni={profile.credits_topup}
         mesecnaDodela={plan.monthlyCredits}

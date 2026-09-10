@@ -23,7 +23,7 @@ import { NextResponse } from "next/server";
 import type { ZodType } from "zod";
 import type {
   AdminAdjustResult,
-  AdminOpenBetaResult,
+  AdminOpenKompResult,
   AdminRole,
   AdminSetRoleResult,
 } from "@sajtoskop/shared";
@@ -351,16 +351,16 @@ const NEMA_NALOGA: Ishod = { ok: false, status: 404, poruka: "Taj nalog ne posto
 
 export async function promeniPlan(target: string, plan: string): Promise<Ishod> {
   // Drugi od tri sloja odluke D1 (LANSIRANJE §1.1). Prvi je `PLAN_OPCIJE`, koji
-  // `beta` uopšte ne nudi; treći je triger u bazi (0024), koji drži i kad se
+  // `komp` uopšte ne nudi; treći je triger u bazi (0025), koji drži i kad se
   // aplikacija zaobiđe. Ovaj sloj postoji zato što bi bez njega jedini otpor
   // ručno sklopljenom `PATCH`-u bio izuzetak iz Postgresa — dakle `500` i red u
   // dnevniku koji piše „nije prošlo", umesto rečenice koja kaže ZAŠTO.
-  if (plan === "beta") {
+  if (plan === "komp" || plan === "beta") {
     return {
       ok: false,
       status: 400,
       poruka:
-        "Plan `beta` se ne postavlja odavde. Beta nalog se otvara svojim obrascem, " +
+        "Plan `komp` se ne postavlja odavde. Komp nalog se otvara svojim obrascem, " +
         "jer plan, rok i krediti moraju da idu zajedno.",
       payload: { plan },
     };
@@ -376,41 +376,42 @@ export async function promeniPlan(target: string, plan: string): Promise<Ishod> 
 }
 
 // ═══════════════════════════════════════════════════════════
-// BETA NALOZI (S20, LANSIRANJE §1.1 i §1.5)
+// KOMP NALOZI (S20 → S25, LANSIRANJE §1.1 i §1.5, naplata-stripe.md §9)
 // ═══════════════════════════════════════════════════════════
 
 /** Rečenica o roku, ista u obe radnje — dva teksta bi se razišla prvog dana. */
 function recenicaORoku(doKad: string | null, sada = Date.now()): string {
-  if (doKad === null) return "Beta je neograničena — rok nije postavljen.";
+  if (doKad === null) return "Komp je neograničen — rok nije postavljen.";
   return Date.parse(doKad) <= sada
-    ? `Rok je ${formatDatum(doKad)}, dakle u prošlosti — beta je ugašena.`
-    : `Beta traje do ${formatDatum(doKad)}.`;
+    ? `Rok je ${formatDatum(doKad)}, dakle u prošlosti — komp je ugašen.`
+    : `Komp traje do ${formatDatum(doKad)}.`;
 }
 
 /**
- * „Otvori beta nalog" — plan, rok i krediti u JEDNOM pozivu (§1.1).
+ * „Otvori komp" — plan, rok i krediti u JEDNOM pozivu (§1.1).
  *
- * Ovo je jedini put kojim `profiles.plan` sme da postane `beta`. Ne zato što se
- * ovaj sloj tako dogovorio, nego zato što `admin_open_beta` jedini pali
- * transakcijsku zastavicu koju triger iz 0024 traži — svaki drugi `update`
- * puca u bazi, i kad dođe iz ove aplikacije, i kad dođe iz SQL editora.
+ * Ovo je (uz pozivnicu, koja istu funkciju zove iz `redeem_invite`) jedini put
+ * kojim `profiles.plan` sme da postane `komp`. Ne zato što se ovaj sloj tako
+ * dogovorio, nego zato što `admin_open_komp` jedini pali transakcijsku
+ * zastavicu koju triger iz 0025 traži — svaki drugi `update` puca u bazi, i kad
+ * dođe iz ove aplikacije, i kad dođe iz SQL editora.
  *
  * Sve tri izmene su u jednoj transakciji, i to je cela poenta: do S20 se beta
  * otvarala u dva poteza (plan, pa krediti) i bez roka uopšte. Kad bi drugi
- * potez pao, nalog bi ostao sa planom `beta` i praznim rokom — a prazan rok po
- * §1.5 znači NEOGRANIČENO. Najgori ishod pola odrađenog posla bio je doživotan
+ * potez pao, nalog bi ostao sa planom i praznim rokom — a prazan rok po §1.5
+ * znači NEOGRANIČENO. Najgori ishod pola odrađenog posla bio je doživotan
  * besplatan nalog.
  *
  * Iznos i granice proverava RPC; ovaj sloj prevodi razlog u status kod i u
  * rečenicu, isto kao kod korekcije kredita i uloge.
  */
-export async function otvoriBetaNalog(
+export async function otvoriKompNalog(
   target: string,
   krediti: number,
   doKad: string | null,
   refId: string,
 ): Promise<Ishod> {
-  const { data, error } = await adminSupabase().rpc("admin_open_beta", {
+  const { data, error } = await adminSupabase().rpc("admin_open_komp", {
     p_user: target,
     p_credits: krediti,
     p_expires: doKad,
@@ -419,15 +420,15 @@ export async function otvoriBetaNalog(
 
   if (error) throw new Error(error.message);
 
-  const red = ((data ?? []) as AdminOpenBetaResult[])[0];
-  if (!red) throw new Error("admin_open_beta nije vratio nijedan red.");
+  const red = ((data ?? []) as AdminOpenKompResult[])[0];
+  if (!red) throw new Error("admin_open_komp nije vratio nijedan red.");
 
   if (!red.ok) {
     const status = red.reason === "no_user" ? 404 : 400;
     return {
       ok: false,
       status,
-      poruka: PORUKA_BETE[red.reason] ?? red.reason,
+      poruka: PORUKA_KOMPA[red.reason] ?? red.reason,
       ref: refId,
       payload: { krediti, do: doKad },
     };
@@ -446,35 +447,35 @@ export async function otvoriBetaNalog(
 
   return {
     ok: true,
-    poruka: `Beta nalog je otvoren. ${rok} ${oKreditima}`,
+    poruka: `Komp nalog je otvoren. ${rok} ${oKreditima}`,
     ref: refId,
-    payload: { plan: "beta", do: doKad, krediti, dodeljeno: red.granted },
+    payload: { plan: "komp", do: doKad, krediti, dodeljeno: red.granted },
   };
 }
 
-const PORUKA_BETE: Record<string, string> = {
+const PORUKA_KOMPA: Record<string, string> = {
   no_user: "Taj nalog ne postoji.",
-  invalid_amount: "Broj kredita je van granica — od 0 do 500 po radnji.",
+  invalid_amount: "Broj kredita je van granica — od 0 do 2000 po radnji.",
   missing_ref_id: "Ključ forme nije stigao. Osveži stranu.",
 };
 
 /**
- * Samo rok bete — `PATCH .../beta` (§1.5).
+ * Samo rok kompa — `PATCH .../komp` (§1.5).
  *
  * `null` je NEOGRANIČENO, i to je jedina vrednost koja se ovde tumači.
  *
- * Direktan `update` je dozvoljen: `beta_expires_at` nije balans, pa pravilo 3
- * nije u igri, a triger iz 0024 čuva samo kolonu `plan` — rok nad nalogom koji
- * već JESTE u beti se time ne dira.
+ * Direktan `update` je dozvoljen: `komp_expires_at` nije balans, pa pravilo 3
+ * nije u igri, a triger iz 0025 čuva samo kolonu `plan` — rok nad nalogom koji
+ * već JESTE u kompu se time ne dira.
  *
- * ── zašto se ne traži da nalog bude u beti ───────────────────
+ * ── zašto se ne traži da nalog bude u kompu ──────────────────
  * Rok sme da se postavi i nalogu sa plaćenim planom, i to nije rupa nego
  * upotreba: `stanjePristupa()` uzima KASNIJI od dva roka (§1.5), pa je ovo način
  * da pretplatnik dobije dve nedelje viška posle propalog plaćanja — bez
- * diranja pretplate i bez dodirivanja Paddle-a. Poruka zato izričito kaže kad
+ * diranja pretplate i bez dodirivanja Stripe-a. Poruka zato izričito kaže kad
  * rok nikome ništa ne menja.
  */
-export async function postaviBetaRok(target: string, doKad: string | null): Promise<Ishod> {
+export async function postaviKompRok(target: string, doKad: string | null): Promise<Ishod> {
   const cilj = await citajCilj(target);
   if (!cilj) return NEMA_NALOGA;
 
@@ -488,15 +489,15 @@ export async function postaviBetaRok(target: string, doKad: string | null): Prom
 
   const { error } = await adminSupabase()
     .from("profiles")
-    .update({ beta_expires_at: doKad })
+    .update({ komp_expires_at: doKad })
     .eq("id", target);
 
   if (error) throw new Error(error.message);
 
   const napomena =
-    pre?.plan === "beta"
+    pre?.plan === "komp"
       ? ""
-      : ` Nalog nije na beta planu (${pre?.plan ?? "nepoznat"}), pa rok radi samo kao produžetak pristupa.`;
+      : ` Nalog nije na komp planu (${pre?.plan ?? "nepoznat"}), pa rok radi samo kao produžetak pristupa.`;
 
   return {
     ok: true,

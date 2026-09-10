@@ -9,8 +9,8 @@
 // prolazi — a korisnik dobije poruku koja ga usmerava na pogrešan uzrok.
 // Dva takva kvara su se već desila:
 //
-//   1. Paddle overlay je ostajao PRAZAN jer je `frame-src` padao na
-//      `default-src 'self'`. Paddle.js pri tome ne javlja nikakvu grešku.
+//   1. Checkout overlay nekadašnjeg provajdera je ostajao PRAZAN jer je
+//      `frame-src` padao na `default-src 'self'` — bez ijedne greške.
 //   2. Registracija je padala na „neuspelo sigurnosno proveravanje" jer
 //      `challenges.cloudflare.com` (Clerk bot-zaštita, Cloudflare Turnstile)
 //      nije bio ni u `script-src` ni u `frame-src`. Poruka zvuči kao da je
@@ -79,12 +79,21 @@ check(
   "connect-src nosi *.protect.clerk.com:* (sa portom!)",
 );
 
-// ── Paddle: cene i checkout overlay ────────────────────────
-console.log("\nPaddle");
+// ── naplata (S25): Stripe je redirekcija, CSP ga ne dodiruje ─
+// Hosted Checkout i Portal žive na Stripe-ovom domenu; naš dokument ne učitava
+// ništa njihovo. Host prethodnog provajdera ne sme da se vrati ni u jednu
+// direktivu — to bi bilo poverenje ka dobavljaču koga više nema.
+console.log("\nnaplata");
 
-for (const d of ["script-src", "connect-src", "frame-src", "style-src"]) {
-  check(ima(d, "https://*.paddle.com"), `${d} nosi *.paddle.com`);
+// Svaki host mora da bude iz poznatog skupa (Clerk, Supabase, Cloudflare
+// Turnstile) ili ključna reč CSP-a — bilo šta drugo je tuđ domen koji se
+// vratio kroz zaboravljen import ili stari deploy.
+const POZNAT = /^'[^']*'$|^(data|blob):$|clerk|supabase|cloudflare/;
+for (const [d, izvori] of direktive) {
+  const tudji = izvori.filter((s) => !POZNAT.test(s));
+  check(tudji.length === 0, `${d} nosi samo poznate hostove${tudji.length ? ` (tuđi: ${tudji.join(" ")})` : ""}`);
 }
+check(!csp.includes("stripe"), "CSP ne nosi nijedan Stripe host — checkout je redirekcija");
 
 // ── P0-4: `unsafe-eval` nikad u produkciji ─────────────────
 console.log("\nprodukcijski režim");

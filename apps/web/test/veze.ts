@@ -110,8 +110,10 @@ const pun = citajNameru({ plan: "pro", ciklus: "godisnje" });
 check(pun.plan === "pro" && pun.ciklus === "year", "?plan=pro&ciklus=godisnje → pro / year");
 
 check(citajNameru({ ciklus: "mesecno" }).ciklus === "month", "?ciklus=mesecno → month");
-check(citajNameru({ paket: "150" }).paket === "dopuna-150", "?paket=150 → dopuna-150");
-check(citajNameru({ paket: "50" }).paket === "dopuna-50", "?paket=50 → dopuna-50");
+check(citajNameru({ paket: "200" }).paket === "dopuna-200", "?paket=200 → dopuna-200");
+check(citajNameru({ paket: "75" }).paket === "dopuna-75", "?paket=75 → dopuna-75");
+// Stari brojevi sa landinga pre §14.6 se ignorišu, ne ruše stranu.
+check(citajNameru({ paket: "150" }).paket === null, "?paket=150 (stari katalog) se ignoriše");
 
 // ‼️ Srce ove isporuke: nepoznata vrednost se IGNORIŠE, ne baca. Link sa tuđe
 //    strane koji obori cenovnik je izgubljen kupac.
@@ -119,7 +121,7 @@ for (const los of [
   { plan: "Pro" },
   { plan: "enterprise" },
   { ciklus: "annual" },
-  { paket: "150 " },
+  { paket: "200 " },
   { paket: "999" },
   { plan: "pro; drop table" },
   { plan: "" },
@@ -174,7 +176,7 @@ for (const plan of ["starter", "pro", "advanced"] as const) {
   }
 }
 
-for (const paket of ["dopuna-50", "dopuna-150"] as const) {
+for (const paket of ["dopuna-75", "dopuna-200"] as const) {
   const putanja = putanjaZaPaket(paket);
   check(putanja.endsWith("#paketi"), `${paket}: putanja nosi sidro #paketi`);
   const nazad = citajNameru(
@@ -196,7 +198,7 @@ function internaPutanja(vrednost: string | undefined): string | null {
 for (const putanja of [
   putanjaZaPlan("pro", "year"),
   putanjaZaPlan("starter", "month"),
-  putanjaZaPaket("dopuna-150"),
+  putanjaZaPaket("dopuna-200"),
 ]) {
   check(internaPutanja(putanja) === putanja, `internaPutanja pušta ${putanja}`);
 }

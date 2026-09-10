@@ -1,8 +1,8 @@
 // packages/shared/src/pristup.ts
-// Ko sme unutra, dokle, i šta sme dok je tu (LANSIRANJE §1.5).
+// Ko sme unutra, dokle, i šta sme dok je tu (LANSIRANJE §1.5, naplata-stripe.md §7).
 //
 // ── zašto jedna funkcija, i zašto baš ovde ───────────────────
-// Šest stanja pristupa čita pet različitih mesta: kapija u `(app)/layout.tsx`,
+// Sedam stanja pristupa čita pet različitih mesta: kapija u `(app)/layout.tsx`,
 // svaka zaštićena stranica, svaka API ruta koja troši novac, trajan baner i
 // modal. Dok god svako od njih sam sabira datume, dva mesta će zaključati
 // različito — a to se u naplati ne vidi kao bug nego kao „aplikacija mi ne radi,
@@ -19,13 +19,21 @@
 //      pravila proveravaju u testu, u ruti i u komponenti.
 //
 // Ovde nema nijednog upita i nijednog `fetch`-a. Ulaz su dva već pročitana reda.
+//
+// ── [S25] šta se promenilo sa Stripe-om ──────────────────────
+//   · `beta` → `komp` (isti mehanizam, ime iz odluke D4).
+//   · novo stanje `proba`: pretplata sa statusom `trialing` — pun pristup, svoj
+//     baner, dugme „Aktiviraj odmah". Sedmo stanje, svesno odstupanje od
+//     nekadašnjeg komentara „šest stanja" (naplata-stripe.md §7.1, B3).
+//   · `otkazan` se čita i iz `cancel_at_period_end` — Stripe tako javlja
+//     otkazivanje zakazano za kraj perioda, a status ostaje `active`/`trialing`.
 
 import { DEFAULT_PLAN, GRACE_DAYS, PLANS, type PlanId } from "./plans";
 
 const DAN_MS = 24 * 60 * 60 * 1000;
 
-/** Šest stanja iz LANSIRANJE §1.5. Drugog nema i ne sme da nastane. */
-export type StanjeId = "beta" | "aktivan" | "otkazan" | "dopuna" | "grace" | "zakljucan";
+/** Sedam stanja (LANSIRANJE §1.5 + proba iz naplata-stripe.md §7). Drugog nema i ne sme da nastane. */
+export type StanjeId = "komp" | "proba" | "aktivan" | "otkazan" | "dopuna" | "grace" | "zakljucan";
 
 /**
  * Ono što odluka traži od `profiles`. Namerno NIJE `ProfileRow`: funkcija je u
@@ -36,26 +44,46 @@ export type ProfilZaPristup = {
   /** `profiles.plan`. Nepoznata vrednost pada na `DEFAULT_PLAN`. */
   plan: string | null;
   /**
-   * `profiles.beta_expires_at`.
+   * `profiles.komp_expires_at`.
    *
    * ‼️ `null` je PREOPTEREĆEN i to je jedina zamka u celom fajlu:
-   *    - uz `plan = 'beta'` znači **neograničena beta** (LANSIRANJE §1.5, 0022);
-   *    - uz svaki drugi plan znači **da bete nema**.
+   *    - uz `plan = 'komp'` znači **neograničen komp** (LANSIRANJE §1.5, 0025);
+   *    - uz svaki drugi plan znači **da kompa nema**.
    *
    * Drugo čitanje ne postoji: kad bi `null` uvek bio „neograničeno", svaki
    * pretplatnik kome pretplata istekne dobio bi večan pristup.
    */
-  betaExpiresAt: string | null;
-  /** `profiles.plan_expires_at` — Paddle `current_period_end`, puni ga webhook (S18). */
+  kompExpiresAt: string | null;
+  /** `profiles.plan_expires_at` — Stripe `current_period_end` (ili `trial_end`), puni ga webhook. */
   planExpiresAt: string | null;
   /** `profiles.credits_topup` — kasa koja ne ističe (paketi, §1.4). */
   creditsTopup: number;
 };
 
+/**
+ * Stripe statusi pretplate, onako kako ih `subscriptions_status_valid` prima.
+ *
+ * `unpaid` i `incomplete*` se ovde ne razlikuju od „pretplate nema": nijedan
+ * ne daje pun pristup sam po sebi, granicu drži `plan_expires_at` (§7.1).
+ */
+export type StatusPretplate =
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "unpaid"
+  | "incomplete"
+  | "incomplete_expired"
+  | "paused";
+
 /** Ono što odluka traži od `subscriptions`. Samo najsvežiji red. */
 export type PretplataZaPristup = {
-  status: "active" | "trialing" | "past_due" | "paused" | "canceled";
+  status: StatusPretplate;
   currentPeriodEnd: string | null;
+  /** Kraj probe. `null` kad probe nema ili je prošla. */
+  trialEnd: string | null;
+  /** Otkazivanje zakazano za kraj perioda — status ostaje `active`/`trialing`. */
+  cancelAtPeriodEnd: boolean;
   canceledAt: string | null;
 };
 
@@ -88,12 +116,21 @@ type Zajednicko = {
  */
 export type Pristup =
   | (Zajednicko & {
-      stanje: "beta";
+      stanje: "komp";
       pun: true;
       cita: true;
-      /** `null` = neograničena beta. */
+      /** `null` = neograničen komp. */
       punDo: string | null;
       citanjeDo: string | null;
+    })
+  | (Zajednicko & {
+      stanje: "proba";
+      pun: true;
+      cita: true;
+      punDo: string;
+      citanjeDo: string;
+      /** Kraj probe — datum na baneru i uz dugme „Aktiviraj odmah". */
+      probaDo: string;
     })
   | (Zajednicko & {
       stanje: "aktivan";
@@ -159,8 +196,8 @@ function planId(vrednost: string | null): PlanId {
  * Datum do kog SME DA ČITA: pun pristup + `GRACE_DAYS`.
  *
  * Izvedeno, nikad skladišteno — §1.5 traži da se čuvaju samo dva ulaza
- * (`beta_expires_at`, `plan_expires_at`). Treća kolona bi bila treći datum koji
- * se razilazi sa prva dva čim admin pomeri rok bete.
+ * (`komp_expires_at`, `plan_expires_at`). Treća kolona bi bila treći datum koji
+ * se razilazi sa prva dva čim admin pomeri rok kompa.
  */
 export function citanjeDoZa(punDo: string | null): string | null {
   const t = msIli(punDo);
@@ -175,8 +212,8 @@ export function citanjeDoZa(punDo: string | null): string | null {
  * `feedback-motor.ts`).
  *
  * Redosled provera JESTE deo odluke:
- *   1. neograničena beta — jedini slučaj bez ijednog datuma
- *   2. pun pristup po datumu — beta / otkazan / aktivan
+ *   1. neograničen komp — jedini slučaj bez ijednog datuma
+ *   2. pun pristup po datumu — komp / otkazan / proba / aktivan
  *   3. `credits_topup > 0` — dopuna PRETIČE grace, jer je kupljen paket
  *      povratak u pun pristup, a ne produžetak samrtnog roka
  *   4. grace, pa zaključano
@@ -187,25 +224,23 @@ export function stanjePristupa(
   sada: number,
 ): Pristup {
   const plan = planId(profil.plan);
-  const jeBeta = plan === "beta";
+  const jeKomp = plan === "komp";
 
-  // 1. Neograničena beta. Ovo je i stanje SVAKOG naloga otvorenog pre naplate:
-  //    `profiles.plan` ima default `'beta'` (0001), a `beta_expires_at` je NULL
-  //    dok ga admin ne postavi (0022). Kapija ih zato ne dira.
-  if (jeBeta && profil.betaExpiresAt === null) {
+  // 1. Neograničen komp: `plan = 'komp'` uz prazan rok (0025). Kapija ga ne dira.
+  if (jeKomp && profil.kompExpiresAt === null) {
     return {
-      stanje: "beta",
+      stanje: "komp",
       pun: true,
       cita: true,
-      planLimita: "beta",
+      planLimita: "komp",
       punDo: null,
       citanjeDo: null,
     };
   }
 
-  // Rok bete se broji i kad plan više nije `beta`: admin je obećao datum, a
+  // Rok kompa se broji i kad plan više nije `komp`: admin je obećao datum, a
   // kupljena pretplata usput taj datum ne poništava (§1.5, `max` od dva ulaza).
-  const punDo = kasniji(profil.betaExpiresAt, profil.planExpiresAt);
+  const punDo = kasniji(profil.kompExpiresAt, profil.planExpiresAt);
   const citanjeDo = citanjeDoZa(punDo);
 
   const punDoMs = msIli(punDo);
@@ -213,26 +248,46 @@ export function stanjePristupa(
 
   // 2. Pun pristup traje dok traje kasniji od dva roka.
   if (punDo !== null && citanjeDo !== null && punDoMs !== null && punDoMs > sada) {
-    if (jeBeta) {
-      return { stanje: "beta", pun: true, cita: true, planLimita: "beta", punDo, citanjeDo };
+    if (jeKomp) {
+      return { stanje: "komp", pun: true, cita: true, planLimita: "komp", punDo, citanjeDo };
     }
 
     // Otkazana pretplata koja još traje NIJE grace (§1.5): korisnik je platio
-    // period do kraja i sme sve, samo mu baner kaže do kad. Paddle to javlja na
-    // dva načina — `status = 'canceled'` posle `subscription.canceled`, i
-    // `canceled_at` uz još uvek aktivan status kad je otkazivanje zakazano za
-    // kraj perioda. Oba znače isto korisniku, pa se i čitaju isto.
+    // period do kraja i sme sve, samo mu baner kaže do kad. Stripe to javlja na
+    // tri načina — `status = 'canceled'` posle `customer.subscription.deleted`,
+    // `cancel_at_period_end = true` kad je otkazivanje zakazano za kraj perioda
+    // (status ostaje `active` ili `trialing`), i `canceled_at` uz oba. Sva tri
+    // znače isto korisniku, pa se i čitaju isto. Otkazana PROBA (`trialing` +
+    // `cancel_at_period_end`) je zato `otkazan` sa `punDo = trial_end`, ne
+    // `proba` — naplata-stripe.md §7.1.
     const otkazana =
-      pretplata !== null && (pretplata.status === "canceled" || pretplata.canceledAt !== null);
+      pretplata !== null &&
+      (pretplata.status === "canceled" ||
+        pretplata.cancelAtPeriodEnd ||
+        pretplata.canceledAt !== null);
 
-    return {
-      stanje: otkazana ? "otkazan" : "aktivan",
-      pun: true,
-      cita: true,
-      planLimita: plan,
-      punDo,
-      citanjeDo,
-    };
+    if (otkazana) {
+      return { stanje: "otkazan", pun: true, cita: true, planLimita: plan, punDo, citanjeDo };
+    }
+
+    // Proba: pretplata postoji, kartica je uzeta, prva naplata je osmog dana.
+    // Pun pristup kao i aktivan, ali svoj baner i svoje dugme (§7.1, B3).
+    if (pretplata?.status === "trialing") {
+      return {
+        stanje: "proba",
+        pun: true,
+        cita: true,
+        planLimita: plan,
+        punDo,
+        citanjeDo,
+        probaDo: pretplata.trialEnd ?? punDo,
+      };
+    }
+
+    // `past_due` (kartica pala) ostaje `aktivan` dok `plan_expires_at` nije
+    // prošao — Stripe drži `current_period_end` na starom datumu, pa posle
+    // Smart Retries-a nalog prelazi u `grace` prirodno (§7.1, §7.5).
+    return { stanje: "aktivan", pun: true, cita: true, planLimita: plan, punDo, citanjeDo };
   }
 
   // 3. Krediti iz paketa vraćaju PUN pristup i bez pretplate (§1.5 „dopuna").
@@ -255,9 +310,9 @@ export function stanjePristupa(
 // ═══════════════════════════════════════════════════════════
 // ‼️ OVO JE IZMENA ODLUKE iz LANSIRANJE §1.4, doneta 26. avgusta 2026.
 //
-// Do sada je važilo: „paket se kupuje i bez pretplate; to je podržan slučaj, ne
+// Do tada je važilo: „paket se kupuje i bez pretplate; to je podržan slučaj, ne
 // izuzetak". Sada važi suprotno — paket je DOPUNA postojećem pristupu, ne ulaz
-// u proizvod. Ko nema plan ni betu, uzima plan.
+// u proizvod. Ko nema plan ni komp, uzima plan.
 //
 // ── zašto je to promena, a ne sitnica ───────────────────────
 // Paket je bio jedini put kojim je neko mogao da uđe (i vrati se) bez mesečne
@@ -270,14 +325,15 @@ export function stanjePristupa(
 // pa otkaže plan i dočeka istek perioda i dalje završi u njemu, sa kreditima
 // koji ne ističu. Samo više ne može da ga dopuni bez novog plana.
 //
-// ── zašto beta SME ──────────────────────────────────────────
-// §1.4 je paket zvao „jedini put za beta korisnika koji neće pretplatu", a beta
-// nalozi su prvih dvadeset korisnika. Oduzeti im i tu mogućnost značilo bi da
-// jedini način da mi plate bude pun plan — pre nego što su uopšte odlučili
-// vredi li. Beta zato ostaje uz `aktivan` i `otkazan`.
+// ── zašto komp i proba SMEJU ────────────────────────────────
+// Komp nalozi su ljudi kojima sam pristup dao rukom (Vlada, prijatelji,
+// partneri — A3). Oduzeti im mogućnost da mi plate paket značilo bi da jedini
+// način da plate bude pun plan. Proba je pretplata sa karticom: kartica već
+// stoji, pa paket uz probu nije ništa drugo nego paket uz plan koji počinje
+// osmog dana (naplata-stripe.md §7.1, `STANJA_ZA_PAKET`).
 
 /** Stanja iz kojih se paket kredita sme kupiti. Jedini spisak, nema drugog. */
-export const STANJA_ZA_PAKET: readonly StanjeId[] = ["aktivan", "otkazan", "beta"];
+export const STANJA_ZA_PAKET: readonly StanjeId[] = ["aktivan", "otkazan", "komp", "proba"];
 
 /**
  * Sme li ovaj nalog da kupi paket kredita.

@@ -65,9 +65,11 @@ export default function Page() {
           AI varijanti poruke.
         </p>
         <p>
-          <strong>Podaci o naplati.</strong> Identifikator kupca i pretplate kod Paddle-a,
-          naziv plana, status i datumi trajanja. <strong>Podaci o kartici ne stižu do nas</strong>{" "}
-          — njih obrađuje Paddle kao prodavac (v. odeljak 8).
+          <strong>Podaci o naplati.</strong> Identifikator kupca i pretplate kod Stripe-a,
+          naziv plana, status i datumi trajanja, i otisak kartice (anoniman identifikator koji
+          Stripe daje istoj kartici) — samo da se probni period ne bi otvarao više puta istom
+          karticom. <strong>Podaci o kartici ne stižu do nas</strong> — njih obrađuje Stripe
+          (v. odeljak 8).
         </p>
         <p>
           <strong>Utisci.</strong> Odgovori koje sam pošalješ kroz ekran „Utisci", uključujući
@@ -138,7 +140,7 @@ export default function Page() {
             <strong>Knjigovodstvena i poreska dokumentacija</strong> —{" "}
             <Popuniti>zakonski rok čuvanja, potvrdi sa knjigovođom (korak R18)</Popuniti>. Ovi
             zapisi ostaju i posle brisanja naloga jer se čuvaju po zakonu; originali računa su
-            kod Paddle-a.
+            kod Stripe-a.
           </li>
           <li>
             <strong>Revizija administratorskih radnji</strong> — zapis o tome ko je i kada uradio
@@ -208,7 +210,7 @@ export default function Page() {
         </p>
         <p>
           Brisanje naloga <strong>ne otkazuje pretplatu samo po sebi</strong> — pretplatu otkaži
-          pre toga, kroz Paddle portal na strani „Krediti".
+          pre toga, kroz portal na strani „Krediti".
         </p>
       </Odeljak>
 
@@ -271,11 +273,10 @@ export default function Page() {
           </li>
         </Lista>
         <p>
-          <strong>Paddle.com Market Ltd. je poseban slučaj.</strong> On je{" "}
-          <em>merchant of record</em>, dakle pravni prodavac prema tebi, i podatke o kupovini
-          obrađuje kao <strong>samostalan rukovalac</strong>, po svojoj politici privatnosti — ne
-          po našem nalogu. Do nas iz te obrade stižu samo identifikator kupca, plan i status
-          pretplate.
+          <strong>Stripe je poseban slučaj.</strong> On obrađuje plaćanje i podatke o kartici
+          kao <strong>samostalan rukovalac</strong>, po svojoj politici privatnosti — ne po našem
+          nalogu. Do nas iz te obrade stižu samo identifikator kupca, plan, status pretplate i
+          otisak kartice.
         </p>
         <p>
           <Popuniti>potvrdi i upiši stvarne regione obrade: region Supabase projekta, lokaciju Hetzner servera i region Vercel funkcija</Popuniti>
@@ -299,7 +300,8 @@ export default function Page() {
             ključem <span className="num">sajtoskop-tema</span>; ne šalje se nigde;
           </li>
           <li>
-            <strong>kolačići koje postavlja Paddle</strong> u toku plaćanja, po svojoj politici.
+            <strong>kolačići koje postavlja Stripe</strong> na svojoj strani za plaćanje, po
+            svojoj politici.
           </li>
         </Lista>
       </Odeljak>

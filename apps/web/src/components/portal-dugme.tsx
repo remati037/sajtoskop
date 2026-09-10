@@ -3,13 +3,13 @@
 // apps/web/src/components/portal-dugme.tsx
 // „Upravljaj pretplatom" — jedina klijentska stvar na `/krediti` (S21).
 //
-// Klijentska je zato što link mora da se traži tek na KLIK: portal sesija je
-// jednokratna i vremenski ograničena, pa link napravljen pri renderovanju
-// strane bude mrtav do trenutka kad ga neko pritisne. Iz istog razloga ovde
-// nema keširanja i nema `prefetch`-a.
+// Klijentska je zato što link mora da se traži tek na KLIK: Stripe portal
+// sesija je jednokratna i vremenski ograničena, pa link napravljen pri
+// renderovanju strane bude mrtav do trenutka kad ga neko pritisne. Iz istog
+// razloga ovde nema keširanja i nema `prefetch`-a.
 //
-// Redirekcija ide `window.location.assign`, ne `router.push`: cilj je tuđ
-// domen, a Next-ov ruter zna samo za sopstvene rute.
+// Redirekcija ide `window.location.assign`, ne `router.push`: cilj je
+// `billing.stripe.com`, a Next-ov ruter zna samo za sopstvene rute.
 
 import { useCallback, useState } from "react";
 import { ExternalLink, Loader2 } from "lucide-react";

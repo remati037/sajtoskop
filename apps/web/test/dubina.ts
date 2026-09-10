@@ -5,8 +5,10 @@
 // Naplatu proverava `pnpm check:sql` nad pravom migracijom; ovaj test pokriva
 // ono što je u WEB sloju i što SQL ne vidi:
 //
-//   1. `besplatno()` — pogodak u kešu je uslovan i po svežini I po obimu.
+//   1. `pokrivaKes()` — keš može da posluži samo kad je svež I dovoljno dubok.
 //      Ovo je zamka 1 iz §1.2: keš dubine 1 za zahtev dubine 3 NIJE pogodak.
+//      [S25, D10] Pogodak više NIJE besplatan — `cenaIzKesa()` daje cenu
+//      pristupa: `min(stranica, ceil(total/20))` (§14.4).
 //   2. `searchBodySchema` — telo bez `dubina` pada na „Standardno", a klijent
 //      ne sme da provuče slobodan broj rezultata pored ponude.
 //   3. Ista formula cene u shared paketu koju SQL prelazi nezavisno.
@@ -32,8 +34,8 @@ import {
 
 // Isti resolve hook kao u `ide-odmah.ts`: zameni module koji postoje samo u
 // Next runtime-u i preslikaj `@/` alias. `search-cache.ts` je `server-only` i
-// uvozi Supabase klijent — sam uvoz ne otvara nijednu vezu, a `besplatno()` je
-// čista funkcija nad već pročitanim stanjem.
+// uvozi Supabase klijent — sam uvoz ne otvara nijednu vezu, a `pokrivaKes()` i
+// `cenaIzKesa()` su čiste funkcije nad već pročitanim stanjem.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webSrc = path.resolve(here, "../src");
 const stubs = pathToFileURL(path.resolve(here, "../../../scripts/lib/next-stubs.ts")).href;
@@ -50,7 +52,7 @@ registerHooks({
   },
 });
 
-const { besplatno } = await import("../src/lib/search-cache");
+const { cenaIzKesa, pokrivaKes } = await import("../src/lib/search-cache");
 const { searchBodySchema } = await import("../src/lib/search-schema");
 
 let fail = 0;
@@ -114,36 +116,64 @@ check(
 console.log("\npogodak u kešu");
 
 check(
-  besplatno(stanje({ fresh: true, pages: 1 }), 1),
-  "keš dubine 1, zahtev dubine 1 → besplatno",
+  pokrivaKes(stanje({ fresh: true, pages: 1 }), 1),
+  "keš dubine 1, zahtev dubine 1 → iz keša",
 );
 check(
-  besplatno(stanje({ fresh: true, pages: 3 }), 1),
-  "keš dubine 3, zahtev dubine 1 → besplatno",
+  pokrivaKes(stanje({ fresh: true, pages: 3 }), 1),
+  "keš dubine 3, zahtev dubine 1 → iz keša",
 );
 check(
-  besplatno(stanje({ fresh: true, pages: 3 }), 3),
-  "keš dubine 3, zahtev dubine 3 → besplatno",
+  pokrivaKes(stanje({ fresh: true, pages: 3 }), 3),
+  "keš dubine 3, zahtev dubine 3 → iz keša",
 );
 check(
-  !besplatno(stanje({ fresh: true, pages: 1 }), 3),
+  !pokrivaKes(stanje({ fresh: true, pages: 1 }), 3),
   "keš dubine 1, zahtev dubine 3 → NIJE pogodak (20 redova nije 60)",
 );
 check(
-  !besplatno(stanje({ fresh: true, pages: 2 }), 3),
+  !pokrivaKes(stanje({ fresh: true, pages: 2 }), 3),
   "keš dubine 2, zahtev dubine 3 → NIJE pogodak",
 );
 check(
-  !besplatno(stanje({ fresh: false, pages: 3 }), 1),
+  !pokrivaKes(stanje({ fresh: false, pages: 3 }), 1),
   "istekao keš se ne servira ni kad je dublji od traženog (pravilo 1)",
 );
 check(
-  !besplatno(stanje({ fresh: false, pages: 0 }), 1),
+  !pokrivaKes(stanje({ fresh: false, pages: 0 }), 1),
   "nikad skenirana kombinacija nije pogodak",
 );
 check(
-  DUBINE.every((d) => besplatno(stanje({ fresh: true, pages: 3 }), cenaDubine(d))),
+  DUBINE.every((d) => pokrivaKes(stanje({ fresh: true, pages: 3 }), cenaDubine(d))),
   "pun scan (3 stranice) pokriva SVE tri ponude",
+);
+
+// ── 2b. [S25, D10] cena iz keša = ceil(total/20), najviše dubina ──
+console.log("\ncena pristupa iz keša");
+
+check(
+  cenaIzKesa({ ...stanje({ fresh: true, pages: 3 }), total: 25 }, 3) === 2,
+  `„Duboko" nad kešom sa 25 firmi košta 2, ne 3 (§14.4)`,
+);
+check(
+  cenaIzKesa({ ...stanje({ fresh: true, pages: 3 }), total: 55 }, 3) === 3,
+  "55 firmi → 3 stranice → 3 kredita",
+);
+check(
+  cenaIzKesa({ ...stanje({ fresh: true, pages: 3 }), total: 55 }, 1) === 1,
+  `„Brzo" nad dubokim kešom košta 1 — nikad više od tražene dubine`,
+);
+check(
+  cenaIzKesa({ ...stanje({ fresh: true, pages: 3 }), total: 0 }, 2) === 1,
+  "prazna kombinacija u kešu košta najmanje 1 (pristup postoji, firmi nema)",
+);
+check(
+  cenaIzKesa({ ...stanje({ fresh: false, pages: 3 }), total: 5 }, 3) === 3,
+  "istekao keš → puna cena dubine (Google ponovo)",
+);
+check(
+  cenaIzKesa({ ...stanje({ fresh: true, pages: 1 }), total: 20 }, 3) === 3,
+  "plitak keš za dubok zahtev → puna cena dubine",
 );
 
 // ── 3. ugovor tela zahteva ─────────────────────────────────
@@ -156,7 +186,7 @@ check(
 );
 check(
   bezDubine.success && bezDubine.data.pay === false && bezDubine.data.force === false,
-  "telo bez `pay` i dalje ne može da skine kredit",
+  "telo bez `pay` i dalje ne može da skine kredit — ni za pristup iz keša",
 );
 
 const svakaDubina = DUBINE.every(

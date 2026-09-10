@@ -1,17 +1,17 @@
 // apps/web/src/app/welcome/page.tsx
-// Odredište posle uspešnog plaćanja (`settings.successUrl` u `cenovnik-ekran.tsx`).
+// Odredište posle uspešnog plaćanja (`success_url` u `/api/billing/checkout`).
 //
 // ‼️ OVA STRANA NE DODELJUJE NIŠTA. Ne upisuje pretplatu, ne dodaje kredite i ne
 //    menja plan. Redirekcija je samo UX: korisnik ume da zatvori tab pre nego
 //    što stigne dovde, da izgubi vezu ili da otvori ovaj URL rukom. Izvor istine
-//    su Paddle webhookovi (`transaction.completed`, `subscription.created`) —
-//    v. `app/api/billing/webhook/route.ts`.
+//    su Stripe webhookovi (`customer.subscription.created`, `invoice.paid`,
+//    `checkout.session.completed`) — v. `app/api/billing/webhook/route.ts`.
 //
 // Zbog toga i kopija namerno ne kaže „plan ti je aktiviran": u trenutku kad se
 // ova strana prikaže, webhook možda još nije stigao. Kaže da je plaćanje primljeno.
 //
-// Putanja je `/welcome`, a ne `/dobrodosli`, jer je tako i u Paddle podešavanju
-// checkout-a — ako se menja, menja se na oba mesta.
+// `?sesija=cs_…` stiže od Stripe-a; čitanje sesije za tekst („Starter, mesečno,
+// proba do 17.9.") je K2 (S26, naplata-stripe.md §5.4). Ništa se ne upisuje.
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -54,8 +54,8 @@ export default async function Page() {
         <h1 className="h2 mt-6">Plaćanje je primljeno</h1>
 
         <p className="lede mt-4">
-          Hvala. Račun ti stiže mejlom od Paddle-a, koji vodi naplatu. Plan se aktivira čim njihova
-          potvrda stigne do nas — obično za nekoliko sekundi.
+          Hvala. Račun stiže mejlom posle svake naplate. Plan se aktivira za koji sekund — ako ga
+          ne vidiš na strani „Krediti", osveži stranu.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

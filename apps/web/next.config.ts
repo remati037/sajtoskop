@@ -83,33 +83,14 @@ const clerkWss = clerkDomains().map((d) => `wss://${d}`).join(" ");
  */
 const clerkCaptcha = "https://challenges.cloudflare.com https://*.protect.clerk.com";
 
-/**
- * Paddle (naplata, F-naplata) — jedan wildcard umesto šest imena hostova.
- *
- * Ovo je spisak koji je STVARNO izmeren, ne prepisan iz dokumentacije (Paddle
- * je ne objavljuje). Snimljen sa `/cenovnik` dok su cene bile učitane i dok je
- * checkout overlay bio otvoren:
- *
- *   cdn.paddle.com                        script      paddle.js, uvek sa golog cdn-a
- *   sandbox-cdn.paddle.com                stylesheet  stil overlay-a
- *   sandbox-api.paddle.com                fetch       PricePreview
- *   sandbox-checkout-service.paddle.com   xhr         sesija checkout-a
- *   sandbox-buy.paddle.com                frame, img  sam overlay
- *
- * Zašto `*.paddle.com`, a ne pet imena:
- *   1. Svaki host ima svog `sandbox-` blizanca, pa bi spisak bio deset imena od
- *      kojih polovina ne radi ništa u datom okruženju.
- *   2. Prelazak na produkciju bi tražio izmenu CSP-a uz izmenu tokena — a to je
- *      tačno ona izmena koja se zaboravi i otkrije se kao „checkout ne radi".
- *   3. Paddle ume da doda host (Apple Pay, Retain) bez najave.
- *
- * Ovo NIJE širenje poverenja na treću stranu preko potrebe: `*.paddle.com` je
- * domen jednog dobavljača kome ionako predajemo ceo tok plaćanja.
- *
- * Fontovi, `localizecdn` i Sentry koji se vide u snimku mreže NE idu ovde —
- * njih učitava Paddle-ov dokument unutar iframe-a, pa važi NJIHOV CSP, ne naš.
- */
-const paddle = "https://*.paddle.com";
+// ── naplata (S25): Stripe NE traži nijedan CSP izvor ──────
+// Hosted Checkout i Customer Portal su REDIREKCIJE na `checkout.stripe.com` /
+// `billing.stripe.com` — naš dokument ne učitava nijedan Stripe skript, stil,
+// sliku ni iframe, pa CSP nema šta da dozvoli. `form-action 'self'` ostaje
+// `'self'`: redirekcija ide kroz `fetch` + `location.assign`, ne kroz
+// `<form action>`. Do S25 je ovde stajao wildcard host prethodnog provajdera
+// naplate u pet direktiva; sve je ispalo i `test/csp.ts` proverava da se nije
+// vratio.
 
 /**
  * `'unsafe-eval'` SAMO u razvoju. U produkciji ga nema i ne sme da ga bude.
@@ -120,10 +101,10 @@ const paddle = "https://*.paddle.com";
  * ne vidi kao pad nego kao mrtva stranica: HTML je tu, izgleda ispravno, ali
  * nijedno dugme ne radi. Prekidač teme na `/` se klikne i ništa se ne promeni.
  *
- * Zatečeno stanje, ne posledica naplate: `/` nema nijednu Paddle liniju i
- * ponaša se isto. Otkriveno je tek uz cenovnik jer je to prvi ekran kome
- * hidratacija TREBA da bi uopšte prikazao sadržaj (cene stižu iz `fetch`-a),
- * dok su ostali ekrani serverski i izgledaju ispravno i mrtvi.
+ * Zatečeno stanje, ne posledica naplate: `/` nema nijednu liniju naplate i
+ * ponaša se isto. Otkriveno je tek uz cenovnik jer je to bio prvi ekran kome
+ * je hidratacija TREBALA da bi uopšte prikazao sadržaj (cene su tada stizale
+ * iz `fetch`-a), dok su ostali ekrani serverski i izgledaju ispravno i mrtvi.
  *
  * ── zašto je bezbedno ───────────────────────────────────────
  * Uslov je `NODE_ENV`, koji Next postavlja sam: `development` za `next dev`,
@@ -143,30 +124,24 @@ const unsafeEval = dev ? " 'unsafe-eval'" : "";
 // `frame-ancestors 'none'` je CSP ekvivalent `X-Frame-Options: DENY`; stoje oba.
 const CSP = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${unsafeEval} ${clerk} ${clerkCaptcha} ${paddle}`,
+  `script-src 'self' 'unsafe-inline'${unsafeEval} ${clerk} ${clerkCaptcha}`,
   // Clerk pravi Web Worker iz blob: URL-a (pollovanje tokena) — bez eksplicitnog
   // worker-src-a bi palo na script-src i bilo blokirano.
   "worker-src 'self' blob:",
-  `style-src 'self' 'unsafe-inline' ${paddle}`,
-  `img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev ${clerk} ${paddle}`,
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev ${clerk}`,
   "font-src 'self' data:",
   // `https://*.protect.clerk.com:*` stoji ODVOJENO od `https://*.clerk.com`
   // iznad, iako ga po imenu pokriva: izvor bez porta poklapa samo 443, a ovi
   // hostovi se serviraju i na drugim portovima. Bez `:*` captcha tiho padne.
-  `connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com https://*.protect.clerk.com:* ${clerk} ${paddle}`,
-  // Checkout overlay je iframe ka `sandbox-buy.paddle.com` / `buy.paddle.com`.
-  // Bez ovoga direktiva pada na `default-src 'self'` i modal ostane prazan —
-  // Paddle.js pri tome NE javlja grešku, samo se ništa ne pojavi.
-  // Uz Paddle overlay ovde je i Turnstile widget — on je iframe ka
-  // `challenges.cloudflare.com`, pa bez njega registracija pada na
-  // „neuspelo sigurnosno proveravanje".
-  `frame-src 'self' ${clerkCaptcha} ${paddle}`,
+  `connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com https://*.protect.clerk.com:* ${clerk}`,
+  // Turnstile widget je iframe ka `challenges.cloudflare.com`, pa bez njega
+  // registracija pada na „neuspelo sigurnosno proveravanje".
+  `frame-src 'self' ${clerkCaptcha}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   // Ostaje `'none'`: mi ne uokvirujemo nikoga i niko ne sme da uokviri nas.
-  // Ovo ne dira Paddle — `frame-ancestors` govori ko sme da uokviri NAŠU stranu,
-  // a `frame-src` koga MI smemo da uokvirimo. Paddle overlay je ovo drugo.
   "frame-ancestors 'none'",
 ].join("; ");
 

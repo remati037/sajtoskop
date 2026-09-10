@@ -18,13 +18,12 @@ import { fileURLToPath } from "node:url";
 // Prava implementacija, ne kopija: cela poenta provere je da se TS i SQL slažu
 // oko LA dana. Uvoz ne dodiruje bazu — `supabaseAdmin()` je lenj.
 import { budgetDay, nextDayReset, nextMonthReset } from "../apps/worker/src/lib/api-budget";
-// Katalog cena je od S16 u `packages/shared`. Test namerno koristi PRAVI `pri_`
-// ID, ne izmišljen string: `apply_subscription` ga upisuje u `subscriptions`, pa
-// bi izmišljen ID značio da provera prolazi nad podatkom kakav u produkciji ne
-// postoji.
-import { PLAN_PRICE_IDS } from "../packages/shared/src/plans";
+// Katalog je od S16 u `packages/shared`; od S25 (Stripe) se u bazu upisuje
+// `lookup_key`, ne `price_` ID. Test koristi PRAVI ključ iz kataloga, ne
+// izmišljen string — provera mora da prođe nad podatkom kakav i produkcija piše.
+import { PLAN_PRICES, TRIAL_CREDITS } from "../packages/shared/src/plans";
 
-const PRO_MESECNO = PLAN_PRICE_IDS.pro.month;
+const PRO_MESECNO = PLAN_PRICES.pro.month.lookupKey;
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(root, "supabase", "migrations");
@@ -90,6 +89,8 @@ async function main(): Promise<void> {
                    "feedback_prompts", "changelog", "admin_audit",
                    "request_limits", "webhook_events",
                    "billing_events", "subscriptions",
+                   "search_access", "access_invites", "access_invite_redemptions",
+                   "trial_fingerprints",
                    "lead_status", "outreach_messages", "signed_events"]) {
     const r = await one<{ relrowsecurity: boolean }>(
       `select relrowsecurity from pg_class where relname = $1`, [t]);
@@ -1412,53 +1413,127 @@ async function main(): Promise<void> {
   check(k?.b === 101 && k?.t === 50,
     "razlog bira kasu — credit_pack u dopunu, ostalo u balans");
 
-  // ── apply_subscription i apply_credit_pack ───────────────
-  const applySub = (txn: string | null, plan = "pro", credits = 300) =>
-    one<Apply>(
-      `select * from apply_subscription('w1','sub_1','ctm_1','active','${PRO_MESECNO}',$1,
-              now() + interval '30 days', $2, $3, 'RS')`,
-      [plan, credits, txn]);
+  // ── [S25] apply_subscription (Stripe) — stanje BEZ kredita ──
+  // Krediti idu odvojeno (`apply_invoice_paid`), jer Stripe šalje stanje
+  // pretplate i naplatu kao dva događaja koji stižu bilo kojim redom (§6.4).
+  type SubSaved = { ok: boolean; reason: string };
+  const applySub = (
+    status: string, created: string, plan: string | null = "pro", cancelAtEnd = false,
+  ) =>
+    one<SubSaved>(
+      `select * from apply_subscription('w1','sub_1','cus_1',$1,$2,'month','${PRO_MESECNO}',
+              now() + interval '30 days', null, $3, null, $4::timestamptz, 'RS')`,
+      [status, plan, cancelAtEnd, created]);
 
   await db.exec(`update profiles set credits_balance = 0, credits_topup = 0 where id = 'w1'`);
-  const s1 = await applySub("txn_sub_1");
-  check(s1?.reason === "granted" && s1.granted === 300, "apply_subscription → granted");
-  const s2 = await applySub("txn_sub_1");
-  check(s2?.ok === true && s2.reason === "already_granted" && s2.granted === 0,
-    "apply_subscription: isti txn drugi put ne dodeljuje ponovo");
-  check((await kase("w1"))?.b === 300, "dupli webhook nije dao 600 kredita");
+  const s1 = await applySub("active", "2026-09-01T10:00:00Z");
+  check(s1?.ok === true && s1.reason === "saved", "apply_subscription → saved");
+  check((await kase("w1"))?.b === 0, "apply_subscription NE dodeljuje kredite (to je invoice.paid)");
 
   const prof = await one<{ plan: string; iste: string | null; cid: string | null }>(
-    `select plan, plan_expires_at::text as iste, paddle_customer_id as cid
+    `select plan, plan_expires_at::text as iste, stripe_customer_id as cid
      from profiles where id = 'w1'`);
   check(prof?.plan === "pro", "apply_subscription postavlja profiles.plan");
   check(prof?.iste !== null, "apply_subscription postavlja plan_expires_at");
-  check(prof?.cid === "ctm_1", "apply_subscription pamti paddle_customer_id");
+  check(prof?.cid === "cus_1", "apply_subscription pamti stripe_customer_id");
 
-  const sub = await one<{ n: number; st: string; cc: string }>(
-    `select count(*)::int as n, min(status) as st, min(country_code) as cc
-     from subscriptions where paddle_subscription_id = 'sub_1'`);
+  const sub = await one<{ n: number; st: string; cc: string; lk: string; ck: string }>(
+    `select count(*)::int as n, min(status) as st, min(country_code) as cc,
+            min(lookup_key) as lk, min(ciklus) as ck
+     from subscriptions where stripe_subscription_id = 'sub_1'`);
   check(sub?.n === 1 && sub.st === "active" && sub.cc === "RS",
-    "subscriptions: jedan red, upsert po paddle_subscription_id");
+    "subscriptions: jedan red, upsert po stripe_subscription_id");
+  check(sub?.lk === PRO_MESECNO && sub?.ck === "month",
+    "subscriptions pamti lookup_key i ciklus (nikad price_ ID)");
 
-  // Događaj bez naplate osveži stanje, ali ne dodeljuje ništa.
-  check((await applySub(null))?.reason === "saved",
-    "apply_subscription bez txn → saved, bez kredita");
-  check((await kase("w1"))?.b === 300, "'saved' nije dodao kredite");
+  // §6.4: događaj STARIJI od već primenjenog ne sme da vrati stanje unazad.
+  const stari = await applySub("trialing", "2026-08-31T10:00:00Z");
+  check(stari?.ok === true && stari.reason === "stale_ignored",
+    "stariji event.created posle novijeg → stale_ignored");
+  check((await one<{ st: string }>(
+    `select status as st from subscriptions where stripe_subscription_id = 'sub_1'`))?.st === "active",
+    "stale događaj nije pregazio status");
+
+  // Otkazivanje zakazano za kraj perioda: status ostaje `active`, zastavica se diže.
+  const zakazano = await applySub("active", "2026-09-02T10:00:00Z", "pro", true);
+  check(zakazano?.reason === "saved" && (await one<{ c: boolean }>(
+    `select cancel_at_period_end as c from subscriptions where stripe_subscription_id = 'sub_1'`))?.c === true,
+    "cancel_at_period_end se upisuje");
+
+  // `canceled` ne dira `profiles.plan` (§1.5: otkazano radi do kraja perioda).
+  await applySub("canceled", "2026-09-03T10:00:00Z", null);
+  check((await one<{ plan: string }>(`select plan from profiles where id = 'w1'`))?.plan === "pro",
+    "canceled ne obara profiles.plan — granicu drži plan_expires_at");
+
+  check((await one<SubSaved>(
+    `select * from apply_subscription('w1','sub_x','cus_1','izmisljen',null,null,null,null,null,false,null,now(),null)`))
+    ?.reason === "invalid_status", "nepoznat status → invalid_status");
+  check((await one<SubSaved>(
+    `select * from apply_subscription('w1','','cus_1','active',null,null,null,null,null,false,null,now(),null)`))
+    ?.reason === "missing_subscription_id", "bez ID-ja pretplate → missing_subscription_id");
+  check((await one<SubSaved>(
+    `select * from apply_subscription('w1','sub_y','cus_1','active','komp',null,null,null,null,false,null,now(),null)`))
+    ?.reason === "invalid_plan", "plan `komp` iz webhooka → invalid_plan (D1)");
 
   await mustFail(
-    `insert into subscriptions (paddle_subscription_id, user_id, status) values ('sx','w1','izmisljen')`,
+    `insert into subscriptions (stripe_subscription_id, user_id, status) values ('sx','w1','izmisljen')`,
     "nepoznat status pretplate odbijen");
   await mustFail(
-    `insert into subscriptions (paddle_subscription_id, user_id, status, country_code)
+    `insert into subscriptions (stripe_subscription_id, user_id, status, country_code)
      values ('sx','w1','active','srb')`,
     "neispravan country_code u subscriptions odbijen");
   await mustFail(
-    `insert into subscriptions (paddle_subscription_id, user_id, status, plan)
-     values ('sx','w1','active','beta')`,
-    "plan 'beta' u subscriptions odbijen");
+    `insert into subscriptions (stripe_subscription_id, user_id, status, plan)
+     values ('sx','w1','active','komp')`,
+    "plan 'komp' u subscriptions odbijen");
+  await mustFail(
+    `insert into subscriptions (stripe_subscription_id, user_id, status, ciklus)
+     values ('sx','w1','active','week')`,
+    "nepoznat ciklus u subscriptions odbijen");
+
+  // ── [S25] apply_invoice_paid — SET semantika, ref `in_…` ──
+  console.log("\nS25 — apply_invoice_paid / apply_trial_start / expire");
+  type Inv = { ok: boolean; reason: string; delta: number };
+  const faktura = (inv: string, target: number) =>
+    one<Inv>(`select * from apply_invoice_paid('w1', $1, $2)`, [inv, target]);
+
+  await db.exec(`update profiles set credits_balance = 4 where id = 'w1'`);
+  const fk1 = await faktura("in_1", 450);
+  check(fk1?.ok === true && fk1.reason === "granted" && fk1.delta === 446,
+    "invoice.paid POSTAVLJA balans na 450 (4 → 450, delta 446, bez rollovera)");
+  const fk2 = await faktura("in_1", 450);
+  check(fk2?.reason === "already_granted" && (await kase("w1"))?.b === 450,
+    "ista faktura drugi put → already_granted, balans isti");
+  check((await faktura("", 450))?.reason === "missing_ref_id", "faktura bez ref-a odbijena");
+
+  // Proba: 10 kredita, jednom po NALOGU (ref `trial:<user>`), ne po pretplati.
+  await db.exec(`update profiles set credits_balance = 0 where id = 'w1'`);
+  type Tr = { ok: boolean; reason: string };
+  const proba = (sub: string) =>
+    one<Tr>(`select * from apply_trial_start('w1', $1, $2)`, [sub, TRIAL_CREDITS]);
+  check((await proba("sub_1"))?.reason === "granted" && (await kase("w1"))?.b === TRIAL_CREDITS,
+    `apply_trial_start → +${TRIAL_CREDITS} (trial_grant)`);
+  check((await proba("sub_2"))?.reason === "already_granted" && (await kase("w1"))?.b === TRIAL_CREDITS,
+    "druga pretplata istog naloga NE donosi drugu probu");
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from credit_ledger where user_id='w1' and reason='trial_grant' and ref_id='trial:w1'`))?.n === 1,
+    "trial_grant ref je trial:<user>");
+
+  // Kraj pretplate: kasa koja ističe se prazni, dopuna ostaje.
+  await db.exec(`update profiles set credits_balance = 7, credits_topup = 20 where id = 'w1'`);
+  const e1 = await one<Inv>(`select * from expire_subscription_credits('w1', 'sub_1')`);
+  check(e1?.reason === "expired" && e1.delta === -7, "expire_subscription_credits prazni balans (−7)");
+  let kk = await kase("w1");
+  check(kk?.b === 0 && kk?.t === 20, "expire ne dira credits_topup (kupljeno ostaje)");
+  check((await one<Inv>(`select * from expire_subscription_credits('w1', 'sub_1')`))?.reason === "already_applied",
+    "expire drugi put za istu pretplatu → already_applied");
+  check((await one<Inv>(`select * from expire_subscription_credits('w1', 'sub_9')`))?.reason === "nothing",
+    "expire nad praznim balansom → nothing, bez reda u knjizi");
+  // Test paketa ispod očekuje balans 300 (do S25 ga je davao apply_subscription).
+  await db.exec(`update profiles set credits_balance = 300, credits_topup = 0 where id = 'w1'`);
 
   const pack = (txn: string) =>
-    one<Apply>(`select * from apply_credit_pack('w1', 150, $1, 'ctm_1')`, [txn]);
+    one<Apply>(`select * from apply_credit_pack('w1', 150, $1, 'cus_1')`, [txn]);
 
   const p1 = await pack("txn_pack_1");
   check(p1?.reason === "granted" && p1.granted === 150, "apply_credit_pack → granted");
@@ -1711,25 +1786,30 @@ async function main(): Promise<void> {
     "backfill: red sa 12 rezultata ostaje plitak");
 
 
-  // ── S20: beta nalog je ručna radnja (migracija 0024) ─────
+  // ── S20/S25: komp (bivša beta) je ručna radnja (0024 → 0025) ─
   // Odluka D1 iz LANSIRANJE §1.1 je do S20 bila samo rečenica u dokumentu:
-  // `profiles.plan` je imao `default 'beta'`, a `beta_expires_at` NULL znači
-  // NEOGRANIČENO — dakle svaka registracija je otvarala doživotan nalog.
-  // Ove provere drže tri sloja zatvorena: default, triger i jedini put kroz njega.
+  // `profiles.plan` je imao `default 'beta'`, a prazan rok znači NEOGRANIČENO —
+  // dakle svaka registracija je otvarala doživotan nalog. Ove provere drže tri
+  // sloja zatvorena: default, triger i jedini put kroz njega. Od S25 se plan
+  // zove `komp`, a drugi legitiman put je pozivnica (`redeem_invite`).
 
-  console.log("\nS20: plan `beta` samo iz konzole");
+  console.log("\nS25: plan `komp` samo iz konzole ili pozivnice");
 
   await db.exec(`insert into profiles (id, email) values ('beta1', 'b1@x.rs')`);
   const nov = await one<{ plan: string }>(`select plan from profiles where id='beta1'`);
-  check(nov?.plan === "dopuna", `nov profil dobija plan '${nov?.plan}', ne 'beta'`);
+  check(nov?.plan === "dopuna", `nov profil dobija plan '${nov?.plan}', ne 'komp'`);
 
   await mustFail(
-    `update profiles set plan='beta' where id='beta1'`,
-    "goli UPDATE ne može da dodeli plan `beta`",
+    `update profiles set plan='komp' where id='beta1'`,
+    "goli UPDATE ne može da dodeli plan `komp`",
+  );
+  await mustFail(
+    `insert into profiles (id, email, plan) values ('beta9','b9@x.rs','komp')`,
+    "goli INSERT ne može da dodeli plan `komp`",
   );
   await mustFail(
     `insert into profiles (id, email, plan) values ('beta9','b9@x.rs','beta')`,
-    "goli INSERT ne može da dodeli plan `beta`",
+    "stara vrednost `beta` više ne postoji u profiles_plan_valid",
   );
   await mustFail(
     `insert into profiles (id, email, plan) values ('beta9','b9@x.rs','izmisljen')`,
@@ -1740,56 +1820,177 @@ async function main(): Promise<void> {
   const ROK = "2026-12-31T22:59:59Z";
 
   const b1 = await one<Beta>(
-    `select * from admin_open_beta('beta1', 50, $1::timestamptz, 'adm:b-1')`, [ROK]);
-  check(b1?.ok === true && b1.reason === "opened" && b1.granted === 50,
-    "admin_open_beta → opened, 50 kredita");
+    `select * from admin_open_komp('beta1', 300, $1::timestamptz, 'adm:b-1')`, [ROK]);
+  check(b1?.ok === true && b1.reason === "opened" && b1.granted === 300,
+    "admin_open_komp → opened, 300 kredita");
 
   const posle = await one<{ plan: string; rok: string | null; bal: number }>(
-    `select plan, beta_expires_at::text as rok, credits_balance as bal
+    `select plan, komp_expires_at::text as rok, credits_balance as bal
        from profiles where id='beta1'`);
-  check(posle?.plan === "beta", "admin_open_beta postavlja plan `beta`");
-  check(posle?.rok !== null, "admin_open_beta postavlja beta_expires_at");
-  check(posle?.bal === 50, `krediti su na nalogu (${posle?.bal})`);
+  check(posle?.plan === "komp", "admin_open_komp postavlja plan `komp`");
+  check(posle?.rok !== null, "admin_open_komp postavlja komp_expires_at");
+  check(posle?.bal === 300, `krediti su na nalogu (${posle?.bal})`);
 
   const izKnjige = await one<{ n: number }>(
-    `select count(*)::int as n from credit_ledger where user_id='beta1' and reason='beta_grant'`);
-  check(izKnjige?.n === 1, "dodela je u knjizi sa razlogom `beta_grant`");
+    `select count(*)::int as n from credit_ledger where user_id='beta1' and reason='komp_grant'`);
+  check(izKnjige?.n === 1, "dodela je u knjizi sa razlogom `komp_grant`");
 
-  // Dvostruki klik na „Otvori beta nalog". Plan i rok se ponovo upisuju (to je
-  // postavljanje, ne sabiranje), krediti NE — inače bi drugi klik dao 100.
+  // Dvostruki klik na „Otvori komp". Plan i rok se ponovo upisuju (to je
+  // postavljanje, ne sabiranje), krediti NE — inače bi drugi klik dao 600.
   const b2 = await one<Beta>(
-    `select * from admin_open_beta('beta1', 50, $1::timestamptz, 'adm:b-1')`, [ROK]);
+    `select * from admin_open_komp('beta1', 300, $1::timestamptz, 'adm:b-1')`, [ROK]);
   check(b2?.reason === "already_granted" && b2.granted === 0,
     "isti ref_id drugi put → already_granted, bez kredita");
   check((await one<{ bal: number }>(`select credits_balance as bal from profiles where id='beta1'`))
-    ?.bal === 50, "dvostruki klik ne daje 100 kredita");
+    ?.bal === 300, "dvostruki klik ne daje 600 kredita");
 
   // Zastavica je transakcijska. Da „ostane upaljena", sledeći goli UPDATE bi
   // prošao — i cela brana bi bila jednokratna.
   await db.exec(`insert into profiles (id, email) values ('beta2', 'b2@x.rs')`);
   await mustFail(
-    `update profiles set plan='beta' where id='beta2'`,
-    "zastavica iz admin_open_beta ne curi u sledeću transakciju",
+    `update profiles set plan='komp' where id='beta2'`,
+    "zastavica iz admin_open_komp ne curi u sledeću transakciju",
   );
 
-  // Produženje roka nad nalogom koji VEĆ jeste u beti ne traži konzolni put:
-  // plan se time ne dodeljuje. Bez ovoga se beta ne bi mogla ni ugasiti.
-  await db.exec(`update profiles set plan='beta', beta_expires_at = now() - interval '1 day' where id='beta1'`);
-  check(true, "beta → beta prolazi (gašenje bete rokom u prošlosti)");
+  // Produženje roka nad nalogom koji VEĆ jeste u kompu ne traži konzolni put:
+  // plan se time ne dodeljuje. Bez ovoga se komp ne bi mogao ni ugasiti.
+  await db.exec(`update profiles set plan='komp', komp_expires_at = now() - interval '1 day' where id='beta1'`);
+  check(true, "komp → komp prolazi (gašenje kompa rokom u prošlosti)");
 
   const b3 = await one<Beta>(
-    `select * from admin_open_beta('beta2', 0, null::timestamptz, 'adm:b-2')`);
-  check(b3?.ok === true && b3.granted === 0, "admin_open_beta sa 0 kredita prolazi");
+    `select * from admin_open_komp('beta2', 0, null::timestamptz, 'adm:b-2')`);
+  check(b3?.ok === true && b3.granted === 0, "admin_open_komp sa 0 kredita prolazi");
   check((await one<{ rok: string | null }>(
-    `select beta_expires_at::text as rok from profiles where id='beta2'`))?.rok === null,
-    "NULL rok = neograničena beta (§1.5)");
+    `select komp_expires_at::text as rok from profiles where id='beta2'`))?.rok === null,
+    "NULL rok = neograničen komp (§1.5)");
 
-  check((await one<Beta>(`select * from admin_open_beta('nema_ga', 50, null, 'adm:b-3')`))
-    ?.reason === "no_user", "admin_open_beta nad nepostojećim nalogom → no_user");
-  check((await one<Beta>(`select * from admin_open_beta('beta2', 501, null, 'adm:b-4')`))
-    ?.reason === "invalid_amount", "admin_open_beta preko 500 kredita → invalid_amount");
-  check((await one<Beta>(`select * from admin_open_beta('beta2', 50, null, '')`))
-    ?.reason === "missing_ref_id", "admin_open_beta bez ref_id → missing_ref_id");
+  check((await one<Beta>(`select * from admin_open_komp('nema_ga', 50, null, 'adm:b-3')`))
+    ?.reason === "no_user", "admin_open_komp nad nepostojećim nalogom → no_user");
+  check((await one<Beta>(`select * from admin_open_komp('beta2', 2001, null, 'adm:b-4')`))
+    ?.reason === "invalid_amount", "admin_open_komp preko 2000 kredita → invalid_amount");
+  check((await one<Beta>(`select * from admin_open_komp('beta2', 50, null, '')`))
+    ?.reason === "missing_ref_id", "admin_open_komp bez ref_id → missing_ref_id");
+
+  // ── [S25] pozivnice (redeem_invite) ─────────────────────
+  console.log("\nS25: redeem_invite");
+  type Red = { ok: boolean; reason: string; kind: string | null };
+  const redeem = (u: string, code: string) =>
+    one<Red>(`select * from redeem_invite($1, $2)`, [u, code]);
+
+  await db.exec(`
+    insert into profiles (id, email) values ('inv1','inv1@x.rs'), ('inv2','inv2@x.rs'), ('inv3','inv3@x.rs');
+    insert into access_invites (code, kind, komp_days, komp_credits, max_uses)
+      values ('SAJT-KOMP-0001', 'komp', 30, 300, 1);
+    insert into access_invites (code, kind, max_uses, email)
+      values ('SAJT-MESC-0001', 'prvi_mesec', 5, 'inv2@x.rs');
+    insert into access_invites (code, kind, revoked_at) values ('SAJT-OPOZ-0001', 'komp', now());
+    insert into access_invites (code, kind, max_uses) values ('SAJT-KOMP-0003', 'komp', 3);
+    insert into access_invites (code, kind, expires_at) values ('SAJT-ISTK-0001', 'komp', now() - interval '1 day');
+  `);
+
+  check((await redeem("inv1", "nema-koda"))?.reason === "not_found", "nepoznat kod → not_found");
+  check((await redeem("inv1", "SAJT-OPOZ-0001"))?.reason === "revoked", "opozvan kod → revoked");
+  check((await redeem("inv1", "SAJT-ISTK-0001"))?.reason === "expired", "istekao kod → expired");
+  check((await redeem("inv1", "SAJT-MESC-0001"))?.reason === "wrong_email",
+    "kod vezan za drugi mejl → wrong_email");
+
+  // Kod se poredi `upper(trim())` — mala slova i razmaci prolaze.
+  const r1 = await redeem("inv1", "  sajt-komp-0001 ");
+  check(r1?.ok === true && r1.reason === "redeemed" && r1.kind === "komp", "komp pozivnica → redeemed");
+  const inv1 = await one<{ plan: string; rok: string | null; bal: number }>(
+    `select plan, komp_expires_at::text as rok, credits_balance as bal from profiles where id='inv1'`);
+  check(inv1?.plan === "komp" && inv1.rok !== null && inv1.bal === 300,
+    "komp pozivnica: plan komp, rok +30d, 300 kredita");
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from credit_ledger where user_id='inv1' and reason='komp_grant' and ref_id like 'invite:%'`))?.n === 1,
+    "ref dodele je invite:<id>");
+  check((await one<{ u: number }>(`select used_count as u from access_invites where code='SAJT-KOMP-0001'`))?.u === 1,
+    "used_count = 1");
+  check((await redeem("inv3", "SAJT-KOMP-0001"))?.reason === "used_up", "drugi nalog istim kodom → used_up");
+  check((await redeem("inv1", "SAJT-KOMP-0003"))?.reason === "already_redeemed",
+    "nalog sme jednu pozivnicu bilo kog tipa → already_redeemed");
+
+  const r2 = await redeem("inv2", "SAJT-MESC-0001");
+  check(r2?.ok === true && r2.kind === "prvi_mesec", "prvi_mesec pozivnica → redeemed");
+  check((await one<{ i: string | null; plan: string }>(
+    `select invite_id::text as i, plan from profiles where id='inv2'`))?.i !== null,
+    "prvi_mesec: profil pamti invite_id, plan se NE menja");
+  check((await one<{ plan: string }>(`select plan from profiles where id='inv2'`))?.plan === "dopuna",
+    "prvi_mesec ne otvara komp");
+
+  // Ko već plaća ne dobija ni komp ni gratis mesec.
+  await db.exec(`
+    insert into subscriptions (stripe_subscription_id, user_id, status) values ('sub_inv3','inv3','active');
+    insert into access_invites (code, kind, max_uses) values ('SAJT-KOMP-0002', 'komp', 3);
+  `);
+  check((await redeem("inv3", "SAJT-KOMP-0002"))?.reason === "has_subscription",
+    "nalog sa živom pretplatom → has_subscription");
+  await mustFail(
+    `insert into access_invites (code, kind) values ('SAJT-LOS-0001', 'poklon')`,
+    "nepoznat tip pozivnice odbijen");
+  await mustFail(
+    `update access_invites set used_count = 9 where code = 'SAJT-KOMP-0001'`,
+    "used_count preko max_uses odbijen");
+
+  // ── [S25] pristup kešu se plaća (D10) + povraćaj razlike ─
+  console.log("\nS25: search_access (D10) i refund_scan(job, pages)");
+  await db.exec(`
+    insert into profiles (id, email, credits_balance) values ('k1','k1@x.rs',10), ('k2','k2@x.rs',10);
+    select record_scan('RS','pancevo','kes-svez',25,null,false,3);
+  `);
+  type Scan2 = { ok: boolean; reason: string; job_id: number | null; charged: boolean; credits_left: number; cost: number };
+  const scan2 = (u: string, c: string, n: string, max: number) =>
+    one<Scan2>(`select * from spend_credit_and_scan($1,'RS',$2,$3,$4)`, [u, c, n, max]);
+
+  // Svež keš sa 25 firmi (2 stranice sadržaja, 3 povučene): „Duboko" košta 2, ne 3.
+  const ks1 = await scan2("k1", "pancevo", "kes-svez", 60);
+  check(ks1?.reason === "cached" && ks1.charged === true && ks1.job_id === null,
+    "svež keš → cached, naplaćeno, BEZ posla");
+  check(ks1?.cost === 2 && ks1?.credits_left === 8,
+    `iz keša: cena = ceil(25/20) = 2, ne 3 (cost ${ks1?.cost}, ostalo ${ks1?.credits_left})`);
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from job_queue where type='scan' and payload->>'citySlug'='pancevo'`))?.n === 0,
+    "pristup iz keša ne upisuje posao (0 Places poziva)");
+  const pristup = await one<{ pages: number; job_id: number | null }>(
+    `select pages, job_id from search_access where user_id='k1' and city_slug='pancevo' and niche_slug='kes-svez'`);
+  check(pristup?.pages === 3 && pristup.job_id === null, "search_access red: 3 stranice, bez posla");
+  check((await one<{ h: boolean }>(`select has_search_access('k1','RS','pancevo','kes-svez',3) as h`))?.h === true,
+    "has_search_access → true za plaćenu dubinu");
+  check((await one<{ h: boolean }>(`select has_search_access('k2','RS','pancevo','kes-svez',1) as h`))?.h === false,
+    "has_search_access → false za drugog korisnika");
+
+  // Isti korisnik ponovo: pristup postoji → 0 kredita.
+  const ks2 = await scan2("k1", "pancevo", "kes-svez", 40);
+  check(ks2?.reason === "already_paid" && ks2.charged === false && ks2.credits_left === 8 && ks2.cost === 0,
+    "drugi put ista kombinacija → already_paid, 0 kredita");
+
+  // Nedovoljno kredita: cena iz keša se ipak javlja.
+  await db.exec(`update profiles set credits_balance = 1 where id = 'k2'`);
+  const ks3 = await scan2("k2", "pancevo", "kes-svez", 60);
+  check(ks3?.ok === false && ks3.reason === "insufficient_credits" && ks3.cost === 2,
+    "bez kredita → insufficient_credits sa cenom iz keša");
+
+  // Refund razlike: plaćeno 3, Google dao 2 stranice → vraća 1, pristup → 2.
+  await db.exec(`update profiles set credits_balance = 10 where id = 'k2'`);
+  const ks4 = await scan2("k2", "kikinda", "malo-firmi", 60);
+  check(ks4?.reason === "charged" && ks4.cost === 3 && ks4.job_id !== null, "van keša → charged 3, posao upisan");
+  check((await one<{ pages: number; job_id: number | null }>(
+    `select pages, job_id from search_access where user_id='k2' and city_slug='kikinda'`))?.job_id === ks4?.job_id,
+    "search_access nastaje odmah, vezan za posao");
+  const ref1 = await one<{ refunded: number }>(`select * from refund_scan($1, 2)`, [ks4?.job_id]);
+  check(ref1?.refunded === 1, "refund_scan(job, 2) vraća jednom platiocu");
+  check((await one<{ b: number }>(`select credits_balance as b from profiles where id='k2'`))?.b === 8,
+    "vraćen je tačno 1 kredit (3 plaćeno − 2 iskorišćeno)");
+  check((await one<{ pages: number }>(
+    `select pages from search_access where user_id='k2' and city_slug='kikinda'`))?.pages === 2,
+    "pristup spušten na 2 stranice");
+  check((await one<{ refunded: number }>(`select * from refund_scan($1, 2)`, [ks4?.job_id]))?.refunded === 0,
+    "drugi refund istog posla ne vraća ponovo");
+  // 0 = vrati sve (pad, prazan rezultat).
+  const ks5 = await scan2("k2", "kikinda", "prazno", 40);
+  await db.exec(`select refund_scan($1, 0)`.replace("$1", String(ks5?.job_id)));
+  check((await one<{ b: number }>(`select credits_balance as b from profiles where id='k2'`))?.b === 8,
+    "refund_scan(job, 0) vraća sve (2 od 2)");
 
   // Registracija: profil bez plana i bez kredita. `existing` mora da radi i kad
   // dodele nema — do 0024 se izvodio iz postojanja `monthly_grant` reda.
@@ -1806,13 +2007,16 @@ async function main(): Promise<void> {
   // ── kolone i sužavanje po ID-jevima u listi korisnika ────
   console.log("\nadmin_users_page: ulazi za stanjePristupa()");
   type StranaB = {
-    id: string; credits_topup: number; beta_expires_at: string | null;
-    plan_expires_at: string | null; sub_status: string | null; ukupno: string;
+    id: string; credits_topup: number; komp_expires_at: string | null;
+    plan_expires_at: string | null; sub_status: string | null; sub_trial_end: string | null; ukupno: string;
   };
   const redBeta = (await db.query<StranaB>(
     `select * from admin_users_page('b1@',null,null,'created_at','desc',25,0)`)).rows[0];
-  check(redBeta?.id === "beta1" && redBeta.beta_expires_at !== null,
-    "lista vraća beta_expires_at, plan_expires_at i obe kase");
+  check(redBeta?.id === "beta1" && redBeta.komp_expires_at !== null && "sub_trial_end" in redBeta,
+    "lista vraća komp_expires_at, plan_expires_at, sub_trial_end i obe kase");
+  const probni = (await db.query<StranaB>(
+    `select * from admin_users_page(null,'proba',null,'created_at','desc',25,0)`)).rows;
+  check(Array.isArray(probni), "filter `proba` (sub_status = trialing) postoji");
 
   const suzeno = await db.query<StranaB>(
     `select * from admin_users_page(null,null,null,'created_at','desc',25,0,'{}'::text[],$1::text[])`,
@@ -1836,7 +2040,9 @@ async function main(): Promise<void> {
                     "grant_feedback_credits",
                     "apply_subscription", "apply_credit_pack",
                     "claim_ai_rewrite", "release_ai_rewrite",
-                    "admin_adjust_credits", "admin_users_page", "admin_open_beta",
+                    "admin_adjust_credits", "admin_users_page", "admin_open_komp",
+                    "apply_invoice_paid", "apply_trial_start", "expire_subscription_credits",
+                    "redeem_invite", "has_search_access",
                     "admin_set_role", "admin_overview",
                     "claim_request", "zabelezi_utisak", "dopuni_utisak",
                     "get_job_for_user", "inkrementiraj_analizu", "search_listing"]) {

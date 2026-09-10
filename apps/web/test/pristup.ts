@@ -1,7 +1,7 @@
 // apps/web/test/pristup.ts
 // Pokretanje: pnpm --filter web test  (ili `pnpm test` iz korena)
 //
-// [S19] Kapija pristupa u WEB sloju. Samu odluku — šest stanja, datume, grace —
+// [S19, S25] Kapija pristupa u WEB sloju. Samu odluku — sedam stanja, datume, grace —
 // pokriva `packages/shared/test/pristup.ts` nad čistom funkcijom. Ovde je ono
 // što ta funkcija ne vidi:
 //
@@ -21,7 +21,12 @@ import { readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { stanjePristupa, type Pristup, type ProfilZaPristup } from "@sajtoskop/shared";
+import {
+  stanjePristupa,
+  type PretplataZaPristup,
+  type Pristup,
+  type ProfilZaPristup,
+} from "@sajtoskop/shared";
 
 // Isti resolve hook kao u `ide-odmah.ts`, `dubina.ts` i `naplata.ts`.
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -52,28 +57,42 @@ const SADA = Date.parse("2026-08-21T12:00:00.000Z");
 const DAN = 24 * 60 * 60 * 1000;
 const zaDana = (n: number) => new Date(SADA + n * DAN).toISOString();
 
-function stanje(over: Partial<ProfilZaPristup>): Pristup {
+function stanje(over: Partial<ProfilZaPristup>, pretplata: PretplataZaPristup | null = null): Pristup {
   return stanjePristupa(
-    { plan: "beta", betaExpiresAt: null, planExpiresAt: null, creditsTopup: 0, ...over },
-    null,
+    { plan: "komp", kompExpiresAt: null, planExpiresAt: null, creditsTopup: 0, ...over },
+    pretplata,
     SADA,
   );
 }
 
-const BETA = stanje({});
-const GRACE = stanje({ betaExpiresAt: zaDana(-1) });
-const ZAKLJUCAN = stanje({ betaExpiresAt: zaDana(-40) });
-const DOPUNA = stanje({ betaExpiresAt: zaDana(-40), creditsTopup: 25 });
+const KOMP = stanje({});
+const GRACE = stanje({ kompExpiresAt: zaDana(-1) });
+const ZAKLJUCAN = stanje({ kompExpiresAt: zaDana(-40) });
+const DOPUNA = stanje({ kompExpiresAt: zaDana(-40), creditsTopup: 25 });
+const PROBA = stanje(
+  { plan: "starter", planExpiresAt: zaDana(7) },
+  { status: "trialing", currentPeriodEnd: zaDana(7), trialEnd: zaDana(7), cancelAtPeriodEnd: false, canceledAt: null },
+);
+const OTKAZANA_PROBA = stanje(
+  { plan: "starter", planExpiresAt: zaDana(5) },
+  { status: "trialing", currentPeriodEnd: zaDana(5), trialEnd: zaDana(5), cancelAtPeriodEnd: true, canceledAt: null },
+);
 
 check(
   GRACE.stanje === "grace" && ZAKLJUCAN.stanje === "zakljucan" && DOPUNA.stanje === "dopuna",
   "priprema: tri stanja su ono što test misli da jesu",
 );
+check(
+  KOMP.stanje === "komp" && PROBA.stanje === "proba" && OTKAZANA_PROBA.stanje === "otkazan",
+  "priprema: komp, proba i otkazana proba (S25)",
+);
 
 // ── 1. kapija za trošenje ──────────────────────────────────
 console.log("\nodbijenica (pretraga, skeniranje, otključavanje, uvoz, AI)");
 
-check(odbijenica(BETA, "skeniranje") === null, "beta: skeniranje prolazi");
+check(odbijenica(KOMP, "skeniranje") === null, "komp: skeniranje prolazi");
+check(odbijenica(PROBA, "skeniranje") === null, "proba: skeniranje prolazi (pun pristup)");
+check(odbijenica(OTKAZANA_PROBA, "otkljucavanje") === null, "otkazana proba: do trial_end sve prolazi");
 check(odbijenica(DOPUNA, "skeniranje") === null, "dopuna: skeniranje prolazi");
 check(odbijenica(null, "skeniranje") === null, "nepoznato stanje NE zaključava (kvar veze ≠ istek)");
 
@@ -103,7 +122,8 @@ check(odbijenica(ZAKLJUCAN, "pretraga") !== null, "zaključan: ništa od toga ne
 console.log("\nodbijenicaCitanja (izvoz, pipeline, poruke)");
 
 check(odbijenicaCitanja(GRACE) === null, "grace: izvoz i pipeline PROLAZE");
-check(odbijenicaCitanja(BETA) === null, "beta: prolazi");
+check(odbijenicaCitanja(KOMP) === null, "komp: prolazi");
+check(odbijenicaCitanja(PROBA) === null, "proba: prolazi");
 check(odbijenicaCitanja(DOPUNA) === null, "dopuna: prolazi");
 check(odbijenicaCitanja(null) === null, "nepoznato stanje ne zaključava ni čitanje");
 check(odbijenicaCitanja(ZAKLJUCAN)?.status === 403, "zaključan: ne prolazi, 403");

@@ -201,6 +201,22 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     };
   }
 
+  // [S25, §14.4] Manje stranica nego plaćeno → razlika nazad. `apiCalls` je
+  // tačan broj napravljenih Places poziva: Google prestaje da vraća
+  // `nextPageToken` kad nema više rezultata, pa je `stranica − apiCalls` tačno
+  // ono što nije koštalo. Stoji POSLE grane za prazan rezultat i posle registra,
+  // i to nije slučajno: `refund_scan` je idempotentan po (platilac, posao), pa
+  // bi delimičan povraćaj upisan PRE punog (prazan rezultat, neupisan registar)
+  // pun povraćaj proglasio duplikatom — korisnik bi ostao bez ostatka.
+  let vracenoRazlika = 0;
+  if (registrovan && apiCalls > 0 && apiCalls < stranica) {
+    vracenoRazlika = await refundScan(ctx.job.id, apiCalls);
+    ctx.log(
+      `plaćeno ${stranica} ${stranica === 1 ? "stranica" : "stranice"}, Google dao ${apiCalls} — ` +
+        `razlika vraćena na ${vracenoRazlika} naloga`,
+    );
+  }
+
   // Audit se namerno NE radi ovde: `scan` mora da završi za sekunde da bi lista
   // bila vidljiva. Preuzimanje sajtova je 1 zahtev/s po domenu i traje minutima.
   const needAudit = await placeIdsNeedingAudit(inCity.map((b) => b.placeId));
@@ -224,6 +240,7 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     note:
       `${city.label} · ${niche.label}: ${inCity.length} biznisa, ` +
       `${created} za analizu, ${apiCalls} API poziva${partial ? " (parcijalno)" : ""}` +
+      (vracenoRazlika > 0 ? ` — razlika vraćena na ${vracenoRazlika} naloga` : "") +
       (registrovan ? "" : ` — BEZ REGISTRA KEŠA, kredit vraćen na ${vracenoBezRegistra} naloga`),
     ...(partial && { partial }),
   };

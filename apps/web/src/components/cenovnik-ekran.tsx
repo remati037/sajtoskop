@@ -1,91 +1,63 @@
 "use client";
 
 // apps/web/src/components/cenovnik-ekran.tsx
-// Ekran cena: tri plana, prekidač mesečno/godišnje i overlay checkout.
+// Ekran cena: tri plana, prekidač mesečno/godišnje, paketi — i dugme koje vodi
+// na Stripe hosted Checkout.
 //
 // ── odakle dolazi cifra ─────────────────────────────────────
-// Isključivo iz Paddle-a, kroz `PricePreview()`, kao `formattedTotals.total` —
-// gotov string („€29.00", „€1,190.00"), u valuti posetioca i sa porezom njegove
-// zemlje. Ovde se ne množi, ne deli, ne zaokružuje i ne prepakuje kroz
-// `Intl.NumberFormat`. Paddle je već formatirao; drugo formatiranje bi bilo
-// duplo (npr. „€€29,00") i, još gore, mogla bi da ispadne druga cifra od one
-// koja se naplaćuje.
+// [S25] Iz `plans.ts` (`PLAN_PRICES`, `CREDIT_PACKS`), kroz `formatEur()`.
+// Stripe hosted Checkout prikazuje iznos na svojoj strani; ovaj ekran ga mora
+// prikazati PRE toga i čita ga iz jedinog izvora u kodu. Stripe katalog se
+// proverava naspram tog fajla (`pnpm stripe:doktor`), ne obrnuto. Cene su u
+// evrima, bez PDV-a (odluka D1: bez Stripe Tax).
 //
-// Nemački posetilac vidi €29.00 sa uračunatih 19% PDV-a, srpski €29.00 bez
-// poreza, i to je ISTI `pri_` ID. Zato u `lib/cenovnik.ts` nema nijednog iznosa.
+// ── klik ────────────────────────────────────────────────────
+// `POST /api/billing/checkout { vrsta, plan, ciklus } | { vrsta, paket }` →
+// `{ url }` → `window.location.assign(url)`. Nema klijentskog SDK-a i nema
+// nijednog Stripe skripta u dokumentu: identitet kupca (`client_reference_id`)
+// upisuje server iz Clerk sesije (pravilo 8), a pregledač samo ode na Stripe.
+//   · gost ne može u checkout — bez sesije nema `user_id`, pa dugme vodi na
+//     registraciju sa povratkom na SVOJ izbor (`naRegistraciju`).
+//   · svako dugme ima svoje stanje čekanja: između klika i redirekcije stoji
+//     jedan mrežni poziv ka nama.
 //
-// ── jedan poziv, ne šest ────────────────────────────────────
-// `PricePreview()` prima svih šest cena odjednom, pa prekidač mesečno/godišnje
-// ne pravi nikakav mrežni saobraćaj — obe cifre su već tu. Ponovo se poziva samo
-// kad se promeni zemlja.
+// ── namera sa landinga (S24) ────────────────────────────────
+// `/cenovnik?plan=pro&ciklus=godisnje` / `?paket=200` preselektuje: prekidač
+// kreće od ciklusa iz linka; izabran plan nosi akcenat, primarno dugme i bedž
+// „Tvoj izbor" (jedan akcenat po ekranu, §7.1); `?paket=` doskroluje.
 //
-// ── šta je promenio S18 ─────────────────────────────────────
-// Checkout se više ne otvara sa `items`, nego sa `transactionId` koji napravi
-// `/api/billing/checkout`. Razlog je jedan i nepregovarljiv: transakcija mora da
-// nosi `custom_data.user_id`, a taj ID sme da dođe samo iz serverske Clerk
-// sesije (pravilo 8). Posledice koje se vide u ovom fajlu:
+// ‼️ Checkout se NAMERNO ne otvara sam na osnovu `?plan=`: to je Stripe sesija
+//    po svakom učitavanju strane, uključujući osvežavanje, „nazad" iz istorije
+//    i svakog bota. Namera preselektuje; klik ostaje čovekov.
 //
-//   · `customer: { email }` je otpao — kupca određuje transakcija, ne pregledač.
-//     Mejl za prijavljenog korisnika ionako više nije potreban: vezivanje ide po
-//     `user_id`, pa kupovina sa druge adrese završi na pravom nalogu.
-//   · gost više ne može da otvori checkout. Bez sesije nema `user_id`, dakle
-//     nema čime da se poveže ono što plati — pa dugme vodi na registraciju sa
-//     povratkom ovamo.
-//   · svako dugme ima svoje stanje čekanja: između klika i otvaranja modala
-//     stoji jedan mrežni poziv ka nama, pa ekran ne sme da izgleda mrtvo.
-//
-// ── šta je promenio S24 ─────────────────────────────────────
-// Ekran prima NAMERU sa landinga (`?plan=`, `?ciklus=`, `?paket=` — §1.7).
-// Posledice:
-//
-//   · prekidač kreće od ciklusa iz linka, ne uvek od „Mesečno";
-//   · izabran plan je onaj koji nosi akcenat, primarno dugme i bedž „Tvoj
-//     izbor" — a ne više uvek Pro. Jedan akcenat po ekranu ostaje (§7.1);
-//   · `?paket=` doskroluje do sekcije paketa i istakne baš taj paket;
-//   · put za gosta nosi njegov izbor: `?nazad=/cenovnik?plan=pro&ciklus=…`,
-//     pa se posle registracije ne bira ponovo.
-//
-// ‼️ Checkout se NAMERNO ne otvara sam na osnovu `?plan=`. Modal za plaćanje
-//    koji iskoči bez klika je i UX koji se ne traži i Paddle transakcija po
-//    svakom učitavanju strane — uključujući osvežavanje, „nazad" iz istorije i
-//    svakog bota koji otvori link. Namera preselektuje; klik ostaje čovekov.
+// ‼️ Puna prepravka ovog ekrana (bedž „Prvi mesec €0" uz pozivnicu, tekst
+//    probe, godišnje sa „(€24,17 mesečno)", stanja 409) je K2 (S26). Ovde je
+//    minimum da ekran radi nad Stripe-om.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  initializePaddle,
-  type Paddle,
-  type PricePreviewParams,
-  type PricePreviewResponse,
-} from "@paddle/paddle-js";
 import { Check, Coins, Infinity as Beskonacno, Loader2, Lock, TriangleAlert } from "lucide-react";
 import {
   CIKLUS_LABELA,
   CIKLUS_SUFIKS,
   CIKLUSI,
+  formatEur,
   GODISNJI_BONUS,
   PAKETI,
-  SVI_PRICE_ID,
   TIERS,
   type Ciklus,
   type Paket,
   type Tier,
 } from "@/lib/cenovnik";
 import type { PaketId } from "@sajtoskop/shared";
+import type { CheckoutBody } from "@/lib/billing-schema";
 import {
   naRegistraciju,
   putanjaZaPaket,
   putanjaZaPlan,
   type Namera,
 } from "@/lib/cenovnik-namera";
-import { paddleKonfig } from "@/lib/paddle-okruzenje";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
-import { useTema } from "@/components/tema-provider";
-
-/** `pri_…` → gotov, formatiran iznos iz Paddle-a. */
-type Cene = Record<string, string>;
-
-type Stanje = "ucitavanje" | "spremno" | "greska";
 
 /**
  * Gde gost ide sa dugmeta „Uzmi plan" kad nemamo ništa konkretnije.
@@ -96,21 +68,17 @@ type Stanje = "ucitavanje" | "spremno" | "greska";
  */
 const NA_REGISTRACIJU = naRegistraciju("/cenovnik");
 
+/** Ključ dugmeta koje čeka — jedno po ekranu, redirekcija je jedna. */
+function kljucKupovine(telo: CheckoutBody): string {
+  return telo.vrsta === "plan" ? `${telo.plan}:${telo.ciklus}` : telo.paket;
+}
+
 export function CenovnikEkran({
-  drzava,
   prijavljen,
   smePaket,
   namera,
+  prodavac,
 }: {
-  /**
-   * ISO 3166-1 alpha-2, izveden na serveru iz `x-vercel-ip-country`.
-   *
-   * `null` znači „ne znamo" i tada se `address` NE šalje — Paddle tada sam
-   * pogodi zemlju po IP-u posetioca, što je tačnije od bilo koje naše
-   * pretpostavke. Nema izmišljene vrednosti tipa „OTHERS": Paddle ne poznaje
-   * takvu zemlju i odbio bi poziv.
-   */
-  drzava: string | null;
   /** Ima li posetilac Clerk sesiju. Bez nje nema `user_id`, dakle ni kupovine. */
   prijavljen: boolean;
   /**
@@ -128,125 +96,39 @@ export function CenovnikEkran({
    * `null`, pa ovde nema nijedne provere ispravnosti (`lib/cenovnik-namera-schema.ts`).
    */
   namera: Namera;
+  /** Ime prodavca (LLC, odluka A4) — iz env-a, na serveru. */
+  prodavac: string;
 }) {
-  const { tema } = useTema();
   // Ciklus iz linka je POČETNA vrednost, ne zaključana: prekidač ostaje živ i
   // čovek koji je sa landinga stigao na „godišnje" sme da se predomisli.
   const [ciklus, setCiklus] = useState<Ciklus>(namera.ciklus ?? "month");
-  const [paddle, setPaddle] = useState<Paddle | null>(null);
-  const [cene, setCene] = useState<Cene>({});
-  const [stanje, setStanje] = useState<Stanje>("ucitavanje");
   const [greska, setGreska] = useState<string | null>(null);
-  /** `pri_` čije se dugme trenutno čeka. Jedan po ekranu — modal je jedan. */
+  /** Kupovina čije se dugme trenutno čeka. Jedno po ekranu — redirekcija je jedna. */
   const [uToku, setUToku] = useState<string | null>(null);
 
-  // ── 1. podizanje Paddle.js-a ──────────────────────────────
-  useEffect(() => {
-    let otkazano = false;
-
-    // `paddleKonfig()` baca kad env nije podešen ili kad se token i okruženje ne
-    // poklapaju. Hvata se ovde, a ne pušta uz stranu: neispravno podešen Paddle
-    // treba da da poruku na ekranu cena, ne Next-ov crveni ekran preko svega.
-    let konfig;
-    try {
-      konfig = paddleKonfig();
-    } catch (err) {
-      console.error("[cenovnik]", err);
-      setGreska(err instanceof Error ? err.message : String(err));
-      setStanje("greska");
-      return;
-    }
-
-    initializePaddle({
-      token: konfig.token,
-      environment: konfig.okruzenje,
-      eventCallback: (dogadjaj) => {
-        // Greška u samom checkout-u ne stiže kao odbijeno obećanje nego kao
-        // događaj — bez ovoga modal prosto ostane prazan i niko ne sazna zašto.
-        if (dogadjaj.name === "checkout.error") {
-          console.error("[cenovnik] checkout.error:", dogadjaj.data);
-        }
-      },
-    })
-      .then((p) => {
-        if (otkazano) return;
-        if (!p) throw new Error("Paddle.js se nije podigao.");
-        setPaddle(p);
-      })
-      .catch((err: unknown) => {
-        if (otkazano) return;
-        console.error("[cenovnik] initializePaddle:", err);
-        setGreska("Naplata trenutno nije dostupna.");
-        setStanje("greska");
-      });
-
-    return () => {
-      otkazano = true;
-    };
-  }, []);
-
-  // ── 2. cene ───────────────────────────────────────────────
-  useEffect(() => {
-    if (!paddle) return;
-    let otkazano = false;
-
-    const parametri: PricePreviewParams = {
-      items: SVI_PRICE_ID.map((priceId) => ({ priceId, quantity: 1 })),
-      // Bez `address` kad zemlja nije poznata — v. komentar uz prop.
-      ...(drzava ? { address: { countryCode: drzava } } : {}),
-    };
-
-    setStanje("ucitavanje");
-
-    paddle
-      .PricePreview(parametri)
-      .then((odgovor: PricePreviewResponse) => {
-        if (otkazano) return;
-        const sledece: Cene = {};
-        for (const stavka of odgovor.data.details.lineItems) {
-          sledece[stavka.price.id] = stavka.formattedTotals.total;
-        }
-        setCene(sledece);
-        setStanje("spremno");
-      })
-      .catch((err: unknown) => {
-        if (otkazano) return;
-        console.error("[cenovnik] PricePreview:", err);
-        setGreska("Cene se trenutno ne mogu učitati.");
-        setStanje("greska");
-      });
-
-    return () => {
-      otkazano = true;
-    };
-  }, [paddle, drzava]);
-
-  // ── 3. checkout ───────────────────────────────────────────
-  // Prima `pri_`, ne plan: od S21 isto dugme otvara i pretplatu i paket
-  // kredita. Razliku zna server — `/api/billing/checkout` je izvodi iz kataloga
-  // (`kupovinaZaPriceId`), a ne iz onoga što je pregledač poslao.
+  // ── checkout ──────────────────────────────────────────────
+  // Prima slug iz kataloga, ne ID cene: `lookup_key` i `price_` izvodi server
+  // iz `plans.ts` i Stripe-a. Nijedan Stripe ID ne postoji u pregledaču.
   const otvoriCheckout = useCallback(
-    async (priceId: string, nazad?: string) => {
-      if (!paddle || uToku) return;
+    async (telo: CheckoutBody, nazad?: string) => {
+      if (uToku) return;
 
       // Gost: nema `user_id`, pa nema ni čime da se poveže kupovina. Umesto
-      // checkout-a koji bi primio novac bez naloga — registracija, pa nazad.
-      //
-      // Od S24 `nazad` nosi TAČNO ono što je kliknuto, pa se posle registracije
-      // ne bira ponovo. Putanju i dalje proverava server (`internaPutanja()`).
+      // checkout-a koji bi primio novac bez naloga — registracija, pa nazad na
+      // TAČNO ono što je kliknuto.
       if (!prijavljen) {
         window.location.href = nazad ? naRegistraciju(nazad) : NA_REGISTRACIJU;
         return;
       }
 
-      setUToku(priceId);
+      setUToku(kljucKupovine(telo));
       setGreska(null);
 
       try {
         const odgovor = await fetch("/api/billing/checkout", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ priceId }),
+          body: JSON.stringify(telo),
         });
 
         if (odgovor.status === 401) {
@@ -255,46 +137,28 @@ export function CenovnikEkran({
           return;
         }
 
-        const telo = (await odgovor.json().catch(() => ({}))) as {
-          transactionId?: string;
-          greska?: string;
-        };
+        const odg = (await odgovor.json().catch(() => ({}))) as { url?: string; greska?: string };
 
-        if (!odgovor.ok || !telo.transactionId) {
-          throw new Error(telo.greska ?? `HTTP ${odgovor.status}`);
+        if (!odgovor.ok || !odg.url) {
+          // 403 (paket bez plana) i 409 (već ima plan / komp) nose rečenicu sa
+          // servera koja kaže ŠTA da se uradi — ona ide na ekran, ne opšta.
+          throw new Error(odg.greska ?? `HTTP ${odgovor.status}`);
         }
 
-        paddle.Checkout.open({
-          // Transakciju je napravio server i ona već nosi `custom_data.user_id`,
-          // izabranu cenu i — za beta nalog — popust. Stavke se ovde više ne
-          // šalju: uz `transactionId` bi bile drugi izvor istine o tome šta se
-          // kupuje, a Paddle ih ionako ne bi uzeo u obzir.
-          transactionId: telo.transactionId,
-          settings: {
-            displayMode: "overlay",
-            variant: "one-page",
-            // Modal prati temu aplikacije. Bez ovoga tamna strana dobije beo
-            // pravougaonik preko sebe.
-            theme: tema === "tamna" ? "dark" : "light",
-            // Apsolutan URL, sklopljen u pregledaču: radi i na localhost-u i na
-            // domenu, bez još jedne env promenljive koja ume da se ne postavi.
-            //
-            // ‼️ Ovo je samo UX. Pretplata se NE upisuje odavde — korisnik ume
-            //    da zatvori tab pre redirekcije. Izvor istine je webhook.
-            successUrl: `${window.location.origin}/welcome`,
-          },
-        });
+        // Bez `finally` koje gasi čekanje: strana se u ovom trenutku već menja, a
+        // dugme koje se vrati u mirno stanje pre nego što redirekcija stigne
+        // izgleda kao da klik nije prošao.
+        window.location.assign(odg.url);
       } catch (err) {
         console.error("[cenovnik] checkout:", err);
-        setGreska("Plaćanje se trenutno ne može otvoriti.");
-      } finally {
+        setGreska(err instanceof Error && err.message && !/^HTTP \d+$/.test(err.message)
+          ? err.message
+          : "Plaćanje se trenutno ne može otvoriti.");
         setUToku(null);
       }
     },
-    [paddle, prijavljen, tema, uToku],
+    [prijavljen, uToku],
   );
-
-  const spremno = stanje === "spremno" && paddle !== null;
 
   return (
     <div>
@@ -307,14 +171,7 @@ export function CenovnikEkran({
         >
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warn-text" />
           <span>
-            <span className="font-medium text-fg">{greska}</span>{" "}
-            {/* Duža rečenica ima smisla samo kad je pao PricePreview — tada
-                kartice stoje bez cifara. Kad je pao checkout, cene se vide i
-                „planovi se i dalje vide" bi zvučalo kao da niko ne čita ekran. */}
-            {stanje === "greska"
-              ? "Planovi i pogodnosti se i dalje vide, ali cena i plaćanje trenutno ne rade."
-              : ""}{" "}
-            Pokušaj za koji minut ili mi se javi na{" "}
+            <span className="font-medium text-fg">{greska}</span> Ako se ponavlja, javi mi se na{" "}
             <a
               href="mailto:podrska@sajtoskop.com"
               className="font-medium text-accent-text underline underline-offset-4"
@@ -332,34 +189,34 @@ export function CenovnikEkran({
             key={tier.name}
             tier={tier}
             ciklus={ciklus}
-            cena={cene[tier.priceId[ciklus]]}
-            spremno={spremno}
-            ceka={uToku === tier.priceId[ciklus]}
+            ceka={uToku === `${tier.id}:${ciklus}`}
             zakljucano={uToku !== null}
             // Namera sa landinga pomera akcenat: izabran plan dobija primarno
             // dugme i bedž, a Pro ostaje običan. Bez namere sve je kao pre.
             izabran={namera.plan === tier.id}
             istaknut={namera.plan ? namera.plan === tier.id : tier.featured === true}
             naKlik={() =>
-              void otvoriCheckout(tier.priceId[ciklus], putanjaZaPlan(tier.id, ciklus))
+              void otvoriCheckout(
+                { vrsta: "plan", plan: tier.id, ciklus },
+                putanjaZaPlan(tier.id, ciklus),
+              )
             }
           />
         ))}
       </div>
 
       <SekcijaPaketa
-        cene={cene}
-        spremno={spremno}
         uToku={uToku}
         smePaket={smePaket}
         prijavljen={prijavljen}
         izabran={namera.paket}
-        naKlik={(priceId, nazad) => void otvoriCheckout(priceId, nazad)}
+        naKlik={(paket, nazad) => void otvoriCheckout({ vrsta: "paket", paket }, nazad)}
       />
 
+      {/* D5, A4: prodavac je LLC, račun stiže mejlom od Stripe-a u ime LLC-a. */}
       <p className="mt-8 text-center text-xs text-fg-muted">
-        Cene su za tvoju zemlju i uključuju porez tamo gde se on obračunava. Naplatu vodi Paddle
-        kao prodavac od koga kupuješ (Merchant of Record) — račun i PDV stižu od njih.
+        Cene su u evrima, bez PDV-a. Prodavac je {prodavac}, SAD; račun stiže mejlom posle svake
+        naplate. Plaćanje preko firme uz fakturu — javi se na podrska@sajtoskop.com.
       </p>
     </div>
   );
@@ -367,47 +224,40 @@ export function CenovnikEkran({
 
 // ── paketi kredita ──────────────────────────────────────────
 // LANSIRANJE §1.4, izmenjen 26.8.: paket je DOPUNA uz postojeći pristup, ne
-// ulaz u proizvod. Kupuju ga `aktivan`, `otkazan` i `beta` (v. `smeDaKupiPaket`
-// u shared paketu); svi ostali, uključujući gosta, vide sekciju ali sa
-// objašnjenjem umesto dugmeta.
+// ulaz u proizvod. Kupuju ga `aktivan`, `otkazan`, `komp` i `proba` (v.
+// `smeDaKupiPaket` u shared paketu); svi ostali, uključujući gosta, vide
+// sekciju ali sa objašnjenjem umesto dugmeta.
 //
 // ── zašto se sekcija i dalje VIDI onome ko ne sme ───────────
 // Sakriti je značilo bi da posetilac ne zna da paketi postoje, pa ni da mu se
-// otključavaju uz plan — a to je razlog više da uzme plan, ne manje. Skrivena
-// ponuda ne prodaje ništa; zaključana ponuda sa jednom rečenicom objašnjenja
-// prodaje plan iznad sebe.
+// otključavaju uz plan — a to je razlog više da uzme plan, ne manje.
 //
-// Sekundaran blok, namerno DRUGAČIJEG oblika od tri kartice
-// iznad: da su paketi četvrta i peta kartica u istom redu, čitali bi se kao
-// jeftiniji planovi — a oni su po kreditu SKUPLJI od svakog plana, i to je
-// cela poenta ponude. Zato jedna površina (`--bg-subtle`), dva reda unutar nje,
-// i dugmad koja nisu primarna: §7.1 daje jedno primarno dugme po ekranu, a ono
-// je gore, na istaknutom planu.
+// Sekundaran blok, namerno DRUGAČIJEG oblika od tri kartice iznad: da su paketi
+// četvrta i peta kartica u istom redu, čitali bi se kao jeftiniji planovi — a
+// oni su po kreditu SKUPLJI od svakog plana, i to je cela poenta ponude. Zato
+// jedna površina (`--bg-subtle`), dva reda unutar nje, i dugmad koja nisu
+// primarna: §7.1 daje jedno primarno dugme po ekranu, a ono je gore.
 
 function SekcijaPaketa({
-  cene,
-  spremno,
   uToku,
   smePaket,
   prijavljen,
   izabran,
   naKlik,
 }: {
-  cene: Cene;
-  spremno: boolean;
   uToku: string | null;
   smePaket: boolean;
   prijavljen: boolean;
   /** Paket iz `?paket=` na landingu, ili `null`. */
   izabran: PaketId | null;
-  naKlik: (priceId: string, nazad: string) => void;
+  naKlik: (paket: PaketId, nazad: string) => void;
 }) {
   const okvir = useRef<HTMLElement | null>(null);
 
-  // `?paket=150` nema `#paketi` u sebi kad se sklopi bez sidra (npr. sa starijeg
-  // dugmeta na landingu), pa sekcija mora sama da se dovede u vidno polje —
-  // inače čovek stigne na vrh cenovnika i ne vidi ono zbog čega je došao.
-  // Jednom, i samo ako pregledač nije već odskrolovao po sidru.
+  // `?paket=200` nema `#paketi` u sebi kad se sklopi bez sidra, pa sekcija mora
+  // sama da se dovede u vidno polje — inače čovek stigne na vrh cenovnika i ne
+  // vidi ono zbog čega je došao. Jednom, i samo ako pregledač nije već
+  // odskrolovao po sidru.
   useEffect(() => {
     if (!izabran || window.location.hash === "#paketi") return;
     okvir.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -415,9 +265,7 @@ function SekcijaPaketa({
 
   return (
     // `id` je odredište linkova `/cenovnik#paketi` iz modala pristupa i sa
-    // strane `/zakljucano` — oni postoje od S19 i do S21 nisu vodili nikuda.
-    // `scroll-mt` postoji jer strana ima lepljivo zaglavlje na `/` putanjama;
-    // bez njega sidro završi tačno ispod njega.
+    // strane `/zakljucano`. `scroll-mt` zbog lepljivog zaglavlja.
     <section id="paketi" ref={okvir} className="mt-14 scroll-mt-24 sm:mt-16">
       <div className="rounded-2xl border border-border bg-bg-subtle p-6 sm:p-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -450,24 +298,19 @@ function SekcijaPaketa({
             <KarticaPaketa
               key={paket.id}
               paket={paket}
-              cena={cene[paket.priceId]}
-              spremno={spremno}
-              ceka={uToku === paket.priceId}
+              ceka={uToku === paket.id}
               zakljucano={uToku !== null}
               smePaket={smePaket}
               prijavljen={prijavljen}
               izabran={izabran === paket.id}
-              naKlik={() => naKlik(paket.priceId, putanjaZaPaket(paket.id))}
+              naKlik={() => naKlik(paket.id, putanjaZaPaket(paket.id))}
             />
           ))}
         </div>
 
         {/* Dve rečenice koje moraju da stoje, i to ovim redom:
             1. paket NIJE jeftinija zamena za plan — po kreditu je skuplji;
-            2. paket TRAŽI plan ili betu (odluka 26.8.).
-            Bez prve, paket kanibalizuje pretplatu i cenovnik laže o tome šta je
-            povoljnije. Bez druge, neko kupi plan očekujući da mu paket sam po
-            sebi produžava pristup — pa se to otkrije tek kad plan istekne. */}
+            2. paket TRAŽI plan ili komp (odluka 26.8.). */}
         <div className="mt-6 space-y-2 border-t border-border pt-5 text-xs leading-relaxed text-fg-muted">
           <p>
             <strong className="font-semibold text-fg">Paket nije zamena za plan.</strong> Po
@@ -475,7 +318,7 @@ function SekcijaPaketa({
             Paket je tu za mesec u kome posao krene jače nego što je plan predviđao.
           </p>
           <p>
-            <strong className="font-semibold text-fg">Paket traži aktivan plan ili betu.</strong>{" "}
+            <strong className="font-semibold text-fg">Paket traži aktivan plan ili komp.</strong>{" "}
             Kupuje se kao dopuna postojećem pristupu, ne umesto njega. Krediti iz paketa ne ističu
             i ostaju ti i kad plan istekne — ali se novi paket tada ne može kupiti dok se plan ne
             obnovi.
@@ -488,8 +331,6 @@ function SekcijaPaketa({
 
 function KarticaPaketa({
   paket,
-  cena,
-  spremno,
   ceka,
   zakljucano,
   smePaket,
@@ -498,8 +339,6 @@ function KarticaPaketa({
   naKlik,
 }: {
   paket: Paket;
-  cena: string | undefined;
-  spremno: boolean;
   ceka: boolean;
   zakljucano: boolean;
   smePaket: boolean;
@@ -510,9 +349,8 @@ function KarticaPaketa({
 }) {
   return (
     // Bez `shadow`: kartica stoji UNUTAR panela, a §7.2 traži jednu senku po
-    // elementu i zabranjuje kartice u karticama. Razdvaja je podloga i linija.
-    // Izbor sa landinga se označava LINIJOM, ne drugom podlogom — akcenat na
-    // ekranu ostaje jedan i on je gore, na dugmetu istaknutog plana (§7.1).
+    // elementu i zabranjuje kartice u karticama. Izbor sa landinga se označava
+    // LINIJOM, ne drugom podlogom — akcenat na ekranu ostaje jedan (§7.1).
     <div
       className={cn(
         "flex flex-col rounded-xl border bg-bg-elev p-5",
@@ -535,40 +373,20 @@ function KarticaPaketa({
       </p>
 
       <div className="mt-4 flex min-h-9 items-baseline gap-1.5">
-        {cena ? (
-          <>
-            {/* Isti gotov string iz Paddle-a kao na planovima — v. vrh fajla. */}
-            <span className="num text-2xl font-semibold tracking-tight">{cena}</span>
-            <span className="text-xs text-fg-muted">jednokratno</span>
-          </>
-        ) : (
-          <span aria-hidden className="h-7 w-24 animate-puls-tanko rounded-lg bg-bg-inset" />
-        )}
-        <span className="sr-only">{cena ? "" : "Cena se učitava"}</span>
+        <span className="num text-2xl font-semibold tracking-tight">{formatEur(paket.eur)}</span>
+        <span className="text-xs text-fg-muted">jednokratno</span>
       </div>
 
-      {/* Ko ne sme, ne dobija ugašeno dugme nego rečenicu i put dalje.
-          Ugašeno dugme ne kaže ZAŠTO je ugašeno, pa ostavlja čoveka da nagađa
-          je li kvar ili pravilo — a ovde je pravilo, i ono vodi na plan iznad. */}
+      {/* Ko ne sme, ne dobija ugašeno dugme nego rečenicu i put dalje. */}
       {smePaket ? (
-        <Button
-          variant="secondary"
-          className="mt-4 w-full"
-          disabled={!spremno || !cena || zakljucano}
-          onClick={naKlik}
-        >
+        <Button variant="secondary" className="mt-4 w-full" disabled={zakljucano} onClick={naKlik}>
           {ceka ? (
             <>
               <Loader2 className="animate-spin" />
               Otvaram plaćanje
             </>
-          ) : spremno && cena ? (
-            `Uzmi ${paket.name}`
           ) : (
-            <>
-              <Loader2 className="animate-spin" />
-              Učitavanje
-            </>
+            `Uzmi ${paket.name}`
           )}
         </Button>
       ) : (
@@ -576,8 +394,8 @@ function KarticaPaketa({
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-faint" aria-hidden />
           <span>
             {prijavljen
-              ? "Otključava se čim uzmeš plan ili dobiješ betu."
-              : "Dostupno uz aktivan plan ili betu — uzmi plan iznad."}
+              ? "Otključava se čim uzmeš plan ili dobiješ komp pristup."
+              : "Dostupno uz aktivan plan ili komp — uzmi plan iznad."}
           </span>
         </p>
       )}
@@ -603,8 +421,6 @@ function PrekidacCiklusa({
       <div
         role="radiogroup"
         aria-label="Način plaćanja"
-        // Sa dva polja obe strelice rade isto — prebace na ono drugo. Nema
-        // modula ni indeksiranja: kraće je i ne može da promaši niz.
         onKeyDown={(e) => {
           if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
           e.preventDefault();
@@ -651,8 +467,6 @@ function PrekidacCiklusa({
 function KarticaPlana({
   tier,
   ciklus,
-  cena,
-  spremno,
   ceka,
   zakljucano,
   izabran,
@@ -661,11 +475,9 @@ function KarticaPlana({
 }: {
   tier: Tier;
   ciklus: Ciklus;
-  cena: string | undefined;
-  spremno: boolean;
-  /** Ovo dugme čeka svoju transakciju. */
+  /** Ovo dugme čeka svoju sesiju. */
   ceka: boolean;
-  /** Neko dugme čeka — ostala se gase da ne nastanu dve transakcije. */
+  /** Neko dugme čeka — ostala se gase da ne nastanu dve sesije. */
   zakljucano: boolean;
   /** Ovaj plan je stigao iz `?plan=` sa landinga. */
   izabran: boolean;
@@ -680,8 +492,7 @@ function KarticaPlana({
   naKlik: () => void;
 }) {
   // Bedž je jedan po kartici i ne mogu oba: kad je plan izabran sa landinga,
-  // „Tvoj izbor" ima prednost nad „Najčešći izbor" — potvrda onoga što je čovek
-  // već uradio je korisnija od naše preporuke.
+  // „Tvoj izbor" ima prednost nad „Najčešći izbor".
   const oznaka = izabran ? "Tvoj izbor" : tier.featured ? "Najčešći izbor" : null;
 
   return (
@@ -697,8 +508,6 @@ function KarticaPlana({
         <span
           className={cn(
             "absolute -top-2.5 left-6 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
-            // Bedž neistaknutog plana (Pro kad je izabran neko drugi) ne sme da
-            // nosi punu zelenu podlogu — to bi bio drugi akcenat na ekranu.
             istaknut
               ? "bg-accent text-accent-ink"
               : "border border-border bg-bg-elev text-fg-muted",
@@ -709,32 +518,22 @@ function KarticaPlana({
       )}
 
       <h2 className="text-base font-semibold">{tier.name}</h2>
-      {/* Fiksna visina za dva reda: `description` se menja iz `lib/cenovnik.ts`,
-          a opis od jednog reda bi inače podigao cenu i dugme te kartice i
-          razbio poravnanje u redu od tri kartice. */}
+      {/* Fiksna visina za dva reda, da opis od jednog reda ne razbije poravnanje. */}
       <p className="mt-1.5 min-h-[2.5rem] text-sm text-fg-muted">{tier.description}</p>
 
       <div className="mt-6 flex min-h-[2.75rem] items-baseline gap-1.5">
-        {cena ? (
-          <>
-            {/* Gotov string iz Paddle-a. Ništa se ne računa i ne preformatira. */}
-            <span className="num text-3xl font-semibold tracking-tight">{cena}</span>
-            <span className="text-sm text-fg-muted">/ {CIKLUS_SUFIKS[ciklus]}</span>
-          </>
-        ) : (
-          <span
-            aria-hidden
-            className="h-8 w-28 animate-puls-tanko rounded-lg bg-bg-inset"
-          />
-        )}
-        <span className="sr-only">{cena ? "" : "Cena se učitava"}</span>
+        {/* Iz `plans.ts`, kroz `formatEur` — bez `Intl`, isti string na serveru i u pregledaču. */}
+        <span className="num text-3xl font-semibold tracking-tight">
+          {formatEur(tier.cena[ciklus].eur)}
+        </span>
+        <span className="text-sm text-fg-muted">/ {CIKLUS_SUFIKS[ciklus]}</span>
       </div>
 
       <Button
         variant={istaknut ? "primary" : "secondary"}
         size="lg"
         className="mt-6 w-full"
-        disabled={!spremno || !cena || zakljucano}
+        disabled={zakljucano}
         onClick={naKlik}
       >
         {ceka ? (
@@ -742,13 +541,8 @@ function KarticaPlana({
             <Loader2 className="animate-spin" />
             Otvaram plaćanje
           </>
-        ) : spremno && cena ? (
-          `Uzmi ${tier.name}`
         ) : (
-          <>
-            <Loader2 className="animate-spin" />
-            Učitavanje
-          </>
+          `Uzmi ${tier.name}`
         )}
       </Button>
 

@@ -62,3 +62,23 @@ export function landing(putanja = ""): string {
   if (!putanja) return LANDING_URL;
   return `${LANDING_URL}${putanja.startsWith("/") ? "" : "/"}${putanja}`;
 }
+
+// ── aplikacija sama: `NEXT_PUBLIC_APP_URL` (S25) ───────────
+// Stripe Checkout traži APSOLUTNE `success_url` i `cancel_url`, a ruta koja ih
+// sklapa je serverska i ne vidi `window.location`. Zato drugi koren, za
+// sopstveni domen: `http://localhost:3000` lokalno, `https://app.sajtoskop.com`
+// na produkciji. Prazno pada na localhost, jer je to jedino mesto gde sme da
+// bude prazno — na Vercelu ga `stripeServerEnv()` (lib/env.ts) traži i baca.
+
+const PODRAZUMEVANI_APP = "http://localhost:3000";
+
+/** Koren aplikacije, bez kose crte na kraju. */
+export const APP_URL: string = bezKoseNaKraju(
+  process.env.NEXT_PUBLIC_APP_URL?.trim() || PODRAZUMEVANI_APP,
+);
+
+/** Apsolutna adresa u aplikaciji: `appUrl("/welcome")`. Nikad `window.location.origin`. */
+export function appUrl(putanja = ""): string {
+  if (!putanja) return APP_URL;
+  return `${APP_URL}${putanja.startsWith("/") ? "" : "/"}${putanja}`;
+}

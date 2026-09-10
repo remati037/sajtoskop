@@ -1,5 +1,7 @@
 # Lansiranje — od današnjeg stanja do spremne aplikacije
 
+> **[S25, 10. septembar 2026]** §1.1, §1.6 i sve o Paddle-u i beti zamenjuje `docs/naplata-stripe.md`.
+
 > **Šta je ovo:** jedini dokument koji treba da bude otvoren od danas do dana lansiranja.
 > Sve što je ostalo — naplata, životni ciklus naloga, pravni tekstovi, landing, beta i
 > operativa — podeljeno na **sesije** (radi Claude, po jedan gotov prompt) i **ručne korake**

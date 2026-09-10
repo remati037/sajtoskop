@@ -4,24 +4,28 @@
 // isključiš"); pravila naplate i životnog ciklusa iz `docs/LANSIRANJE.md`
 // §1.3–§1.5.
 //
-// Strana stoji IZVAN grupe `(app)`: mora da je pročita i gost, a Paddle je
-// traži za odobrenje naloga u produkciji (korak R21).
+// Strana stoji IZVAN grupe `(app)`: mora da je pročita i gost, a Stripe je
+// traži na javnoj strani (Settings → Business → Public details).
+//
+// [S25] Prodavac je LLC (odluka A4), ne merchant of record. Ime iz env-a.
 //
 // ‼️ Tekst je iz šablona i NIJE pravno proveren. Sve što traži stvaran podatak
 //    stoji kao `Popuniti` marker; korak R19 ih popunjava.
 
 import type { Metadata } from "next";
 import { KONTAKT_MEJL } from "@/components/futer";
+import { sellerName } from "@/lib/env";
 import { Lista, Odeljak, Popuniti, PravniOkvir, TekstLink } from "@/components/pravni-okvir";
 
 export const metadata: Metadata = {
   title: "Uslovi korišćenja",
   description:
-    "Pod kojim uslovima se Sajtoskop koristi: nalog, krediti, naplata preko Paddle-a, " +
+    "Pod kojim uslovima se Sajtoskop koristi: nalog, krediti, naplata preko Stripe-a, " +
     "prestanak pristupa i šta nije dozvoljeno.",
 };
 
 export default function Page() {
+  const prodavac = sellerName();
   return (
     <PravniOkvir
       putanja="/uslovi"
@@ -92,14 +96,10 @@ export default function Page() {
           paketa stoje na <TekstLink href="/cenovnik">cenovniku</TekstLink>.
         </p>
         <p>
-          <strong>Naplatu vodi Paddle.com Market Ltd. kao merchant of record.</strong> To znači
-          da pravno kupuješ od Paddle-a, a ne od nas: Paddle je prodavac prema tebi, izdaje
-          račun, obračunava i plaća porez i vodi sredstvo plaćanja. Podaci o tvojoj kartici ne
-          stižu do nas ni u jednom trenutku. Na kupovinu se, pored ovih uslova, primenjuju i{" "}
-          <TekstLink href="https://www.paddle.com/legal/checkout-buyer-terms">
-            Paddle-ovi uslovi za kupce
-          </TekstLink>
-          .
+          <strong>Prodavac je {prodavac}, SAD.</strong> Naplatu obrađuje Stripe: on vodi
+          sredstvo plaćanja i na svojoj strani prima podatke o kartici, koji do nas ne stižu ni u
+          jednom trenutku. Račun stiže mejlom posle svake naplate, u ime prodavca. Cene su u
+          evrima, bez PDV-a.
         </p>
         <p>Kako se krediti ponašaju:</p>
         <Lista>
@@ -131,8 +131,8 @@ export default function Page() {
           </li>
         </Lista>
         <p>
-          Pretplata se obnavlja sama do otkazivanja. Otkazuješ je sam, kroz Paddle portal koji
-          se otvara sa strane „Krediti" — bez mejla nama i bez objašnjenja. Otkazivanje važi od
+          Pretplata se obnavlja sama do otkazivanja. Otkazuješ je sam, kroz portal koji se
+          otvara sa strane „Krediti" — bez mejla nama i bez objašnjenja. Otkazivanje važi od
           kraja plaćenog perioda; do tada pristup ostaje pun. Uslovi povraćaja su u{" "}
           <TekstLink href="/povracaj">Politici povraćaja</TekstLink>.
         </p>
@@ -255,7 +255,7 @@ export default function Page() {
       <Odeljak broj={9} naslov="Dostupnost i izmene usluge">
         <p>
           Usluga se pruža „takva kakva jeste". Ne garantujemo neprekidan rad: moguća su
-          održavanja, prekidi, greške i zavisnost od spoljnih servisa (Google, Paddle, provajder
+          održavanja, prekidi, greške i zavisnost od spoljnih servisa (Google, Stripe, provajder
           baze i hostinga).
         </p>
         <p>

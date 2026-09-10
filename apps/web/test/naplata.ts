@@ -1,31 +1,29 @@
 // apps/web/test/naplata.ts
 // Pokretanje: pnpm --filter web test  (ili `pnpm test` iz korena)
 //
-// [S18] Paddle webhook. Ovo je novčana putanja i test to prati doslovno:
+// [S25] Stripe webhook. Ovo je novčana putanja i test to prati doslovno:
 //
-//   · POTPIS SE NE LAŽIRA. Telo se potpisuje pravim HMAC-om, isto kao što ga
-//     Paddle potpisuje, i verifikuje pravi `paddle.webhooks.unmarshal`. Test sa
-//     preskočenom verifikacijom ne bi dokazao ništa o jedinoj autentikaciji koju
-//     taj endpoint ima.
+//   · POTPIS SE NE LAŽIRA. Telo se potpisuje pravim
+//     `stripe.webhooks.generateTestHeaderString({ payload, secret })` — isti
+//     HMAC koji Stripe šalje — i verifikuje pravi `constructEvent` nad `whsec_`.
+//     Test sa preskočenom verifikacijom ne bi dokazao ništa o jedinoj
+//     autentikaciji koju taj endpoint ima.
 //   · BAZA JESTE LAŽNA. `NaplataSkladiste` je zamenjen mapom u memoriji. Trke
 //     nad kreditima proverava `pnpm check:f4` nad pravom bazom, a atomsku
 //     naplatu `pnpm check:sql` nad pravom migracijom; ovde se proverava ono što
 //     nijedno od to dvoje ne vidi — ODLUKA koja se donese pre nego što se do
 //     baze uopšte stigne.
 //
-// Pet slučajeva koji su bili razlog da ovaj fajl postoji:
-//   1. isti `event_id` dvaput → jedna stavka u knjizi, jedna dodela
-//   2. pogrešan potpis → 401 i nijedan upis
-//   3. `transaction.completed` bez ijednog traga o korisniku → ne ruši se,
-//      događaj se upisuje, greška se javi
-//   4. kupovina paketa → krediti u `credits_topup`, ne u `credits_balance`
-//   5. webhook koji pokušava plan `beta` → odbijen
+// Scenariji iz naplata-stripe.md §12, kao fiksture: 1 (kupovina bez probe),
+// 2 (proba → plaćeno), 3 (proba otkazana), 8 (refund), 9 (dupli webhook),
+// 10 (paket), 12 (prvi mesec gratis). Plus: pogrešan potpis, nema korisnika,
+// `komp` iz webhooka, redosled događaja, prolazna greška.
 
-import { createHmac } from "node:crypto";
 import { registerHooks } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { CREDIT_PACKS, PLAN_PRICE_IDS, PLANS } from "@sajtoskop/shared";
+import Stripe from "stripe";
+import { CREDIT_PACKS, PLAN_PRICES, PLANS, TRIAL_CREDITS } from "@sajtoskop/shared";
 
 // Isti resolve hook kao u `ide-odmah.ts` i `dubina.ts`.
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -65,38 +63,24 @@ const check = (ok: boolean, line: string) => {
 // ═══════════════════════════════════════════════════════════
 
 // Obe vrednosti su IZMIŠLJENE i moraju to i da ostanu. Prefiksi su jedini deo
-// koji nešto znači: `paddleServer()` ukršta `pdl_sdbx_` sa okruženjem, a SDK
-// traži `pdl_ntfset_` za webhook tajnu. Ostatak je namerno niz cifara koji ne
-// liči ni na jedan pravi ključ.
+// koji nešto znači: `stripeServerEnv()` traži `sk_test_` i `whsec_`. Ostatak je
+// namerno niz nula koji ne liči ni na jedan pravi ključ.
 //
-// `gitleaks:allow` je tu jer skener meri entropiju, a ne poreklo — bez njega
-// commit sa ovim fajlom pada na lažnoj uzbuni. Oznaka stoji SAMO na ove dve
-// linije; nigde drugde u repozitorijumu je nema i ne sme da je bude.
-const TAJNA = "pdl_ntfset_test_00000000000000000000"; // gitleaks:allow
-const API_KLJUC = "pdl_sdbx_test_00000000000000000000"; // gitleaks:allow
+// `gitleaks:allow` je tu jer skener meri entropiju, a ne poreklo. Oznaka stoji
+// SAMO na ove dve linije.
+const TAJNA = "whsec_test_00000000000000000000000000000000"; // gitleaks:allow
+const API_KLJUC = "sk_test_00000000000000000000000000000000"; // gitleaks:allow
+const KUPON = "PRVI_MESEC_TEST";
 
-/**
- * Isto što Paddle stavlja u `Paddle-Signature`: `ts=<sekunde>;h1=<hmac>`, gde je
- * HMAC-SHA256 računat nad `"<ts>:<sirovo telo>"`.
- *
- * ‼️ Vreme mora da bude SVEŽE: SDK odbija potpis stariji od 5 sekundi.
- */
-function potpis(telo: string, tajna = TAJNA): string {
-  const ts = Math.floor(Date.now() / 1000);
-  const h1 = createHmac("sha256", tajna).update(`${ts}:${telo}`).digest("hex");
-  return `ts=${ts};h1=${h1}`;
-}
+process.env.STRIPE_SECRET_KEY = API_KLJUC;
+process.env.STRIPE_WEBHOOK_SECRET = TAJNA;
+process.env.STRIPE_COUPON_FIRST_MONTH = KUPON;
+process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
 
-// `PADDLE_*` promenljive se postavljaju ovde, a ne u `.env`: test ne sme da
-// zavisi od toga da li na ovoj mašini uopšte postoji Paddle nalog. Sve tri su
-// izmišljene i nijedna ne otvara nijedan pravi nalog — ruta ih traži samo zato
-// što `paddleServerEnv()` s pravom odbija da radi bez njih.
-process.env.PADDLE_API_KEY = API_KLJUC;
-process.env.PADDLE_WEBHOOK_SECRET = TAJNA;
-process.env.NEXT_PUBLIC_PADDLE_ENV = "sandbox";
+// Isti SDK kao ruta, samo za potpisivanje. Mrežu ne dodiruje.
+const stripe = new Stripe(API_KLJUC);
 
-// Uvoz rute ide POSLE postavljanja env-a i posle resolve hooka: prvi red rute je
-// `import`, a on se izvršava odmah.
+// Uvoz rute ide POSLE postavljanja env-a i posle resolve hooka.
 const ruta = await import("../src/app/api/billing/webhook/route");
 
 /** Jedan potpisan zahtev ka pravoj ruti, nad zadatim lažnim skladištem. */
@@ -107,516 +91,497 @@ async function posalji(
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   postavi(skladiste);
   const sirovo = JSON.stringify(telo);
+  const potpis = stripe.webhooks.generateTestHeaderString({
+    payload: sirovo,
+    secret: opcije.tajna ?? TAJNA,
+  });
   const res = await ruta.POST(
     new Request("http://localhost/api/billing/webhook", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "paddle-signature": potpis(sirovo, opcije.tajna ?? TAJNA),
-      },
+      headers: { "content-type": "application/json", "stripe-signature": potpis },
       body: sirovo,
     }),
   );
   const tekst = await res.text();
   postavi(null);
 
-  // Odbijenice (401, 500) vraćaju goli tekst, ne JSON — v. rutu. Zato se
-  // parsiranje ne sme pretpostaviti: pad na prazan objekat je tačan odgovor.
   let body: Record<string, unknown> = {};
   try {
     body = tekst ? (JSON.parse(tekst) as Record<string, unknown>) : {};
   } catch {
     body = {};
   }
-
   return { status: res.status, body };
 }
 
 // ═══════════════════════════════════════════════════════════
-// PAYLOAD-I
+// FIKSTURE — oblik Stripe API 2026 (dahlia): `current_period_end` na stavci,
+// `invoice.parent.subscription_details`
 // ═══════════════════════════════════════════════════════════
-// Oblik je Paddle-ov (snake_case iz mreže); SDK ga sam prevodi u camelCase.
-//
-// Cena se ne skraćuje na `{ id }` iako obrada čita samo `id`: SDK payload
-// PARSIRA u svoje entitete pre nego što ga mi vidimo, a `PriceNotification`
-// bezuslovno čita `unit_price` i `quantity`. Skraćen oblik zato ne pada na
-// našoj proveri nego u SDK-u, i to kao `Cannot read properties of undefined` —
-// greška koja ne liči ni na šta i troši pola sata.
 
-function cena(priceId: string) {
+const T0 = 1_757_500_000; // 2026-09-10, unix sekunde
+const DAN = 86_400;
+
+function dogadjaj(id: string, type: string, object: Record<string, unknown>, created = T0) {
   return {
-    id: priceId,
-    product_id: "pro_test_1",
-    description: "Test",
-    name: "Test",
-    type: "standard",
-    billing_cycle: { interval: "month", frequency: 1 },
-    trial_period: null,
-    tax_mode: "account_setting",
-    unit_price: { amount: "2900", currency_code: "EUR" },
-    unit_price_overrides: [],
-    quantity: { minimum: 1, maximum: 1 },
-    custom_data: null,
-    status: "active",
-    created_at: "2026-08-01T10:00:00Z",
-    updated_at: "2026-08-01T10:00:00Z",
-    import_meta: null,
+    id,
+    object: "event",
+    api_version: "2026-08-26.dahlia",
+    created,
+    type,
+    livemode: false,
+    pending_webhooks: 1,
+    request: { id: null, idempotency_key: null },
+    data: { object },
   };
 }
 
-function txnCompleted(o: {
-  eventId: string;
-  txnId: string;
-  priceId: string;
-  customData?: Record<string, unknown> | null;
-  subscriptionId?: string | null;
+function pretplata(o: {
+  id?: string;
+  status: string;
+  lookupKey: string;
+  periodEnd?: number;
+  trialEnd?: number | null;
+  cancelAtEnd?: boolean;
+  canceledAt?: number | null;
+  metadata?: Record<string, string> | null;
 }) {
   return {
-    event_id: o.eventId,
-    event_type: "transaction.completed",
-    occurred_at: "2026-08-21T10:00:00Z",
-    notification_id: `ntf_${o.eventId}`,
-    data: {
-      id: o.txnId,
-      status: "completed",
-      customer_id: "ctm_test_1",
-      address_id: null,
-      business_id: null,
-      custom_data: o.customData === undefined ? { user_id: KORISNIK } : o.customData,
-      currency_code: "EUR",
-      origin: "web",
-      subscription_id: o.subscriptionId === undefined ? "sub_test_1" : o.subscriptionId,
-      invoice_id: null,
-      invoice_number: null,
-      collection_mode: "automatic",
-      discount_id: null,
-      billing_details: null,
-      billing_period: { starts_at: "2026-08-21T10:00:00Z", ends_at: "2026-09-21T10:00:00Z" },
-      items: [{ price: cena(o.priceId), quantity: 1 }],
-      details: null,
-      payments: [],
-      checkout: null,
-      created_at: "2026-08-21T10:00:00Z",
-      updated_at: "2026-08-21T10:00:00Z",
-      billed_at: "2026-08-21T10:00:00Z",
-      revised_at: null,
+    id: o.id ?? "sub_test_1",
+    object: "subscription",
+    customer: "cus_test_1",
+    status: o.status,
+    cancel_at_period_end: o.cancelAtEnd ?? false,
+    canceled_at: o.canceledAt ?? null,
+    trial_end: o.trialEnd ?? null,
+    metadata: o.metadata === undefined ? { user_id: KORISNIK, kind: "subscription" } : o.metadata,
+    items: {
+      object: "list",
+      data: [
+        {
+          id: "si_test_1",
+          object: "subscription_item",
+          current_period_end: o.periodEnd ?? T0 + 30 * DAN,
+          price: { id: "price_test", object: "price", lookup_key: o.lookupKey },
+        },
+      ],
     },
   };
 }
 
+function faktura(o: {
+  id: string;
+  billingReason: string;
+  amountDue: number;
+  subId?: string;
+  discount?: boolean;
+  metadata?: Record<string, string> | null;
+}) {
+  return {
+    id: o.id,
+    object: "invoice",
+    customer: "cus_test_1",
+    billing_reason: o.billingReason,
+    amount_due: o.amountDue,
+    total_discount_amounts: o.discount ? [{ amount: 5900, discount: "di_test" }] : [],
+    discounts: o.discount ? ["di_test"] : [],
+    parent: {
+      type: "subscription_details",
+      subscription_details: {
+        subscription: o.subId ?? "sub_test_1",
+        metadata: o.metadata === undefined ? { user_id: KORISNIK, plan: "pro", lookup_key: PLAN_PRICES.pro.month.lookupKey } : o.metadata,
+      },
+    },
+    lines: { object: "list", data: [] },
+  };
+}
+
+function sesija(o: {
+  mode: "payment" | "subscription";
+  paket?: string;
+  paymentIntent?: string;
+  subId?: string;
+}) {
+  return {
+    id: "cs_test_1",
+    object: "checkout.session",
+    mode: o.mode,
+    customer: "cus_test_1",
+    client_reference_id: KORISNIK,
+    payment_intent: o.paymentIntent ?? null,
+    subscription: o.subId ?? null,
+    metadata:
+      o.mode === "payment"
+        ? { user_id: KORISNIK, kind: "pack", paket: o.paket ?? "dopuna-200" }
+        : { user_id: KORISNIK, kind: "subscription" },
+  };
+}
+
 // ═══════════════════════════════════════════════════════════
-// 1. DUPLA ISPORUKA
+// 1. KUPOVINA PRO MESEČNO, BEZ PROBE (§12 #1)
+// ═══════════════════════════════════════════════════════════
+// Stripe redosled je proizvoljan; ovde: created → invoice.paid → checkout.
+
+{
+  const s = napraviLazno();
+  const r1 = await posalji(
+    dogadjaj("evt_1_sub", "customer.subscription.created", pretplata({ status: "active", lookupKey: PLAN_PRICES.pro.month.lookupKey })),
+    s.skladiste,
+  );
+  check(r1.status === 200 && r1.body.ok === true, "1: subscription.created → 200 ok");
+  check(s.pretplate.get("sub_test_1")?.status === "active", "1: ogledalo: active");
+  check(s.pretplate.get("sub_test_1")?.plan === "pro" && s.pretplate.get("sub_test_1")?.ciklus === "month", "1: plan pro, ciklus month iz lookup_key");
+  check(s.profil.plan === "pro" && s.profil.planExpiresAt !== null, "1: profiles.plan = pro, plan_expires_at postavljen");
+  check(s.knjiga.length === 0, "1: subscription.created NE dodeljuje kredite");
+
+  const r2 = await posalji(
+    dogadjaj("evt_1_inv", "invoice.paid", faktura({ id: "in_1", billingReason: "subscription_create", amountDue: 5900 })),
+    s.skladiste,
+  );
+  check(r2.body.ok === true, "1: invoice.paid → ok");
+  check(
+    s.profil.balance === PLANS.pro.monthlyCredits && s.knjiga[0]?.reason === "monthly_grant" && s.knjiga[0]?.refId === "in_1",
+    `1: monthly_grant ref in_1, balans ${PLANS.pro.monthlyCredits}`,
+  );
+
+  const r3 = await posalji(
+    dogadjaj("evt_1_cs", "checkout.session.completed", sesija({ mode: "subscription", subId: "sub_test_1" })),
+    s.skladiste,
+  );
+  check(r3.body.ok === true && s.knjiga.length === 1, "1: checkout.session.completed (subscription) ne dodeljuje ništa");
+}
+
+// ═══════════════════════════════════════════════════════════
+// 2. PROBA → PLAĆENO (§12 #2)
 // ═══════════════════════════════════════════════════════════
 
 {
   const s = napraviLazno();
-  const telo = txnCompleted({
-    eventId: "evt_dupli",
-    txnId: "txn_dupli",
-    priceId: PLAN_PRICE_IDS.starter.month,
-  });
+  await posalji(
+    dogadjaj(
+      "evt_2_sub",
+      "customer.subscription.created",
+      pretplata({ status: "trialing", lookupKey: PLAN_PRICES.starter.month.lookupKey, periodEnd: T0 + 7 * DAN, trialEnd: T0 + 7 * DAN }),
+    ),
+    s.skladiste,
+  );
+  check(s.pretplate.get("sub_test_1")?.status === "trialing", "2: dan 0 — status trialing");
+  check(s.pretplate.get("sub_test_1")?.trialEnd !== null, "2: trial_end upisan");
+  check(
+    s.profil.balance === TRIAL_CREDITS && s.knjiga[0]?.reason === "trial_grant" && s.knjiga[0]?.refId === `trial:${KORISNIK}`,
+    `2: trial_grant +${TRIAL_CREDITS}, ref trial:<user>`,
+  );
+
+  // Prva faktura: 0 €, subscription_create → NEMA dodele (proba ima svojih 10).
+  await posalji(
+    dogadjaj("evt_2_inv0", "invoice.paid", faktura({ id: "in_2a", billingReason: "subscription_create", amountDue: 0 })),
+    s.skladiste,
+  );
+  check(!s.knjiga.some((r) => r.reason === "monthly_grant"), "2: faktura od 0 € na probi NE dodeljuje plan kredite");
+
+  // Korisnik potroši 6 od 10.
+  s.profil.balance = 4;
+
+  // Dan 8: naplata prošla → invoice.paid subscription_cycle → balans POSTAVLJEN na 150.
+  await posalji(
+    dogadjaj(
+      "evt_2_inv1",
+      "invoice.paid",
+      faktura({ id: "in_2b", billingReason: "subscription_cycle", amountDue: 2900, metadata: { user_id: KORISNIK, plan: "starter", lookup_key: PLAN_PRICES.starter.month.lookupKey } }),
+      T0 + 8 * DAN,
+    ),
+    s.skladiste,
+  );
+  check(s.profil.balance === PLANS.starter.monthlyCredits, `2: dan 8 — balans ${PLANS.starter.monthlyCredits}, ne ${PLANS.starter.monthlyCredits + 4} (bez rollovera)`);
+  check(s.knjiga.some((r) => r.reason === "monthly_grant" && r.refId === "in_2b"), "2: monthly_grant ref in_…");
+
+  await posalji(
+    dogadjaj(
+      "evt_2_upd",
+      "customer.subscription.updated",
+      pretplata({ status: "active", lookupKey: PLAN_PRICES.starter.month.lookupKey, periodEnd: T0 + 38 * DAN, trialEnd: T0 + 7 * DAN }),
+      T0 + 8 * DAN,
+    ),
+    s.skladiste,
+  );
+  check(s.pretplate.get("sub_test_1")?.status === "active", "2: subscription.updated → active");
+
+  // Druga pretplata istog naloga posle otkaza → nema druge probe.
+  await posalji(
+    dogadjaj("evt_2_sub2", "customer.subscription.created", pretplata({ id: "sub_test_2", status: "trialing", lookupKey: PLAN_PRICES.starter.month.lookupKey, trialEnd: T0 + 60 * DAN }), T0 + 50 * DAN),
+    s.skladiste,
+  );
+  check(s.knjiga.filter((r) => r.reason === "trial_grant").length === 1, "2: druga pretplata istog naloga NE donosi drugih 10");
+}
+
+// ═══════════════════════════════════════════════════════════
+// 3. PROBA OTKAZANA PRE KRAJA (§12 #3)
+// ═══════════════════════════════════════════════════════════
+
+{
+  const s = napraviLazno();
+  await posalji(
+    dogadjaj("evt_3_sub", "customer.subscription.created", pretplata({ status: "trialing", lookupKey: PLAN_PRICES.starter.month.lookupKey, trialEnd: T0 + 7 * DAN, periodEnd: T0 + 7 * DAN })),
+    s.skladiste,
+  );
+  await posalji(
+    dogadjaj("evt_3_upd", "customer.subscription.updated", pretplata({ status: "trialing", lookupKey: PLAN_PRICES.starter.month.lookupKey, trialEnd: T0 + 7 * DAN, periodEnd: T0 + 7 * DAN, cancelAtEnd: true, canceledAt: T0 + 3 * DAN }), T0 + 3 * DAN),
+    s.skladiste,
+  );
+  const p = s.pretplate.get("sub_test_1");
+  check(p?.cancelAtPeriodEnd === true && p.status === "trialing", "3: cancel_at_period_end = true, status ostaje trialing");
+  check(s.profil.balance === TRIAL_CREDITS, "3: otkaz ne dira probne kredite");
+
+  // Sat +8d: deleted → expire ledger −ostatak, balans 0.
+  s.profil.balance = 7;
+  await posalji(
+    dogadjaj("evt_3_del", "customer.subscription.deleted", pretplata({ status: "canceled", lookupKey: PLAN_PRICES.starter.month.lookupKey, trialEnd: T0 + 7 * DAN, periodEnd: T0 + 7 * DAN, canceledAt: T0 + 7 * DAN }), T0 + 8 * DAN),
+    s.skladiste,
+  );
+  check(s.pretplate.get("sub_test_1")?.status === "canceled", "3: deleted → canceled");
+  check(s.profil.balance === 0 && s.knjiga.some((r) => r.reason === "expire" && r.delta === -7 && r.refId === "expire:sub_test_1"), "3: expire −7, balans 0");
+
+  // Ponovljen `deleted` ne prazni dvaput (ni u minus).
+  s.profil.balance = 3;
+  await posalji(
+    dogadjaj("evt_3_del2", "customer.subscription.deleted", pretplata({ status: "canceled", lookupKey: PLAN_PRICES.starter.month.lookupKey, canceledAt: T0 + 7 * DAN }), T0 + 8 * DAN + 1),
+    s.skladiste,
+  );
+  check(s.profil.balance === 3, "3: drugi deleted za istu pretplatu → already_applied, balans netaknut");
+}
+
+// ═══════════════════════════════════════════════════════════
+// 8. REFUND PUNE MESEČNE NAPLATE (§12 #8)
+// ═══════════════════════════════════════════════════════════
+
+{
+  const s = napraviLazno();
+  await posalji(
+    dogadjaj("evt_8_sub", "customer.subscription.created", pretplata({ status: "active", lookupKey: PLAN_PRICES.advanced.month.lookupKey })),
+    s.skladiste,
+  );
+  await posalji(
+    dogadjaj("evt_8_inv", "invoice.paid", faktura({ id: "in_8", billingReason: "subscription_create", amountDue: 11900, metadata: { user_id: KORISNIK, plan: "advanced", lookup_key: PLAN_PRICES.advanced.month.lookupKey } })),
+    s.skladiste,
+  );
+  check(s.profil.balance === PLANS.advanced.monthlyCredits, `8: Advanced daje ${PLANS.advanced.monthlyCredits}`);
+
+  // Korisnik potrošio sve.
+  s.profil.balance = 0;
+
+  const charge = (id: string) =>
+    dogadjaj(id, "charge.refunded", {
+      id: "ch_8",
+      object: "charge",
+      customer: "cus_test_1",
+      amount: 11900,
+      amount_refunded: 11900,
+      refunded: true,
+      invoice: "in_8",
+      payment_intent: "pi_8",
+    });
+
+  const r = await posalji(charge("evt_8_ref"), s.skladiste);
+  check(r.status === 200 && r.body.ok === true, "8: charge.refunded → ok");
+  check(s.profil.balance === -PLANS.advanced.monthlyCredits, `8: skinuto tačno koliko je in_8 dalo (balans ${-PLANS.advanced.monthlyCredits}, u minusu)`);
+  // 1.200 > 500: tri komada sa različitim ref-om.
+  const komadi = s.knjiga.filter((k) => k.reason === "admin");
+  check(komadi.length === 3 && new Set(komadi.map((k) => k.refId)).size === 3, "8: povraćaj preko 500 ide u komade sa RAZLIČITIM ref-om");
+
+  await posalji(charge("evt_8_ref2"), s.skladiste);
+  check(s.profil.balance === -PLANS.advanced.monthlyCredits, "8: isti charge drugim event_id-jem ne skida dvaput (fina brana)");
+
+  // Delimičan refund: ništa automatski.
+  const pre = s.profil.balance;
+  await posalji(
+    dogadjaj("evt_8_part", "charge.refunded", { id: "ch_8b", object: "charge", customer: "cus_test_1", amount: 11900, amount_refunded: 1000, refunded: false, invoice: "in_8", payment_intent: "pi_8" }),
+    s.skladiste,
+  );
+  check(s.profil.balance === pre, "8: delimičan refund ne dira kredite (ručno)");
+}
+
+// ═══════════════════════════════════════════════════════════
+// 9. DUPLI WEBHOOK (§12 #9)
+// ═══════════════════════════════════════════════════════════
+
+{
+  const s = napraviLazno();
+  const telo = dogadjaj("evt_9_inv", "invoice.paid", faktura({ id: "in_9", billingReason: "subscription_cycle", amountDue: 5900 }));
 
   const prvi = await posalji(telo, s.skladiste);
   const drugi = await posalji(telo, s.skladiste);
+  check(prvi.body.ok === true, "9: prva isporuka prolazi");
+  check(drugi.status === 200 && drugi.body.duplikat === true, "9: druga isporuka → duplikat (gruba brana)");
+  check(s.knjiga.length === 1, "9: jedna stavka u knjizi");
 
-  check(prvi.status === 200 && prvi.body.ok === true, "prva isporuka prolazi");
-  check(drugi.status === 200 && drugi.body.duplikat === true, "druga isporuka je duplikat");
-  check(s.knjiga.length === 1, "jedna stavka u knjizi posle dve isporuke");
-  check(
-    s.profil.balance === PLANS.starter.monthlyCredits,
-    `Starter dodeljuje ${PLANS.starter.monthlyCredits} kredita tačno jednom`,
-  );
+  // Obriši marker pa pošalji ponovo: fina brana (`in_9` u knjizi) drži.
+  s.dogadjaji.delete("evt_9_inv");
+  const treci = await posalji(telo, s.skladiste);
+  check(treci.body.ok === true && s.knjiga.length === 1 && s.profil.balance === PLANS.pro.monthlyCredits, "9: bez markera → already_granted, balans isti (fina brana)");
 }
 
 // ═══════════════════════════════════════════════════════════
-// 2. POGREŠAN POTPIS
+// 10. PAKET 200 (§12 #10)
 // ═══════════════════════════════════════════════════════════
 
 {
   const s = napraviLazno();
-  const odgovor = await posalji(
-    txnCompleted({
-      eventId: "evt_lazan",
-      txnId: "txn_lazan",
-      priceId: PLAN_PRICE_IDS.pro.month,
-    }),
+  s.profil.balance = 50;
+  const paket = CREDIT_PACKS["dopuna-200"];
+  const r = await posalji(
+    dogadjaj("evt_10_cs", "checkout.session.completed", sesija({ mode: "payment", paket: "dopuna-200", paymentIntent: "pi_10" })),
     s.skladiste,
-    { tajna: "pdl_ntfset_pogresna_tajna_00000000" },
   );
+  check(r.status === 200 && r.body.ok === true, "10: checkout (payment) prolazi");
+  check(s.profil.topup === paket.credits, `10: credit_pack +${paket.credits} u credits_topup`);
+  check(s.profil.balance === 50, "10: credits_balance netaknut");
+  check(s.knjiga[0]?.reason === "credit_pack" && s.knjiga[0]?.refId === "pi_10", "10: ref je payment_intent (pi_…)");
+  check(s.pretplate.size === 0, "10: paket ne pravi red u subscriptions");
 
-  check(odgovor.status === 401, "pogrešan potpis → 401");
-  check(s.dogadjaji.size === 0, "pogrešan potpis ne upisuje događaj");
-  check(s.knjiga.length === 0, "pogrešan potpis ne dodeljuje kredite");
-  check(s.profil.balance === 0 && s.profil.topup === 0, "obe kase ostaju prazne");
+  // Paket van kataloga → trajan neuspeh, ništa dodeljeno.
+  const los = await posalji(
+    dogadjaj("evt_10_los", "checkout.session.completed", sesija({ mode: "payment", paket: "dopuna-9999", paymentIntent: "pi_11" })),
+    s.skladiste,
+  );
+  check(los.status === 200 && los.body.ok === false && s.profil.topup === paket.credits, "10: paket van kataloga je odbijen, bez dodele");
 }
 
-// Isto i kad zaglavlja uopšte nema — bez njega nema šta da se verifikuje.
+// ═══════════════════════════════════════════════════════════
+// 12. PRVI MESEC GRATIS (§12 #12)
+// ═══════════════════════════════════════════════════════════
+
 {
   const s = napraviLazno();
+  s.profil.inviteId = "inv_test";
+  await posalji(
+    dogadjaj("evt_12_sub", "customer.subscription.created", pretplata({ status: "active", lookupKey: PLAN_PRICES.pro.month.lookupKey, trialEnd: null })),
+    s.skladiste,
+  );
+  check(s.pretplate.get("sub_test_1")?.status === "active" && s.pretplate.get("sub_test_1")?.trialEnd === null, "12: status active, bez probe");
+  check(!s.knjiga.some((r) => r.reason === "trial_grant"), "12: nema trial_grant");
+
+  // 0 € faktura sa popustom → JESTE plaćen period → dodela.
+  await posalji(
+    dogadjaj("evt_12_inv", "invoice.paid", faktura({ id: "in_12", billingReason: "subscription_create", amountDue: 0, discount: true })),
+    s.skladiste,
+  );
+  check(s.profil.balance === PLANS.pro.monthlyCredits, `12: gratis mesec dodeljuje ${PLANS.pro.monthlyCredits} (za razliku od probe)`);
+
+  await posalji(
+    dogadjaj("evt_12_cs", "checkout.session.completed", sesija({ mode: "subscription", subId: "sub_test_1" })),
+    s.skladiste,
+  );
+  check(s.profil.inviteId === null, "12: checkout.session.completed briše invite_id");
+}
+
+// ═══════════════════════════════════════════════════════════
+// PONOVLJENA PROBA — ISTA KARTICA (§7.6)
+// ═══════════════════════════════════════════════════════════
+
+{
+  const s = napraviLazno();
+  s.zapamceniOtisci.set("fp_ista", "user_neko_drugi");
+  s.otisci.set("sub_test_1", { fingerprint: "fp_ista", uProbi: true });
+  const r = await posalji(
+    dogadjaj("evt_fp", "checkout.session.completed", sesija({ mode: "subscription", subId: "sub_test_1" })),
+    s.skladiste,
+  );
+  check(r.body.ok === true && s.probaNaplacena.includes("sub_test_1"), "ista kartica na drugom nalogu → proba se odmah naplaćuje");
+
+  const s2 = napraviLazno();
+  s2.otisci.set("sub_test_1", { fingerprint: "fp_nova", uProbi: true });
+  await posalji(dogadjaj("evt_fp2", "checkout.session.completed", sesija({ mode: "subscription", subId: "sub_test_1" })), s2.skladiste);
+  check(s2.probaNaplacena.length === 0 && s2.zapamceniOtisci.get("fp_nova") === KORISNIK, "nova kartica → otisak zapamćen, proba ostaje");
+}
+
+// ═══════════════════════════════════════════════════════════
+// POGREŠAN POTPIS
+// ═══════════════════════════════════════════════════════════
+
+{
+  const s = napraviLazno();
+  const r = await posalji(
+    dogadjaj("evt_lazan", "invoice.paid", faktura({ id: "in_lazan", billingReason: "subscription_cycle", amountDue: 5900 })),
+    s.skladiste,
+    { tajna: "whsec_pogresna_00000000000000000000000000" },
+  );
+  check(r.status === 401, "pogrešan potpis → 401");
+  check(s.dogadjaji.size === 0 && s.knjiga.length === 0, "pogrešan potpis ne upisuje ni događaj ni kredite");
+
   postavi(s.skladiste);
-  const res = await ruta.POST(
-    new Request("http://localhost/api/billing/webhook", { method: "POST", body: "{}" }),
-  );
+  const bez = await ruta.POST(new Request("http://localhost/api/billing/webhook", { method: "POST", body: "{}" }));
   postavi(null);
-  check(res.status === 401, "bez `Paddle-Signature` zaglavlja → 401");
-  check(s.dogadjaji.size === 0, "zahtev bez potpisa ne upisuje događaj");
+  check(bez.status === 401, "bez `stripe-signature` zaglavlja → 401");
 }
 
 // ═══════════════════════════════════════════════════════════
-// 3. NEMA KORISNIKA
-// ═══════════════════════════════════════════════════════════
-// Novac je stigao i ne zna se čiji je. Ponavljanje ne bi pomoglo, pa 200 —
-// ali događaj MORA da ostane upisan i greška MORA da se vidi u odgovoru.
-
-{
-  const s = napraviLazno();
-  const odgovor = await posalji(
-    txnCompleted({
-      eventId: "evt_bez_korisnika",
-      txnId: "txn_bez_korisnika",
-      priceId: PLAN_PRICE_IDS.starter.month,
-      customData: null,
-      subscriptionId: "sub_nepoznata",
-    }),
-    s.skladiste,
-  );
-
-  check(odgovor.status === 200, "bez `custom_data.user_id` ruta ne puca — 200");
-  check(odgovor.body.ok === false, "odgovor javlja da radnja nije prošla");
-  check(s.dogadjaji.has("evt_bez_korisnika"), "događaj je ipak upisan");
-  check(s.knjiga.length === 0, "nijedan kredit nije dodeljen");
-}
-
-// ═══════════════════════════════════════════════════════════
-// 4. PAKET IDE U DRUGU KASU
+// NEMA KORISNIKA / KOMP IZ WEBHOOKA / NEPOZNAT TIP
 // ═══════════════════════════════════════════════════════════
 
 {
   const s = napraviLazno();
-  const paket = CREDIT_PACKS["dopuna-150"];
-  const odgovor = await posalji(
-    txnCompleted({
-      eventId: "evt_paket",
-      txnId: "txn_paket",
-      priceId: paket.priceId,
-      customData: { user_id: KORISNIK, kind: "pack" },
-      // Jednokratna kupovina nema pretplatu — i ne sme da je traži.
-      subscriptionId: null,
-    }),
+  s.profil.customerId = "cus_drugi";
+  const r = await posalji(
+    dogadjaj("evt_bez", "customer.subscription.created", pretplata({ id: "sub_nepoznata", status: "active", lookupKey: PLAN_PRICES.pro.month.lookupKey, metadata: null })),
     s.skladiste,
   );
-
-  check(odgovor.status === 200 && odgovor.body.ok === true, "paket prolazi bez pretplate");
-  check(s.profil.topup === paket.credits, `paket puni credits_topup (${paket.credits})`);
-  check(s.profil.balance === 0, "paket NE dira credits_balance");
-  check(s.knjiga[0]?.reason === "credit_pack", "razlog u knjizi je `credit_pack`");
-  check(s.pretplate.size === 0, "paket ne pravi red u `subscriptions`");
+  check(r.status === 200 && r.body.ok === false, "bez user_id, bez pretplate, bez kupca → 200 sa ok:false (trajan neuspeh)");
+  check(s.dogadjaji.has("evt_bez") && s.pretplate.size === 0, "događaj upisan, ogledalo netaknuto");
 }
-
-// ═══════════════════════════════════════════════════════════
-// 5. POKUŠAJ DA SE DODELI BETA
-// ═══════════════════════════════════════════════════════════
-// LANSIRANJE §1.1: beta nastaje ISKLJUČIVO iz admin konzole. Nijedan potpisan
-// payload to ne menja.
 
 {
   const s = napraviLazno();
-  const odgovor = await posalji(
-    txnCompleted({
-      eventId: "evt_beta",
-      txnId: "txn_beta",
-      priceId: PLAN_PRICE_IDS.advanced.month,
-      customData: { user_id: KORISNIK, kind: "subscription", plan: "beta" },
-    }),
+  const r = await posalji(
+    dogadjaj("evt_komp", "customer.subscription.created", pretplata({ status: "active", lookupKey: PLAN_PRICES.advanced.month.lookupKey, metadata: { user_id: KORISNIK, plan: "komp" } })),
     s.skladiste,
   );
-
-  check(odgovor.status === 200, "pokušaj bete ne ruši rutu");
-  check(odgovor.body.ok === false, "pokušaj bete je odbijen");
-  check(s.profil.plan === "beta", "plan ostaje netaknut (nije podignut na advanced)");
-  check(s.knjiga.length === 0, "odbijen događaj ne dodeljuje kredite");
-  check(s.pretplate.size === 0, "odbijen događaj ne upisuje pretplatu");
+  check(r.body.ok === false && s.pretplate.size === 0 && s.profil.plan === "dopuna", "webhook koji pokušava plan `komp` je odbijen (D1)");
 }
-
-// Isti pokušaj kroz `subscription.updated` — druga grana, isti zid.
-{
-  const s = napraviLazno();
-  const odgovor = await posalji(
-    {
-      event_id: "evt_beta_sub",
-      event_type: "subscription.updated",
-      occurred_at: "2026-08-21T10:00:00Z",
-      notification_id: "ntf_beta_sub",
-      data: {
-        id: "sub_test_2",
-        status: "active",
-        customer_id: "ctm_test_1",
-        address_id: "add_test_1",
-        business_id: null,
-        currency_code: "EUR",
-        created_at: "2026-08-21T10:00:00Z",
-        updated_at: "2026-08-21T10:00:00Z",
-        started_at: "2026-08-21T10:00:00Z",
-        first_billed_at: "2026-08-21T10:00:00Z",
-        next_billed_at: "2026-09-21T10:00:00Z",
-        paused_at: null,
-        canceled_at: null,
-        discount: null,
-        collection_mode: "automatic",
-        billing_details: null,
-        current_billing_period: {
-          starts_at: "2026-08-21T10:00:00Z",
-          ends_at: "2026-09-21T10:00:00Z",
-        },
-        billing_cycle: { interval: "month", frequency: 1 },
-        scheduled_change: null,
-        items: [{ price: cena(PLAN_PRICE_IDS.pro.month), quantity: 1, status: "active" }],
-        custom_data: { user_id: KORISNIK, plan: "beta" },
-        import_meta: null,
-      },
-    },
-    s.skladiste,
-  );
-
-  check(odgovor.body.ok === false, "beta kroz `subscription.updated` je takođe odbijena");
-  check(s.pretplate.size === 0, "odbijena pretplata se ne upisuje u ogledalo");
-}
-
-// ═══════════════════════════════════════════════════════════
-// 6. OTKAZIVANJE NE GASI PRISTUP
-// ═══════════════════════════════════════════════════════════
-// LANSIRANJE §1.5: `canceled` upisuje `canceled_at`, a pristup traje do kraja
-// plaćenog perioda. Nijedan kredit se ne oduzima.
 
 {
   const s = napraviLazno();
-  await posalji(
-    txnCompleted({
-      eventId: "evt_kupovina",
-      txnId: "txn_kupovina",
-      priceId: PLAN_PRICE_IDS.pro.month,
-      customData: { user_id: KORISNIK, kind: "subscription" },
-    }),
-    s.skladiste,
-  );
-
-  const preOtkaza = s.profil.balance;
-
-  await posalji(
-    {
-      event_id: "evt_otkaz",
-      event_type: "subscription.canceled",
-      occurred_at: "2026-08-25T10:00:00Z",
-      notification_id: "ntf_otkaz",
-      data: {
-        id: "sub_test_1",
-        status: "canceled",
-        customer_id: "ctm_test_1",
-        address_id: "add_test_1",
-        business_id: null,
-        currency_code: "EUR",
-        created_at: "2026-08-21T10:00:00Z",
-        updated_at: "2026-08-25T10:00:00Z",
-        started_at: "2026-08-21T10:00:00Z",
-        first_billed_at: "2026-08-21T10:00:00Z",
-        next_billed_at: null,
-        paused_at: null,
-        canceled_at: "2026-08-25T10:00:00Z",
-        discount: null,
-        collection_mode: "automatic",
-        billing_details: null,
-        current_billing_period: {
-          starts_at: "2026-08-21T10:00:00Z",
-          ends_at: "2026-09-21T10:00:00Z",
-        },
-        billing_cycle: { interval: "month", frequency: 1 },
-        scheduled_change: null,
-        items: [{ price: cena(PLAN_PRICE_IDS.pro.month), quantity: 1, status: "active" }],
-        custom_data: { user_id: KORISNIK },
-        import_meta: null,
-      },
-    },
-    s.skladiste,
-  );
-
-  check(s.pretplate.get("sub_test_1")?.status === "canceled", "otkaz je upisan u ogledalo");
-  check(s.profil.balance === preOtkaza, "otkaz ne dira kredite");
-  check(s.profil.plan === "pro", "otkaz ne obara plan — granicu drži `plan_expires_at`");
+  const r = await posalji(dogadjaj("evt_nepoznat", "payout.paid", { id: "po_1", object: "payout" }), s.skladiste);
+  check(r.status === 200 && r.body.ok === true && s.dogadjaji.has("evt_nepoznat") && s.knjiga.length === 0, "nepoznat tip: 200, upisan, bez kredita");
 }
 
 // ═══════════════════════════════════════════════════════════
-// 7. POVRAĆAJ
-// ═══════════════════════════════════════════════════════════
-// Mora da prođe i kad su krediti potrošeni: `admin_adjust_credits` sa
-// `p_kind => 'povracaj'` sme u minus (0022 §1).
-
-{
-  const s = napraviLazno();
-  const paket = CREDIT_PACKS["dopuna-50"];
-  await posalji(
-    txnCompleted({
-      eventId: "evt_paket_2",
-      txnId: "txn_paket_2",
-      priceId: paket.priceId,
-      customData: { user_id: KORISNIK, kind: "pack" },
-      subscriptionId: null,
-    }),
-    s.skladiste,
-  );
-
-  // Korisnik je u međuvremenu sve potrošio.
-  s.profil.topup = 0;
-
-  const adj = (eventId: string) => ({
-    event_id: eventId,
-    event_type: "adjustment.created",
-    occurred_at: "2026-08-26T10:00:00Z",
-    notification_id: `ntf_${eventId}`,
-    data: {
-      id: "adj_test_1",
-      action: "refund",
-      type: "full",
-      status: "approved",
-      transaction_id: "txn_paket_2",
-      subscription_id: null,
-      customer_id: "ctm_test_1",
-      reason: "kupac se predomislio",
-      credit_applied_to_balance: false,
-      currency_code: "EUR",
-      items: [],
-      totals: {
-        subtotal: "1900",
-        tax: "0",
-        total: "1900",
-        fee: "0",
-        earnings: "0",
-        currency_code: "EUR",
-        retained_fee: "0",
-      },
-      payout_totals: null,
-      created_at: "2026-08-26T10:00:00Z",
-      updated_at: "2026-08-26T10:00:00Z",
-    },
-  });
-
-  const prvi = await posalji(adj("evt_povracaj"), s.skladiste);
-  check(prvi.status === 200 && prvi.body.ok === true, "povraćaj prolazi");
-  check(
-    s.profil.balance === -paket.credits,
-    `povraćaj prolazi i kad su krediti potrošeni (balans ${-paket.credits})`,
-  );
-
-  // Ista korekcija drugim `event_id`-jem: gruba brana ne hvata, fina mora.
-  await posalji(adj("evt_povracaj_2"), s.skladiste);
-  check(
-    s.profil.balance === -paket.credits,
-    "ponovljen povraćaj sa istim `adjustment.id` ne skida dvaput",
-  );
-}
-
-// ═══════════════════════════════════════════════════════════
-// 8. NEPOZNAT TIP DOGAĐAJA
+// REDOSLED (§6.4): stariji updated posle novijeg ne vraća stanje unazad
 // ═══════════════════════════════════════════════════════════
 
 {
   const s = napraviLazno();
-  const odgovor = await posalji(
-    {
-      event_id: "evt_nepoznat",
-      event_type: "payout.paid",
-      occurred_at: "2026-08-21T10:00:00Z",
-      notification_id: "ntf_nepoznat",
-      data: { id: "pay_1" },
-    },
-    s.skladiste,
-  );
+  await posalji(dogadjaj("evt_r1", "customer.subscription.updated", pretplata({ status: "active", lookupKey: PLAN_PRICES.pro.month.lookupKey }), T0 + 10), s.skladiste);
+  await posalji(dogadjaj("evt_r0", "customer.subscription.updated", pretplata({ status: "trialing", lookupKey: PLAN_PRICES.pro.month.lookupKey }), T0 + 5), s.skladiste);
+  check(s.pretplate.get("sub_test_1")?.status === "active", "stariji događaj stigao kasnije → ignorisan, status ostaje active");
 
-  check(odgovor.status === 200 && odgovor.body.ok === true, "nepoznat tip dobija 200");
-  check(s.dogadjaji.has("evt_nepoznat"), "nepoznat tip se ipak upisuje (deduplikacija)");
-  check(s.knjiga.length === 0, "nepoznat tip ne dira kredite");
+  // invoice.paid pre subscription.created: korisnik iz metapodataka/kupca.
+  const s2 = napraviLazno();
+  await posalji(dogadjaj("evt_r_inv", "invoice.paid", faktura({ id: "in_r", billingReason: "subscription_create", amountDue: 5900, subId: "sub_jos_nema" })), s2.skladiste);
+  check(s2.profil.balance === PLANS.pro.monthlyCredits, "invoice.paid pre subscription.created → dodela ne zavisi od reda u ogledalu");
 }
 
 // ═══════════════════════════════════════════════════════════
-// 9. `pri_` KOJI NIJE NAŠ
+// PROLAZNA GREŠKA SE PONAVLJA
 // ═══════════════════════════════════════════════════════════
-// Katalog je jedini izvor istine o tome koliko kredita nosi koja cena. Cena iz
-// tuđeg kataloga nema odgovor na to pitanje i mora da bude odbijena, ne
-// „procenjena".
 
-{
-  const s = napraviLazno();
-  const odgovor = await posalji(
-    txnCompleted({
-      eventId: "evt_tudja_cena",
-      txnId: "txn_tudja_cena",
-      priceId: "pri_01xxxxxxxxxxxxxxxxxxxxxxxx",
-    }),
-    s.skladiste,
-  );
-
-  check(odgovor.body.ok === false, "`pri_` van kataloga je odbijen");
-  check(s.knjiga.length === 0, "`pri_` van kataloga ne dodeljuje kredite");
-}
-
-// ═══════════════════════════════════════════════════════════
-// 10. GRANANJE IDE PO KATALOGU
-// ═══════════════════════════════════════════════════════════
-// `custom_data.kind` je ukrštena provera, ne odluka: pogrešan `kind` uz ispravan
-// `pri_` mora da završi tamo gde cena kaže, a ne tamo gde `custom_data` tvrdi.
-
-{
-  const s = napraviLazno();
-  const paket = CREDIT_PACKS["dopuna-50"];
-  await posalji(
-    txnCompleted({
-      eventId: "evt_kriv_kind",
-      txnId: "txn_kriv_kind",
-      priceId: paket.priceId,
-      customData: { user_id: KORISNIK, kind: "subscription" },
-      subscriptionId: null,
-    }),
-    s.skladiste,
-  );
-
-  check(s.profil.topup === paket.credits, "pogrešan `kind` ne odvodi paket u pogrešnu kasu");
-  check(s.profil.plan === "beta", "paket ne postavlja plan");
-}
-
-// ═══════════════════════════════════════════════════════════
-// 11. PROLAZNA GREŠKA SE PONAVLJA
-// ═══════════════════════════════════════════════════════════
-// Kad skladište baci (baza ne odgovara), ruta MORA da povuče marker i vrati 500.
-// Da proguta grešku i vrati 200, Paddle bi zapamtio uspeh i dodela bi bila
-// trajno izgubljena — korisnik sa naplaćenom karticom i bez kredita.
-
-// I obratno: ista ruta na tu grešku vraća 500 i BRIŠE marker, da retry prođe.
 {
   const s = napraviLazno();
   let prviPut = true;
   const nestabilno: NaplataSkladiste = {
     ...s.skladiste,
-    async primeniPretplatu(a) {
+    async primeniFakturu(a) {
       if (prviPut) {
         prviPut = false;
         throw new Error("baza ne odgovara");
       }
-      return await s.skladiste.primeniPretplatu(a);
+      return await s.skladiste.primeniFakturu(a);
     },
   };
-
-  const telo = txnCompleted({
-    eventId: "evt_retry",
-    txnId: "txn_retry",
-    priceId: PLAN_PRICE_IDS.starter.month,
-  });
-
+  const telo = dogadjaj("evt_retry", "invoice.paid", faktura({ id: "in_retry", billingReason: "subscription_cycle", amountDue: 5900 }));
   const pao = await posalji(telo, nestabilno);
-  check(pao.status === 500, "prolazna greška → 500");
-  check(!s.dogadjaji.has("evt_retry"), "marker je povučen, pa retry sme ponovo");
-
+  check(pao.status === 500 && !s.dogadjaji.has("evt_retry"), "prolazna greška → 500, marker povučen");
   const ponovljen = await posalji(telo, nestabilno);
-  check(ponovljen.status === 200 && ponovljen.body.ok === true, "retry prolazi");
-  check(s.profil.balance === PLANS.starter.monthlyCredits, "krediti stižu tek iz retryja");
+  check(ponovljen.status === 200 && ponovljen.body.ok === true && s.profil.balance === PLANS.pro.monthlyCredits, "retry prolazi i tek tada dodeljuje");
 }
 
 console.log(fail === 0 ? "\nSve prošlo." : `\n${fail} palo.`);

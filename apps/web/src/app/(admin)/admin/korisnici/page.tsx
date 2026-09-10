@@ -48,12 +48,13 @@ const FILTERI: { vrednost: FilterKorisnika; label: string }[] = [
 const SORTOVI: SortKorisnika[] = ["created_at", "credits", "unlocks", "last_seen"];
 
 /**
- * Šest stanja pristupa kao filter (S20, LANSIRANJE §1.5).
+ * Sedam stanja pristupa kao filter (S20/S25, LANSIRANJE §1.5, naplata-stripe.md §7).
  *
  * Redosled nije abecedni nego onaj kojim se pitanja stvarno postavljaju: prvo
- * „ko je u beti" (jer njima ja postavljam rok), pa ko plaća, pa ko je na izlazu.
+ * „ko je komp" (jer njima ja postavljam rok), pa ko je u probi, pa ko plaća, pa
+ * ko je na izlazu.
  */
-const STANJA: StanjeId[] = ["beta", "aktivan", "otkazan", "dopuna", "grace", "zakljucan"];
+const STANJA: StanjeId[] = ["komp", "proba", "aktivan", "otkazan", "dopuna", "grace", "zakljucan"];
 
 /** Nepoznata vrednost iz adrese pada na podrazumevanu, nikad ne ruši stranu. */
 function jedan<T extends string>(vrednost: string | undefined, dozvoljene: readonly T[], podrazumevana: T): T {
@@ -312,7 +313,7 @@ function StanjeBedz({ pristup }: { pristup: RedKorisnika["pristup"] }) {
   const opis = STANJE_PRISTUPA[pristup.stanje];
 
   const datum =
-    pristup.stanje === "beta" && pristup.punDo === null
+    pristup.stanje === "komp" && pristup.punDo === null
       ? "Bez roka — neograničeno."
       : pristup.stanje === "grace"
         ? `Čitanje do ${formatDatum(pristup.citanjeDo)}.`

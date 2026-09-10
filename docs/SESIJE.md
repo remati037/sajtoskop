@@ -3173,3 +3173,145 @@ ažurirana: preselekcija više nije „radiće se u S24", nego radi.
   spiskom nepoznatih vrednosti u query-ju koje **moraju** da daju običan cenovnik.
 - **Rečenica o besplatnoj beti na `/`** je već ispravljena ranije (commit `09fc9c5`), pa
   zaostatak prenet iz S22 više ne stoji.
+
+---
+
+## S25 — Stripe backend, Paddle uklonjen, plaćen pristup kešu ☑
+
+**Isporučeno 10. septembra 2026.** Izvor: `docs/naplata-stripe.md` (K1 prompt, §15) — **Paddle
+uklonjen, v. `docs/naplata-stripe.md`**. Migracija **0025** (`supabase/migrations/0025_stripe.sql`,
+doslovno iz §3 uz dve idempotentne popravke ispod). Commit: „S25: Stripe backend, Paddle removed,
+paid cache access".
+
+**Cilj, ispunjen u kodu:** Stripe je jedini provajder (hosted Checkout + Customer Portal, webhook
+nad `Stripe.Event`); pristup kešu se plaća (D10, `search_access`); povraćaj razlike kad Google da
+manje stranica (§14.4); dnevni limit AI varijanti se sprovodi (B1, `claim_ai_rewrite`).
+
+### Šta je urađeno
+
+- **Zavisnosti:** `@paddle/paddle-js` i `@paddle/paddle-node-sdk` uklonjeni; `stripe@22.6.1`
+  dodat samo u `apps/web`. Worker nema nijedan Stripe ključ. `apiVersion` pinovana u
+  `lib/stripe-server.ts` na **`2026-08-26.dahlia`** (verzija koju SDK nosi; ‼️ v. „Ostaje na meni").
+- **Obrisano:** `lib/paddle-server.ts`, `lib/paddle-okruzenje.ts`, `scripts/paddle-doktor.ts`,
+  `scripts/paddle-replay.ts`, `docs/naplata-paddle.md`, `docs/naplata-bez-firme.md`,
+  `packages/shared/src/billing.ts` (+ izvoz), `test/admin-beta.ts` (→ `test/admin-komp.ts`),
+  `package.json` skripte `paddle:*` (→ `stripe:doktor`, nov `scripts/stripe-doktor.ts` koji
+  proverava 8 `lookup_key`-eva i kupon naspram `plans.ts`).
+- **Baza (0025):** `profiles.stripe_customer_id` (+ unique), `komp_expires_at`, `invite_id`;
+  `subscriptions` u Stripe obliku (PK `stripe_subscription_id`, `ciklus`, `lookup_key`,
+  `trial_end`, `cancel_at_period_end`, `updated_at = event.created`); razlozi `trial_grant`,
+  `komp_grant`, `expire`; RPC-ovi `apply_subscription` (nov potpis, `stale_ignored`),
+  `apply_invoice_paid`, `apply_trial_start`, `expire_subscription_credits`, `admin_open_komp`
+  (granica 2000), `redeem_invite`, `spend_credit_and_scan` (+ `p_ttl_days`, ishodi
+  `cached`/`already_paid`, kolona `cost`), `has_search_access`, `refund_scan(job, pages)`,
+  `admin_users_page` sa `komp_expires_at`/`sub_trial_end` i filterom `proba`; tabele
+  `search_access` (RLS politika po obrascu `own unlocks` iz 0001), `access_invites`,
+  `access_invite_redemptions`, `trial_fingerprints`; triger `profiles_komp_guard`.
+- **Shared:** `plans.ts` — `komp` umesto `beta`, 150/450/1200, paketi 75/200 (€19/€49),
+  `PLAN_PRICES`, `CREDIT_PACKS.lookupKey`, `ALL_LOOKUP_KEYS`, `kupovinaZaLookupKey`,
+  `lookupKeyZaPlan/Paket`, `formatEur`, `GODISNJI_BONUS`, `TRIAL_DAYS = 7`, `TRIAL_CREDITS = 10`,
+  `KOMP_DEFAULT_DAYS`, `AI_OUTREACH_DAILY_CAP = 200`; ništa sa `pri_`. `pristup.ts` — sedmo
+  stanje **`proba`**, `beta` → `komp`, `PretplataZaPristup.trialEnd/cancelAtPeriodEnd`,
+  `ProfilZaPristup.kompExpiresAt`, `STANJA_ZA_PAKET` = aktivan/otkazan/komp/proba. `db.ts` —
+  novi tipovi za `search_access`, `access_invites`, `trial_fingerprints`, `redeem_invite`.
+- **Web lib:** `env.ts` (`stripeServerEnv`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+  `STRIPE_COUPON_FIRST_MONTH`, `NEXT_PUBLIC_APP_URL`; `sellerName()` sa fallback „Remati LLC"),
+  `stripe-server.ts` (singleton, `sk_live_` samo na `VERCEL_ENV=production`),
+  `stripe-katalog.ts` (`lookup_key` → `price_`, keš po procesu), `billing.ts` (§6.1/6.3/6.4 nad
+  `Stripe.Event`, oba oblika `invoice`/`subscription` polja, refund u komadima po 500),
+  `billing-skladiste.ts` (RPC-ovi iz 0025 + otisak kartice kroz Stripe), `billing-schema.ts`
+  (§5.1, `discriminatedUnion`), `veze.ts` (`appUrl()`), `pretplata.ts`, `pristup.ts`,
+  admin fajlovi (beta → komp, ruta `/api/admin/korisnici/[id]/komp`), `ui-tekst.ts` (komp, proba,
+  novi razlozi u knjizi), `jobs.ts` (`cost`, `hasSearchAccess`), `search-cache.ts`
+  (`besplatno()` obrisana → `pokrivaKes()` + `cenaIzKesa()`, `listaKesa` nosi pristupe),
+  `search-types.ts` (`ScanKind` + `kes`, `KesStavka.pristup`).
+- **Rute:** `checkout` (§5.2 + `imaoProbuRanije()`), `webhook` (§6.2), `portal` (§8),
+  `/api/search` (§14.3: `has_search_access` bez `pay`; budžet i dnevni osigurač SAMO kad ima
+  Places poziva; `cached` → lista odmah sa `charged: true`), `/api/poruke/ai` (B1: 429 sa
+  datumom reseta, `release_ai_rewrite` na pad upisa i na dupli klik).
+- **Klijent:** `pretraga-ekran.tsx` (unija `Cena` bez `besplatno`, sa `pristup` i `kes`; modal
+  za SVAKO prvo otvaranje, i iz liste keša), `skeniranje-modal.tsx` (razlog `kes`),
+  `kes-lista.tsx` (blok „Tvoji pristupi", „u kešu do…"/„plaćeno do…"), `pretraga/page.tsx`,
+  `cenovnik-ekran.tsx` (bez SDK-a; `formatEur`; `POST /api/billing/checkout` →
+  `location.assign`), `cenovnik.ts` (`Tier.cena`, `Paket.eur`, red „Ako nađemo manje firmi…"),
+  `cenovnik-namera*.ts` (`?paket=75|200`), `pretplata-blok.tsx` (iznos iz `plans.ts`, rečenica za
+  `proba`/`komp`), `portal-dugme.tsx`, pravne strane i `/welcome` (prodavac je LLC iz
+  `NEXT_PUBLIC_SELLER_NAME`, račun mejlom), `admin-radnje.tsx` i admin strane (komp).
+- **Worker:** `db-writes.ts` `refundScan(jobId, pagesUsed = 0)`; `scan.ts` vraća razliku kad
+  `apiCalls < stranica` (POSLE registra i grane za prazan rezultat — `refund_scan` je idempotentan
+  po platiocu, pa bi delimičan povraćaj upisan pre punog pun proglasio duplikatom);
+  `rewrite-message.ts` `release_ai_rewrite` na svaki pad; `monthly-grant.ts` samo `ciklus='year'`
+  (preskače mesec `subscriptions.created_at`) i `plan='komp'`.
+- **CSP:** `*.paddle.com` ispao iz svih pet direktiva; `test/csp.ts` sada traži da svaki host bude
+  iz poznatog skupa (Clerk/Supabase/Cloudflare) i da Stripe host NE postoji (redirekcija).
+- **Testovi:** `test/naplata.ts` prepisan — fiksture potpisane pravim
+  `stripe.webhooks.generateTestHeaderString`, scenariji §12 #1, #2, #3, #8, #9, #10, #12, plus
+  ponovljena proba, pogrešan potpis, `komp` iz webhooka, redosled događaja, prolazna greška;
+  `test/lazno-skladiste.ts` nov interfejs; `test/pristup.ts` + proba/komp/otkazana proba;
+  `test/admin-komp.ts`; `test/dubina.ts` + `cenaIzKesa` (25 firmi → 2, ne 3); `test/cenovnik.ts`
+  i `test/veze.ts` (paketi 75/200, bez ID-jeva cena); `scripts/validate-migrations.ts` — Stripe
+  RPC-ovi, `stale_ignored`, proba jednom po nalogu, `expire`, `redeem_invite` svi ishodi,
+  `search_access` i `refund_scan(job, 2)`.
+- **Docs/env:** `.env.example` blok Stripe (§11), `CLAUDE.md` (pravilo 3 sa RPC-ovima iz §3,
+  5a sa D10, terminologija komp/proba/pozivnica), `docs/LANSIRANJE.md` linija na vrhu.
+
+### Odstupanja od spec-a — namerna, ne previd
+
+- **0024 dobija `drop function if exists admin_users_page(…9 args)`.** 0025 menja POVRATNI TIP
+  te funkcije, pa drugi prolaz `pnpm check:sql` (0024 pa 0025 ponovo) pucao na „cannot change
+  return type". Bezopasno u produkciji — 0025 je odmah iza i pravi je iznova.
+- **Rename kolona u 0025 pada na `drop` kad nova kolona već postoji.** Drugi prolaz: 0022 ponovo
+  doda prazne stare kolone (`add column if not exists`), a `rename` bi pukao na duplikatu.
+- **Delimičan povraćaj ide posle registra i posle grane za prazan rezultat**, ne odmah posle
+  `collectAndUpsert` kako prompt kaže — razlog gore (idempotencija `refund_scan`).
+- **`NaplataSkladiste` ima dve metode više od §6.3:** `planPoPretplati` (rezerva za plan kad
+  faktura ne nosi `lookup_key` u metapodacima) i `otisakKartice`/`naplatiProbuOdmah` (jedina dva
+  Stripe poziva u obradi, izmešteni iz `billing.ts` da test ostane bez mreže).
+- **`opcije.kuponPrvogMeseca`** se prosleđuje u `obradiDogadjaj` iz rute umesto da `billing.ts`
+  čita env — isti razlog.
+- **`grep -ri paddle … supabase`** nije 0: `0022_naplata.sql` je istorija (ne prepravlja se), a
+  0025 mora da imenuje stare kolone da bi ih preimenovala. U `.ts/.tsx/.json`, `.env.example` i
+  `CLAUDE.md` je 0; `pri_` u `apps packages` je 0.
+- **`apiVersion`** je pinovana na verziju koju SDK nosi (`2026-08-26.dahlia`), ne na onu koju
+  panel prikazuje — panel mi nije dostupan iz sesije. Ako se razlikuju, menjaju se
+  `STRIPE_API_VERSION`, webhook endpoint i komentar u `.env.example` zajedno.
+- **`apply_subscription` upisuje `plan_expires_at` i za `incomplete*`/`unpaid`** — doslovno po §3.
+  Checkout pravi pretplatu tek posle uspešne naplate/setup-a, pa `incomplete` ne nastaje kroz
+  naš tok; ako ikad nastane ručno u panelu, `current_period_end` bi dao pristup bez naplate.
+  Zabeleženo, ne menjano.
+
+### Nije urađeno u ovoj sesiji (traži Stripe nalog / lokalnu bazu)
+
+- **Lokalni prolaz sa `stripe listen`** (§12 scenariji 1, 2 sa test clock-om, 10, 12) i **lokalni
+  prolaz D10** (nov nalog, keš, refresh, „Duboko" nad gradom sa <40 firmi) — nisu izvršeni:
+  sesija nema Stripe ključeve ni pristup bazi. Isti scenariji su pokriveni fiksturama u
+  `test/naplata.ts` (potpis je pravi) i `pnpm check:sql` (search_access, refund razlike), ali
+  izlaz `select reason, ref_id, delta from credit_ledger …` treba zalepiti ovde posle ručnog
+  prolaza:
+
+  ```
+  -- §12 #1 (Pro mesečno, bez probe):
+  -- §12 #2 (proba → plaćeno, test clock +8d):
+  -- §12 #10 (paket 200):
+  -- §12 #12 (prvi mesec gratis):
+  -- D10 (keš → search_access, refresh 0 kredita, „Duboko" <40 firmi → refund):
+  ```
+
+### Ostaje na meni
+
+| # | Gde | Šta |
+|---|---|---|
+| R39 | Stripe test mod | katalog iz §2.1 (8 cena sa `lookup_key`, EUR), kupon `Prvi mesec gratis` 100%/once, webhook endpoint sa događajima iz §6.1 i **istom API verzijom** kao `STRIPE_API_VERSION`; `pnpm stripe:doktor` mora da prođe |
+| R40 | `.env.local` | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (iz `stripe listen`), `STRIPE_COUPON_FIRST_MONTH`, `NEXT_PUBLIC_APP_URL=http://localhost:3000`, `NEXT_PUBLIC_SELLER_NAME` |
+| R41 | Supabase | pusti 0025 (`beta` → `komp`, `subscriptions` se briše i pravi iznova — prazna je) |
+| R42 | Vercel | Preview: test ključevi; Production: live ključevi + `NEXT_PUBLIC_APP_URL=https://app.sajtoskop.com`; **nikad isti `whsec_` u oba** |
+| R43 | Stripe podešavanja §2.2 i §8 | Smart Retries 4×/7 dana + „cancel", mejlovi OFF, Customer Portal (bez pauze, `always_invoice` za upgrade) |
+| — | ručni prolaz | scenariji iz „Nije urađeno" — zalepiti ledger ovde |
+
+### Preneto dalje
+
+- **K2 (S26):** cenovnik sa bedžom „Prvi mesec €0", proba UI (`pretplata-blok`, baner sa
+  „Aktiviraj odmah", `/api/billing/aktiviraj`), `/welcome` čita sesiju, portal tekstovi.
+- **K3 (S27):** UI pozivnica (`/admin/pozivnice`, `/pozivnica/[code]`, `/api/pozivnice/prihvati`).
+  Baza i `redeem_invite` su gotovi u 0025.
+- **P4:** mejlovi na `invoice.payment_failed`, `charge.dispute.created`.

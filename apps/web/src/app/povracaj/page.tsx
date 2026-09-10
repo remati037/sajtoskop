@@ -1,17 +1,20 @@
 // apps/web/src/app/povracaj/page.tsx
-// Politika povraćaja. Paddle je traži za odobrenje naloga u produkciji (korak
-// R21), a `docs/naplata-paddle.md` §6 je zove nepregovarljivom pre prve prodaje.
+// Politika povraćaja. Stripe je traži na javnoj strani (Settings → Business →
+// Public details), a `docs/naplata-stripe.md` je zove nepregovarljivom pre
+// prve prodaje.
 //
 // ‼️ DVA BROJA U OVOM TEKSTU SU ODLUKA IZ KORAKA R17 (rok i prag potrošenih
 //    kredita) I NISU DONETA — stoje kao `Popuniti` markeri. Struktura teksta
 //    je gotova; kad odluka padne, menjaju se samo brojevi.
 //
-// ‼️ Odeljak 5 mora da ostane. Paddle sme SAM da odobri povraćaj u roku od 60
-//    dana i onda kad naša politika kaže drugačije (`naplata-paddle.md` §6,
-//    potvrđen nalaz). Politika koja tvrdi suprotno je politika koja laže kupca.
+// ‼️ Odeljak 5 mora da ostane: spor kod izdavaoca kartice (chargeback) rešava
+//    Stripe i banka, ne mi — politika koja tvrdi suprotno laže kupca.
+//
+// [S25] Prodavac je LLC (odluka A4), ne merchant of record. Ime iz env-a.
 
 import type { Metadata } from "next";
 import { KONTAKT_MEJL } from "@/components/futer";
+import { sellerName } from "@/lib/env";
 import { Lista, Odeljak, Popuniti, PravniOkvir, TekstLink } from "@/components/pravni-okvir";
 
 export const metadata: Metadata = {
@@ -22,6 +25,7 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
+  const prodavac = sellerName();
   return (
     <PravniOkvir
       putanja="/povracaj"
@@ -36,10 +40,9 @@ export default function Page() {
     >
       <Odeljak broj={1} naslov="Ko vraća novac">
         <p>
-          Naplatu vodi <strong>Paddle.com Market Ltd. kao merchant of record</strong> — pravni
-          prodavac prema tebi. Novac se zato vraća na isti način na koji je i naplaćen, preko
-          Paddle-a, na sredstvo plaćanja sa kog je kupovina izvršena. Mi odobravamo zahtev,
-          Paddle ga izvršava.
+          Prodavac je <strong>{prodavac}</strong>, a naplatu obrađuje Stripe. Novac se vraća na
+          isti način na koji je i naplaćen — na sredstvo plaćanja sa kog je kupovina izvršena.
+          Mi odobravamo zahtev, Stripe ga izvršava.
         </p>
         <p>
           Koliko će novac stvarno stići do tvog računa zavisi od banke i izdavaoca kartice —
@@ -72,7 +75,7 @@ export default function Page() {
           </li>
         </Lista>
         <p>
-          Obnova pretplate se najavljuje unapred mejlom od Paddle-a. Ako ti se obnova desila a
+          Obnova pretplate se vidi na strani „Krediti" i na računu koji stiže mejlom. Ako ti se obnova desila a
           nisi je hteo, javi se — u tom slučaju gledamo koliko je kredita potrošeno posle obnove,
           a ne kada je zahtev stigao.
         </p>
@@ -120,13 +123,13 @@ export default function Page() {
         </Lista>
       </Odeljak>
 
-      <Odeljak broj={5} naslov="Paddle sme sam da odobri povraćaj">
+      <Odeljak broj={5} naslov="Spor kod banke (chargeback)">
         <p>
           <strong>
-            Paddle, kao prodavac, sme da odobri povraćaj u roku od <span className="num">60</span>{" "}
-            dana od plaćanja i onda kada ova politika kaže drugačije
+            Ako spor otvoriš kod svoje banke ili izdavaoca kartice, o njemu odlučuju banka i
+            Stripe, po svojim pravilima i rokovima
           </strong>{" "}
-          — radi izbegavanja spora sa izdavaocem kartice. Na tu odluku ne možemo da utičemo.
+          — i onda kada ova politika kaže drugačije. Na tu odluku ne možemo da utičemo.
         </p>
         <p>
           U tom slučaju važi isto pravilo o kreditima iz odeljka 4: krediti se skidaju sa naloga
@@ -138,7 +141,7 @@ export default function Page() {
         <p>
           Povraćaj i otkazivanje su dve različite stvari. Vraćen novac za jedan period{" "}
           <strong>ne zaustavlja narednu naplatu</strong> sam po sebi. Ako ne želiš dalje
-          plaćanje, otkaži pretplatu kroz Paddle portal, na strani „Krediti" — ili nam javi, pa
+          plaćanje, otkaži pretplatu kroz portal na strani „Krediti" — ili nam javi, pa
           ćemo to uraditi zajedno sa povraćajem.
         </p>
       </Odeljak>
@@ -170,12 +173,12 @@ export default function Page() {
         <p>
           Pošalji mejl na{" "}
           <TekstLink href={`mailto:${KONTAKT_MEJL}`}>{KONTAKT_MEJL}</TekstLink> sa adrese kojom
-          si otvorio nalog i navedi broj računa iz Paddle mejla i razlog. Odgovaramo najkasnije u
+          si otvorio nalog i navedi broj računa iz mejla i razlog. Odgovaramo najkasnije u
           roku od <span className="num">5</span> radnih dana.
         </p>
         <p>
-          Zahtev možeš da pošalješ i direktno Paddle-u, sa računa koji si dobio mejlom — tada
-          odluku donosi Paddle, po odeljku 5.
+          Spor kod banke je drugi put, opisan u odeljku 5 — ali je sporiji i skuplji za obe
+          strane; mejl nama je brži.
         </p>
       </Odeljak>
 

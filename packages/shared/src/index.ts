@@ -24,7 +24,10 @@ export type {
 export type {
   AdminAdjustResult,
   AdminAuditRow,
-  AdminOpenBetaResult,
+  AccessInviteKind,
+  AccessInviteRedemptionRow,
+  AccessInviteRow,
+  AdminOpenKompResult,
   AdminOverview,
   AdminRole,
   AdminSetRoleResult,
@@ -52,6 +55,10 @@ export type {
   GrantReason,
   MonthlyGrantReason,
   MonthlyGrantResult,
+  RedeemInviteResult,
+  SearchAccessRow,
+  SubscriptionStatus,
+  TrialFingerprintRow,
   JobQueueRow,
   JobStatus,
   JobType,
@@ -142,54 +149,71 @@ export {
 // ── padežni oblici za generator poruka ─────────────────────
 export { bezOblika, gradLokativ, nisaAkuzativ } from "./sklonidba";
 
-// ── planovi, paketi, Paddle katalog i globalni kapovi ──────
-export type { Ciklus, Dubina, DubinaOpis, Kupovina, PaidPlanId, PaketId, Plan, PlanId } from "./plans";
+// ── planovi, paketi, cene (Stripe katalog) i globalni kapovi ─
+export type {
+  CenaPlana,
+  Ciklus,
+  Dubina,
+  DubinaOpis,
+  Kupovina,
+  LookupKey,
+  PaidPlanId,
+  PaketId,
+  Plan,
+  PlanId,
+} from "./plans";
 export {
   AI_DAILY_CAP,
   AI_OUTREACH_DAILY_CAP,
-  ALL_PRICE_IDS,
+  ALL_LOOKUP_KEYS,
   BUDGET_TIMEZONE,
   cenaDubine,
   cenaSkeniranja,
   CREDIT_PACKS,
-  BETA_DEFAULT_DAYS,
   CREDITS_TIMEZONE,
   creditMonth,
-  creditsForPriceId,
   DEFAULT_PLAN,
   DUBINA_OPIS,
   DUBINE,
   dubinaIli,
   dubinaZaRezultate,
+  formatEur,
   GLOBAL_DAILY_API_CAP,
   GLOBAL_MONTHLY_API_CAP,
+  GODISNJI_BONUS,
   GOOGLE_TTL_DAYS,
   GRACE_DAYS,
-  kupovinaZaPriceId,
+  KOMP_DEFAULT_DAYS,
+  kupovinaZaLookupKey,
+  lookupKeyZaPaket,
+  lookupKeyZaPlan,
   maxRezultataZaDubinu,
   PLACES_EUR_PER_CALL,
   PLACES_FREE_CALLS_MONTH,
   PLACES_MAX_PAGES,
   PLACES_MONTHLY_BUDGET_EUR,
   PLACES_PAGE_SIZE,
-  PLAN_PRICE_IDS,
+  PLAN_PRICES,
   PLANS,
   planFor,
-  planForPriceId,
   PODRAZUMEVANA_DUBINA,
   PSI_DAILY_CAP,
   sledecaDodelaKredita,
   stranicaZaRezultate,
+  TRIAL_CREDITS,
+  TRIAL_DAYS,
 } from "./plans";
 
-// ── pristup: šest stanja naloga (LANSIRANJE §1.5) ──────────
-export type { Pristup, PretplataZaPristup, ProfilZaPristup, StanjeId } from "./pristup";
+// ── pristup: sedam stanja naloga (LANSIRANJE §1.5, naplata-stripe.md §7) ─
+export type {
+  Pristup,
+  PretplataZaPristup,
+  ProfilZaPristup,
+  StanjeId,
+  StatusPretplate,
+} from "./pristup";
 export { smeDaKupiPaket, STANJA_ZA_PAKET } from "./pristup";
 export { citanjeDoZa, stanjePristupa } from "./pristup";
-
-// ── naplata: interfejs bez implementacije (F4 §6) ──────────
-export type { BillingProvider } from "./billing";
-export { billingProvider, FreeBetaProvider, NotImplementedError } from "./billing";
 
 // ── taksonomija: niše i gradovi ────────────────────────────
 export type { City, Niche, NicheGroup } from "./taxonomy";

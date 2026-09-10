@@ -149,10 +149,8 @@ export default async function Page({
               dana, beta je RUČAN izuzetak iz konzole, a nov nalog dobija plan
               `dopuna` i nula kredita.
 
-              Iznos u evrima se namerno ne pominje: katalog ga ne drži (Paddle je
-              jedini izvor), a beta korisnik ima 33% popust — ista odluka kao za
-              `/krediti` u S21. Cena stoji na `/cenovnik`, gde i dolazi iz
-              `PricePreview()`. */}
+              Iznos u evrima se ne pominje ni ovde: cena stoji na `/cenovnik`, iz
+              `plans.ts`, i to je jedino mesto na kome se ispisuje. */}
           <p className="relative max-w-[25rem] text-center text-xs leading-relaxed text-fg-muted">
             Nalog otvaraš odmah i besplatno. Za skeniranje i otključavanje prospekata treba
             plan —{" "}

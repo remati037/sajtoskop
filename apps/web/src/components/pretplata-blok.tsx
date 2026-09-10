@@ -9,21 +9,15 @@
 // koje sam platio". Zato ovaj blok razbija zbir na dva reda i uz svaki piše šta
 // se s njim dešava. Svuda drugde u proizvodu stoji ZBIR, jer se troši iz oba.
 //
-// ── zašto ovde NEMA iznosa u evrima ─────────────────────────
-// ‼️ Ovo je svesno odstupanje od prompta za S21, koji je tražio i cenu.
-//    Cena koju bi ovaj ekran mogao da ispiše nije cena koju korisnik plaća:
-//      · katalog (`plans.ts`) namerno ne drži iznose — Paddle je jedini izvor;
-//      · `PricePreview()` vraća CENOVNIČKU cenu, a beta korisnik ima 33% popust
-//        (`BETA2026`, §1.6), pa bi mu ovde pisalo €59 nad računom od €39,53;
-//      · `subscriptions` (0022) ne čuva naplaćen iznos, pa se ne može ni
-//        pročitati bez migracije koja u ovoj sesiji nije predviđena.
-//    Pogrešan iznos o novcu je gori od izostalog iznosa, pa ovde stoji ono što
-//    JESTE tačno — plan, ciklus i datum sledeće naplate — a iznos, kartica i
-//    računi se otvaraju kod Paddle-a, gde su i inače izvor istine.
+// ── iznos u evrima ──────────────────────────────────────────
+// [S25] Iznos plana SME da se prikaže: dolazi iz `plans.ts` po `lookup_key`
+// pretplate (`pretplata.eur`), ne iz Stripe-a, i to je cena koja se stvarno
+// naplaćuje — popusta više nema (pozivnica „prvi mesec" je 100% samo na prvoj
+// fakturi). Blok probe i „Aktiviraj odmah" su K2 (S26); ovde je samo tekst.
 
 import Link from "next/link";
 import { ArrowRight, Coins, Wallet } from "lucide-react";
-import { sledecaDodelaKredita, smeDaKupiPaket, type Pristup } from "@sajtoskop/shared";
+import { formatEur, sledecaDodelaKredita, smeDaKupiPaket, type Pristup } from "@sajtoskop/shared";
 import { formatDatum, imePlana } from "@/lib/ui-tekst";
 import type { PretplataZaEkran } from "@/lib/pretplata";
 import { Alert } from "@/components/ui/alert";
@@ -36,7 +30,7 @@ export function PretplataBlok({
   pristup,
   plan,
   pretplata,
-  imaPaddleKupca,
+  imaStripeKupca,
   izPretplate,
   dokupljeni,
   mesecnaDodela,
@@ -46,8 +40,8 @@ export function PretplataBlok({
   /** `profiles.plan`. */
   plan: string;
   pretplata: PretplataZaEkran | null;
-  /** Ima li nalog `paddle_customer_id`, dakle ima li portal šta da otvori. */
-  imaPaddleKupca: boolean;
+  /** Ima li nalog `stripe_customer_id`, dakle ima li portal šta da otvori. */
+  imaStripeKupca: boolean;
   /** `credits_balance` — kasa koja se resetuje. */
   izPretplate: number;
   /** `credits_topup` — kasa koja ne ističe. */
@@ -56,7 +50,7 @@ export function PretplataBlok({
   mesecnaDodela: number;
 }) {
   const ciklus = pretplata?.ciklus ? CIKLUS_REC[pretplata.ciklus] : null;
-  // Odluka 26.8.: paket traži aktivan plan ili betu. Ko ne sme, ne dobija dugme
+  // Odluka 26.8.: paket traži aktivan plan, komp ili probu. Ko ne sme, ne dobija dugme
   // koje bi ga odvelo u `403` — dobija ono koje ga vodi na planove.
   const smePaket = smeDaKupiPaket(pristup);
 
@@ -86,8 +80,8 @@ export function PretplataBlok({
               <ArrowRight aria-hidden />
             </Link>
           </Button>
-          {imaPaddleKupca ? (
-            <PortalDugme>{pretplata ? "Upravljaj pretplatom" : "Računi i plaćanja"}</PortalDugme>
+          {imaStripeKupca ? (
+            <PortalDugme>{pretplata ? "Upravljaj pretplatom" : "Računi i kartica"}</PortalDugme>
           ) : (
             <Button asChild variant="secondary">
               <Link href="/cenovnik">Pogledaj planove</Link>
@@ -111,10 +105,10 @@ export function PretplataBlok({
         </div>
       )}
 
-      {imaPaddleKupca && (
+      {imaStripeKupca && (
         <p className="px-5 pb-5 text-xs leading-relaxed text-fg-muted sm:px-6 sm:pb-6">
-          Otkazivanje, izmena kartice i preuzimanje računa idu kod Paddle-a — on je prodavac od
-          koga kupuješ, pa je račun i PDV njegova obaveza, ne moja.
+          Otkazivanje, izmena kartice, promena plana i preuzimanje računa idu kroz Stripe portal.
+          Račun stiže mejlom posle svake naplate, u ime prodavca.
         </p>
       )}
 
@@ -146,7 +140,7 @@ export function PretplataBlok({
                   Neiskorišćeno se ne prenosi.
                 </>
               ) : (
-                <>Nema mesečne dodele dok nalog nema plan ni betu.</>
+                <>Nema mesečne dodele dok nalog nema plan ni komp pristup.</>
               )
             }
           />
@@ -158,7 +152,7 @@ export function PretplataBlok({
               <>
                 <strong className="font-medium text-fg">Ne ističu.</strong> Krediti iz paketa
                 stoje dok ih ne potrošiš i mesečna dodela ih ne dira. Nov paket se kupuje uz
-                aktivan plan ili betu.
+                aktivan plan ili komp pristup.
               </>
             }
           />
@@ -219,14 +213,23 @@ function Recenica({
   // promenljivoj: `Pristup` je diskriminisana unija, pa samo ovako TS zna da
   // `punDo` u grani `otkazan` NIJE `null` (v. komentar uz tip u `pristup.ts`).
   switch (pristup.stanje) {
-    case "beta":
+    case "komp":
       return pristup.punDo ? (
         <>
-          Beta nalog, traje do <span className="num">{formatDatum(pristup.punDo)}</span>. Do tada
-          radi sve; posle toga imaš još mesec dana da izvezeš svoj rad.
+          Komp pristup do <span className="num">{formatDatum(pristup.punDo)}</span>. Do tada radi
+          sve; posle toga imaš još mesec dana da izvezeš svoj rad.
         </>
       ) : (
-        <>Beta nalog bez roka. Krediti stižu svakog meseca dok beta traje.</>
+        <>Komp pristup bez roka. Krediti stižu svakog meseca dok komp traje.</>
+      );
+
+    case "proba":
+      return (
+        <>
+          Proba do <span className="num">{formatDatum(pristup.probaDo)}</span>. Tada se kartica
+          naplaćuje{pretplata?.eur !== null && pretplata?.eur !== undefined ? <> <span className="num">{formatEur(pretplata.eur)}</span></> : null}{" "}
+          i dobijaš pune kredite plana.
+        </>
       );
 
     case "aktivan":
@@ -236,6 +239,11 @@ function Recenica({
           <span className="num">
             {formatDatum(pretplata?.currentPeriodEnd ?? pristup.punDo)}
           </span>
+          {pretplata?.eur !== null && pretplata?.eur !== undefined ? (
+            <>
+              , <span className="num">{formatEur(pretplata.eur)}</span>
+            </>
+          ) : null}
           .
         </>
       );

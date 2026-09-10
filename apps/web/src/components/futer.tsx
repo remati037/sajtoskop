@@ -1,7 +1,7 @@
 // apps/web/src/components/futer.tsx
 // Futer javnog dela sajta. Do S22 ga uopšte nije bilo — pravne strane i
-// cenovnik nisu imali nijedan zajednički izlaz, a Paddle za odobrenje naloga
-// traži da Uslovi i Politika povraćaja budu vidljivi sa svake javne strane.
+// cenovnik nisu imali nijedan zajednički izlaz, a provajder naplate traži da
+// Uslovi i Politika povraćaja budu vidljivi sa svake javne strane.
 //
 // ‼️ MONTIRA SE SAMO IZVAN GRUPE `(app)`. Unutar aplikacije futer nema šta da
 //    radi: tamo je bočna traka stalna navigacija, a strana se skroluje u svom

@@ -83,34 +83,69 @@ export type ProfileRow = {
   last_seen_at: string | null;
 
   /**
-   * Naplata (migracija 0022). Sve tri kolone se u S16 samo stvaraju — puni ih
-   * webhook iz S18, a čita ih kapija pristupa iz S19.
+   * Naplata (migracije 0022 i 0025). Puni ih Stripe webhook i checkout ruta,
+   * a čita ih kapija pristupa.
    *
-   * `beta_expires_at = null` znači NEOGRANIČENA beta, ne „istekla".
-   * Pun pristup traje do `max(beta_expires_at, plan_expires_at)`, a čitanje
-   * još `GRACE_DAYS` posle toga (LANSIRANJE §1.5).
+   * `stripe_customer_id` je jedan po nalogu i jedan nalog po kupcu
+   * (`profiles_stripe_customer_uniq`). Nastaje u checkout ruti PRE sesije, pa
+   * je poznat i webhooku i portalu.
+   *
+   * `komp_expires_at = null` znači NEOGRANIČEN komp, ne „istekao".
+   * Pun pristup traje do `max(komp_expires_at, plan_expires_at)`, a čitanje
+   * još `GRACE_DAYS` posle toga (LANSIRANJE §1.5). Do S25 kolona je nosila
+   * ime bete.
    */
-  paddle_customer_id: string | null;
+  stripe_customer_id: string | null;
   plan_expires_at: string | null;
-  beta_expires_at: string | null;
+  komp_expires_at: string | null;
+  /**
+   * Pozivnica „prvi mesec gratis" koju profil pamti dok je checkout ne potroši
+   * (0025 §5, naplata-stripe.md §9). Checkout na nju ubacuje 100% kupon;
+   * `checkout.session.completed` je briše.
+   */
+  invite_id: string | null;
 
   created_at: string;
 };
 
 /**
- * Ogledalo Paddle pretplate (migracija 0022). Izvor istine je Paddle; ovo
+ * Stripe-ovi statusi pretplate, ograničeni `subscriptions_status_valid` (0025 §2).
+ *
+ * `incomplete*` znači da prva naplata nije prošla; nalog nema pristup, ali red
+ * se čuva da webhook posle uspeha ima šta da osveži.
+ */
+export type SubscriptionStatus =
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "unpaid"
+  | "incomplete"
+  | "incomplete_expired"
+  | "paused";
+
+/**
+ * Ogledalo Stripe pretplate (migracija 0025 §2). Izvor istine je Stripe; ovo
  * postoji da kapija pristupa i ekran stanja ne moraju da zovu mrežu.
+ *
+ * `updated_at` čuva `event.created` poslednjeg PRIMENJENOG događaja — to je
+ * brana od događaja koji stignu van reda (`stale_ignored`, §6.4).
  */
 export type SubscriptionRow = {
-  paddle_subscription_id: string;
+  stripe_subscription_id: string;
   user_id: string;
-  paddle_customer_id: string | null;
-  /** Paddle-ova lista, ograničena `subscriptions_status_valid`. */
-  status: "active" | "trialing" | "past_due" | "paused" | "canceled";
-  price_id: string | null;
-  /** Samo plaćeni planovi. `beta` i `dopuna` nikad nemaju pretplatu. */
+  stripe_customer_id: string | null;
+  status: SubscriptionStatus;
+  /** Samo plaćeni planovi. `komp` i `dopuna` nikad nemaju pretplatu. */
   plan: "starter" | "pro" | "advanced" | null;
+  ciklus: "month" | "year" | null;
+  /** Stripe `lookup_key` cene — stabilan preko test/live, za razliku od `price_`. */
+  lookup_key: string | null;
   current_period_end: string | null;
+  /** Kraj probe; `null` kad probe nema ili je prošla. */
+  trial_end: string | null;
+  /** Otkazivanje zakazano za kraj perioda — status ostaje `active`/`trialing`. */
+  cancel_at_period_end: boolean;
   canceled_at: string | null;
   country_code: string | null;
   created_at: string;
@@ -118,8 +153,81 @@ export type SubscriptionRow = {
 };
 
 /**
+ * Plaćen pristup jednoj kombinaciji (grad, niša) do N stranica, 30 dana ili
+ * kraće ako Google podatak istekne ranije (0025 §6, naplata-stripe.md §14.3, D10).
+ *
+ * Nastaje na dva načina, oba za isti broj kredita: iz svežeg keša (bez posla,
+ * `job_id = null`) ili uz `scan` posao (važi kad posao završi).
+ */
+export type SearchAccessRow = {
+  user_id: string;
+  country_code: string;
+  city_slug: string;
+  niche_slug: string;
+  /** 1–3, koliko je stranica plaćeno. `refund_scan` ga spušta na stvarno stiglo. */
+  pages: number;
+  paid_at: string;
+  expires_at: string;
+  job_id: number | null;
+};
+
+/** Dva tipa pozivnice (naplata-stripe.md §9, odluka D4). */
+export type AccessInviteKind = "komp" | "prvi_mesec";
+
+/** Pristupna pozivnica (0025 §5). `komp` otvara pun pristup bez Stripe-a; `prvi_mesec` daje 100% kupon na prvi period. */
+export type AccessInviteRow = {
+  id: string;
+  code: string;
+  kind: AccessInviteKind;
+  /** Samo za `komp`. `null` = neograničeno. */
+  komp_days: number | null;
+  komp_credits: number | null;
+  /** Vezano za mejl; `null` = bilo ko sa kodom. */
+  email: string | null;
+  note: string | null;
+  max_uses: number;
+  used_count: number;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+};
+
+export type AccessInviteRedemptionRow = {
+  invite_id: string;
+  user_id: string;
+  redeemed_at: string;
+};
+
+/** `redeem_invite` iz 0025 §5. Razlozi su ključevi koje ruta prevodi u rečenice (§9.4). */
+export type RedeemInviteResult = {
+  ok: boolean;
+  reason:
+    | "redeemed"
+    | "not_found"
+    | "revoked"
+    | "expired"
+    | "used_up"
+    | "wrong_email"
+    | "already_redeemed"
+    | "has_subscription"
+    | "no_user";
+  kind: AccessInviteKind | null;
+};
+
+/**
+ * Otisak kartice sa prve probe (0025 §8, §7.6). Ista kartica na drugom nalogu →
+ * proba se odmah pretvara u naplatu.
+ */
+export type TrialFingerprintRow = {
+  fingerprint: string;
+  user_id: string;
+  first_seen: string;
+};
+
+/**
  * Gruba brana idempotencije webhooka (migracija 0022). Fina brana je `ref_id`
- * u `credit_ledger` — Paddle transaction ID.
+ * u `credit_ledger` — Stripe `in_` / `pi_` ID, `trial:<user>`, `expire:<sub>`.
  */
 export type BillingEventRow = {
   event_id: string;
@@ -194,13 +302,22 @@ export type CreditReason =
   /** Besplatan prvi unlock (F8 §2, dodat u 0022). `ref_id` je `user_id`. */
   | "onboarding"
   /**
-   * Paket kredita koji ide uz otvaranje beta naloga (S20, 0024). Ide isključivo
-   * kroz `admin_open_beta`; `ref_id` je `adm:<uuid>` iz forme.
-   *
-   * Zaseban razlog, a ne `admin`: izvod mora da kaže ODAKLE su krediti, jer je
-   * „koliko je otišlo na betu" drugo pitanje od „koliko je dodeljeno rukom".
+   * Paket kredita koji je išao uz otvaranje beta naloga (S20, 0024). Od S25 ga
+   * niko više ne piše — ostaje u `check` samo zbog istorijskih redova.
    */
-  | "beta_grant";
+  | "beta_grant"
+  /** 10 kredita na ulasku u probu (0025 §3). Jednom po NALOGU: `ref_id` je `trial:<user>`. */
+  | "trial_grant"
+  /**
+   * Krediti komp naloga (0025 §3). Kroz `admin_open_komp` (ref `adm:<uuid>`) ili
+   * `redeem_invite` (ref `invite:<uuid>`). Nasleđuje ulogu `beta_grant`.
+   */
+  | "komp_grant"
+  /**
+   * Kasa koja ističe se prazni kad pretplata prestane (`customer.subscription.deleted`,
+   * `expire_subscription_credits`). Uvek negativan; `ref_id` je `expire:<sub>`.
+   */
+  | "expire";
 
 export type CreditLedgerRow = {
   id: number;
@@ -531,13 +648,14 @@ export type AdminUserRow = {
   credits_balance: number;
   /** Kasa koja ne ističe (paketi). Prikazano stanje je zbir obe. */
   credits_topup: number;
-  /** `null` uz plan `beta` je NEOGRANIČENA beta; uz svaki drugi plan „bete nema". */
-  beta_expires_at: string | null;
+  /** `null` uz plan `komp` je NEOGRANIČEN komp; uz svaki drugi plan „kompa nema". */
+  komp_expires_at: string | null;
   plan_expires_at: string | null;
   /** Najsvežija pretplata; `null` kad je nikad nije ni bilo. */
   sub_status: SubscriptionRow["status"] | null;
   sub_period_end: string | null;
   sub_canceled_at: string | null;
+  sub_trial_end: string | null;
   created_at: string;
   last_seen_at: string | null;
   unlocks_count: number;
@@ -548,16 +666,16 @@ export type AdminUserRow = {
 };
 
 /**
- * `admin_open_beta` iz 0024 (LANSIRANJE §1.1, odluka D1).
+ * `admin_open_komp` iz 0025 §5 (LANSIRANJE §1.1, odluka D1; naplata-stripe.md §9).
  *
- * Jedini put kojim plan sme da postane `beta`, i jedini poziv koji plan, rok i
- * kredite postavlja u ISTOJ transakciji — pola otvorenog beta naloga je gore
- * nego nijedan.
+ * Jedini put (uz `redeem_invite`, koji ga zove) kojim plan sme da postane
+ * `komp`, i jedini poziv koji plan, rok i kredite postavlja u ISTOJ transakciji
+ * — pola otvorenog komp naloga je gore nego nijedan.
  *
  * `already_granted` je dvostruki klik: plan i rok su (ponovo) upisani, kredita
  * nema drugi put.
  */
-export type AdminOpenBetaResult = {
+export type AdminOpenKompResult = {
   ok: boolean;
   reason: "opened" | "already_granted" | "no_user" | "invalid_amount" | "missing_ref_id";
   granted: number;
@@ -704,8 +822,14 @@ export type MonthlyGrantReason =
 
 export type ExportClaimReason = "claimed" | "limit_reached" | "nothing_to_export" | "no_user";
 
-/** `spend_credit_and_scan` iz 0009 (F9). */
-export type ScanSpendReason = "charged" | "already_paid" | "insufficient_credits" | "no_user";
+/**
+ * `spend_credit_and_scan` iz 0025 §6 (F9 + D10).
+ *
+ *   already_paid   pristup postoji, dovoljno dubok i nije istekao → 0 kredita
+ *   cached         keš svež + dovoljno stranica → naplaćeno, BEZ posla
+ *   charged        naplaćeno, posao upisan
+ */
+export type ScanSpendReason = "charged" | "cached" | "already_paid" | "insufficient_credits" | "no_user";
 
 /** `set_lead_status` / `mark_contacted` / `set_lead_note` iz 0007. */
 export type LeadStatusRpcReason =
@@ -729,10 +853,16 @@ export type MonthlyGrantResult = RpcResult<MonthlyGrantReason> & { delta: number
  * ne sada. Klijent tada ne sme da javi „skinut je kredit".
  */
 export type ScanSpendResult = RpcResult<ScanSpendReason> & {
+  /** `null` uz `cached` (bez posla) i uz `already_paid` iz pristupa nastalog iz keša. */
   job_id: number | null;
   joined: boolean;
   charged: boolean;
   credits_left: number;
+  /**
+   * Koliko je naplaćeno (ili koliko bi bilo, uz `insufficient_credits`). Iz keša
+   * je to broj stranica koje STVARNO postoje, ne koje su tražene (§14.4).
+   */
+  cost: number;
 };
 
 /** `claim_export` vraća KOLIKO redova je odobreno, ne samo da li sme. */
@@ -743,21 +873,28 @@ export type ExportClaimResult = RpcResult<ExportClaimReason> & {
 };
 
 /**
- * `apply_subscription` i `apply_credit_pack` iz 0022 (S16). Zove ih isključivo
- * Paddle webhook iz S18, posle provere potpisa.
+ * RPC-ovi naplate iz 0025 §4: `apply_subscription`, `apply_invoice_paid`,
+ * `apply_trial_start`, `expire_subscription_credits`, `apply_credit_pack`. Zove
+ * ih isključivo Stripe webhook, posle provere potpisa.
  *
- * `granted` je broj STVARNO dodeljenih kredita — 0 uz `ok: true` znači da je
- * dodela već bila obavljena (`already_granted`, ista transakcija stigla dvaput)
- * ili da događaj nije nosio naplatu (`saved`). Klijent tada ne sme da javi
+ * `granted`/`delta` je broj STVARNO pomerenih kredita — 0 uz `ok: true` znači da
+ * je dodela već bila obavljena (`already_granted` / `already_applied`, isti
+ * događaj stigao dvaput), da događaj nije nosio naplatu (`saved`) ili da je
+ * stariji od već primenjenog (`stale_ignored`). Klijent tada ne sme da javi
  * „krediti su dodati".
  */
 export type BillingApplyReason =
   | "granted"
   | "already_granted"
+  | "already_applied"
   | "saved"
+  | "stale_ignored"
+  | "expired"
+  | "nothing"
   | "invalid_amount"
   | "invalid_status"
   | "invalid_plan"
+  | "invalid_reason"
   | "missing_ref_id"
   | "missing_subscription_id"
   | "no_user";

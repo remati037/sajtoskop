@@ -1,14 +1,23 @@
 // packages/shared/test/pristup.ts
 // Pokretanje: pnpm --filter @sajtoskop/shared test  (ili `pnpm test` iz korena)
 //
-// [S19] `stanjePristupa()` je jedini izvor istine o tome ko sme unutra. Sve što
-// kapije, baneri i modal rade jeste da pročitaju `stanje`, `pun` i `cita` — pa
-// je ovo mesto na kome se greška u pristupu hvata, a ne u pet komponenti.
+// [S19, S25] `stanjePristupa()` je jedini izvor istine o tome ko sme unutra. Sve
+// što kapije, baneri i modal rade jeste da pročitaju `stanje`, `pun` i `cita` —
+// pa je ovo mesto na kome se greška u pristupu hvata, a ne u pet komponenti.
 //
 // Trenutak se PROSLEĐUJE (funkcija nema `Date.now()` u telu), pa se „istekla
 // juče" i „za 31 dan" proveravaju bez laganja sistemskog sata.
+//
+// [S25] `beta` → `komp`, novo stanje `proba`, otkazana proba, `cancel_at_period_end`.
 
-import { GRACE_DAYS, PLANS, stanjePristupa, type PretplataZaPristup, type ProfilZaPristup } from "../src/index";
+import {
+  GRACE_DAYS,
+  PLANS,
+  stanjePristupa,
+  STANJA_ZA_PAKET,
+  type PretplataZaPristup,
+  type ProfilZaPristup,
+} from "../src/index";
 
 let fail = 0;
 function check(ok: boolean, line: string): void {
@@ -21,44 +30,56 @@ const DAN = 24 * 60 * 60 * 1000;
 const zaDana = (n: number) => new Date(SADA + n * DAN).toISOString();
 
 function profil(over: Partial<ProfilZaPristup> = {}): ProfilZaPristup {
-  return { plan: "beta", betaExpiresAt: null, planExpiresAt: null, creditsTopup: 0, ...over };
+  return { plan: "komp", kompExpiresAt: null, planExpiresAt: null, creditsTopup: 0, ...over };
 }
 
 function pretplata(over: Partial<PretplataZaPristup> = {}): PretplataZaPristup {
-  return { status: "active", currentPeriodEnd: null, canceledAt: null, ...over };
+  return {
+    status: "active",
+    currentPeriodEnd: null,
+    trialEnd: null,
+    cancelAtPeriodEnd: false,
+    canceledAt: null,
+    ...over,
+  };
 }
 
-// ── 1. neograničena beta ───────────────────────────────────
-console.log("\nneograničena beta");
+// ── 1. neograničen komp ────────────────────────────────────
+console.log("\nneograničen komp");
 
 {
   const p = stanjePristupa(profil(), null, SADA);
-  check(p.stanje === "beta" && p.pun && p.cita, "beta_expires_at NULL → beta, pun pristup");
-  check(p.punDo === null && p.citanjeDo === null, "neograničena beta nema nijedan datum");
+  check(p.stanje === "komp" && p.pun && p.cita, "komp_expires_at NULL → komp, pun pristup");
+  check(p.punDo === null && p.citanjeDo === null, "neograničen komp nema nijedan datum");
+  check(p.planLimita === "komp", "komp ima svoje (Advanced) limite");
+  check(
+    PLANS.komp.cacheMissPerDay === PLANS.advanced.cacheMissPerDay &&
+      PLANS.komp.aiRewritePerDay === PLANS.advanced.aiRewritePerDay,
+    "komp limiti su Advanced (naplata-stripe.md A3)",
+  );
 }
 
 // Kredita nema, a pristup ostaje: novčanik i pristup su dve različite kapije.
-// Bez ovoga bi „nemaš kredita" postalo „nemaš nalog", i to na dan lansiranja.
 check(
   stanjePristupa(profil({ creditsTopup: 0 }), null, SADA).pun,
-  "neograničena beta i sa nula kredita ostaje pun pristup",
+  "neograničen komp i sa nula kredita ostaje pun pristup",
 );
 
-// `null` uz PLAĆEN plan znači „bete nema", ne „neograničeno" — inače bi svaki
+// `null` uz PLAĆEN plan znači „kompa nema", ne „neograničeno" — inače bi svaki
 // pretplatnik kome pretplata istekne dobio večan pristup.
 check(
   stanjePristupa(profil({ plan: "starter", planExpiresAt: zaDana(-1) }), null, SADA).stanje !==
-    "beta",
-  "beta_expires_at NULL uz plan `starter` NIJE neograničena beta",
+    "komp",
+  "komp_expires_at NULL uz plan `starter` NIJE neograničen komp",
 );
 
-// ── 2. istek bete: grace pa zaključano ─────────────────────
-console.log("\nistek bete");
+// ── 2. istek kompa: grace pa zaključano ────────────────────
+console.log("\nistek kompa");
 
 {
-  const juce = profil({ betaExpiresAt: zaDana(-1) });
+  const juce = profil({ kompExpiresAt: zaDana(-1) });
   const p = stanjePristupa(juce, null, SADA);
-  check(p.stanje === "grace", "beta istekla juče → grace");
+  check(p.stanje === "grace", "komp istekao juče → grace");
   check(p.pun === false && p.cita === true, "grace: ne troši, ali čita");
   check(
     p.stanje === "grace" && Date.parse(p.citanjeDo) === Date.parse(zaDana(-1)) + GRACE_DAYS * DAN,
@@ -67,26 +88,26 @@ console.log("\nistek bete");
 }
 
 check(
-  stanjePristupa(profil({ betaExpiresAt: zaDana(-1) }), null, SADA + 28 * DAN).stanje === "grace",
+  stanjePristupa(profil({ kompExpiresAt: zaDana(-1) }), null, SADA + 28 * DAN).stanje === "grace",
   "29 dana posle isteka → i dalje grace",
 );
 // Granica je zatvorena: u sekundi u kojoj grace ističe pristup je već zaključan.
 check(
-  stanjePristupa(profil({ betaExpiresAt: zaDana(-1) }), null, SADA + 29 * DAN).stanje ===
+  stanjePristupa(profil({ kompExpiresAt: zaDana(-1) }), null, SADA + 29 * DAN).stanje ===
     "zakljucan",
   "tačno na isteku grace-a → zaključan (granica se ne prašta)",
 );
 check(
-  stanjePristupa(profil({ betaExpiresAt: zaDana(-31) }), null, SADA).stanje === "zakljucan",
+  stanjePristupa(profil({ kompExpiresAt: zaDana(-31) }), null, SADA).stanje === "zakljucan",
   "31 dan posle isteka → zaključan",
 );
 {
-  const p = stanjePristupa(profil({ betaExpiresAt: zaDana(-31) }), null, SADA);
+  const p = stanjePristupa(profil({ kompExpiresAt: zaDana(-31) }), null, SADA);
   check(p.pun === false && p.cita === false, "zaključan: ni troši ni čita");
 }
 check(
-  stanjePristupa(profil({ betaExpiresAt: zaDana(1) }), null, SADA).stanje === "beta",
-  "beta sa rokom u budućnosti → beta",
+  stanjePristupa(profil({ kompExpiresAt: zaDana(1) }), null, SADA).stanje === "komp",
+  "komp sa rokom u budućnosti → komp",
 );
 
 // ── 3. pretplata ───────────────────────────────────────────
@@ -112,13 +133,22 @@ console.log("\npretplata");
   check(p.stanje === "otkazan" && p.punDo === zaDana(12), "baner dobija tačan datum kraja perioda");
 }
 
+// Stripe: otkazivanje zakazano za kraj perioda ostavlja `active` i diže zastavicu.
+check(
+  stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(12) }),
+    pretplata({ status: "active", cancelAtPeriodEnd: true }),
+    SADA,
+  ).stanje === "otkazan",
+  "cancel_at_period_end uz status active se čita kao otkazano",
+);
 check(
   stanjePristupa(
     profil({ plan: "starter", planExpiresAt: zaDana(12) }),
     pretplata({ status: "active", canceledAt: zaDana(-1) }),
     SADA,
   ).stanje === "otkazan",
-  "zakazano otkazivanje (status active + canceled_at) se čita isto kao otkazano",
+  "canceled_at uz status active se čita kao otkazano",
 );
 
 check(
@@ -139,11 +169,87 @@ check(
   "otkazana pretplata sa isteklim periodom → grace",
 );
 
-// ── 4. dopuna ──────────────────────────────────────────────
+// ── 4. proba (naplata-stripe.md §7) ────────────────────────
+console.log("\nproba");
+
+{
+  // Dan 0: `trialing`, `trial_end = +7d`, `plan_expires_at = +7d`.
+  const p = stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(7) }),
+    pretplata({ status: "trialing", trialEnd: zaDana(7), currentPeriodEnd: zaDana(7) }),
+    SADA,
+  );
+  check(p.stanje === "proba" && p.pun && p.cita, "trialing → proba, pun pristup");
+  check(p.stanje === "proba" && p.probaDo === zaDana(7), "proba nosi datum kraja probe");
+  check(p.planLimita === "starter", "proba ima limite plana koji je izabrala");
+}
+
+check(
+  stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(7) }),
+    pretplata({ status: "trialing", trialEnd: null, currentPeriodEnd: zaDana(7) }),
+    SADA,
+  ).stanje === "proba" &&
+    (stanjePristupa(
+      profil({ plan: "starter", planExpiresAt: zaDana(7) }),
+      pretplata({ status: "trialing", trialEnd: null, currentPeriodEnd: zaDana(7) }),
+      SADA,
+    ) as { probaDo?: string }).probaDo === zaDana(7),
+  "proba bez trial_end pada na punDo, nikad na prazno",
+);
+
+{
+  // Otkazana proba: `cancel_at_period_end = true`, status i dalje `trialing`
+  // → `otkazan` sa `punDo = trial_end` (§7.1), ne `proba`.
+  const p = stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(4) }),
+    pretplata({
+      status: "trialing",
+      trialEnd: zaDana(4),
+      currentPeriodEnd: zaDana(4),
+      cancelAtPeriodEnd: true,
+    }),
+    SADA,
+  );
+  check(p.stanje === "otkazan", "otkazana proba → otkazan, ne proba");
+  check(p.stanje === "otkazan" && p.punDo === zaDana(4), "otkazana proba traje do trial_end");
+}
+
+// Dan 8, kartica prošla: `active`, novi period. Nije više proba.
+check(
+  stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(30) }),
+    pretplata({ status: "active", trialEnd: zaDana(-1), currentPeriodEnd: zaDana(30) }),
+    SADA,
+  ).stanje === "aktivan",
+  "posle probe → aktivan (trial_end u prošlosti ne pravi probu)",
+);
+
+// Dan 8, kartica PALA: `past_due`, `plan_expires_at` ostao dan 8 → grace prirodno.
+check(
+  stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(-1) }),
+    pretplata({ status: "past_due", trialEnd: zaDana(-1), currentPeriodEnd: zaDana(-1) }),
+    SADA,
+  ).stanje === "grace",
+  "kartica pala posle probe → grace (nije platio)",
+);
+
+// `unpaid`/`incomplete`: kao da pretplate nema — plan_expires_at odlučuje.
+check(
+  stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(-2) }),
+    pretplata({ status: "incomplete_expired" }),
+    SADA,
+  ).stanje === "grace",
+  "incomplete_expired sa isteklim rokom → grace, ne pun pristup",
+);
+
+// ── 5. dopuna ──────────────────────────────────────────────
 console.log("\ndopuna");
 
 {
-  const p = stanjePristupa(profil({ plan: "beta", betaExpiresAt: zaDana(-5), creditsTopup: 40 }), null, SADA);
+  const p = stanjePristupa(profil({ plan: "komp", kompExpiresAt: zaDana(-5), creditsTopup: 40 }), null, SADA);
   check(p.stanje === "dopuna" && p.pun, "credits_topup > 0 bez pretplate → dopuna, pun pristup");
   check(p.planLimita === "dopuna", "dopuna dobija svoje dnevne limite");
   check(
@@ -153,7 +259,7 @@ console.log("\ndopuna");
 }
 
 check(
-  stanjePristupa(profil({ betaExpiresAt: zaDana(-90), creditsTopup: 10 }), null, SADA).stanje ===
+  stanjePristupa(profil({ kompExpiresAt: zaDana(-90), creditsTopup: 10 }), null, SADA).stanje ===
     "dopuna",
   "kupljen paket vraća pun pristup i posle isteka grace-a",
 );
@@ -163,34 +269,44 @@ check(
   "paket uz aktivnu pretplatu ne pretvara pretplatnika u `dopuna`",
 );
 
-// ── 5. sitnice koje ruše kapiju ────────────────────────────
+// ── 6. ko sme paket ────────────────────────────────────────
+console.log("\npaket");
+check(
+  STANJA_ZA_PAKET.includes("komp") && STANJA_ZA_PAKET.includes("proba") && !STANJA_ZA_PAKET.includes("dopuna"),
+  "paket smeju komp i proba, ne sme dopuna",
+);
+
+// ── 7. sitnice koje ruše kapiju ────────────────────────────
 console.log("\notpornost");
 
 check(
-  stanjePristupa(profil({ plan: "izmisljen", betaExpiresAt: zaDana(5) }), null, SADA).planLimita ===
+  stanjePristupa(profil({ plan: "izmisljen", kompExpiresAt: zaDana(5) }), null, SADA).planLimita ===
     "dopuna",
   "nepoznat plan iz baze pada na podrazumevani (`dopuna`), ne ruši kapiju",
 );
 
-// [S20] Podrazumevani plan više NIJE `beta`. Dok je bio, nepoznata vrednost u
-// koloni je uz `beta_expires_at IS NULL` davala NEOGRANIČEN pristup — dakle
-// tipfeler u bazi je bio doživotan besplatan nalog. Ovo je ta rupa, zatvorena.
+// [S20] Podrazumevani plan više NIJE `beta`/`komp`. Dok je bio, nepoznata
+// vrednost u koloni je uz prazan rok davala NEOGRANIČEN pristup.
 check(
   stanjePristupa(profil({ plan: "izmisljen" }), null, SADA).stanje === "zakljucan",
-  "nepoznat plan uz prazan rok NIJE neograničena beta",
+  "nepoznat plan uz prazan rok NIJE neograničen komp",
 );
 check(
   stanjePristupa(profil({ plan: null }), null, SADA).stanje === "zakljucan",
-  "prazan plan uz prazan rok NIJE neograničena beta",
+  "prazan plan uz prazan rok NIJE neograničen komp",
 );
 check(
-  stanjePristupa(profil({ plan: "beta", betaExpiresAt: "ovo-nije-datum" }), null, SADA).stanje ===
+  stanjePristupa(profil({ plan: "beta" }), null, SADA).stanje === "zakljucan",
+  "zaostala vrednost `beta` u koloni NIJE pristup (0025 je prepisuje u `komp`)",
+);
+check(
+  stanjePristupa(profil({ plan: "komp", kompExpiresAt: "ovo-nije-datum" }), null, SADA).stanje ===
     "zakljucan",
   "neispravan datum se ponaša kao da ga nema — nikad kao neograničen pristup",
 );
 check(
   stanjePristupa(
-    profil({ plan: "starter", betaExpiresAt: zaDana(20), planExpiresAt: zaDana(2) }),
+    profil({ plan: "starter", kompExpiresAt: zaDana(20), planExpiresAt: zaDana(2) }),
     pretplata({ currentPeriodEnd: zaDana(2) }),
     SADA,
   ).punDo === zaDana(20),

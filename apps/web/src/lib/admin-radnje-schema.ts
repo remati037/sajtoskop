@@ -15,7 +15,7 @@
 // radnjama.
 
 import { z } from "zod";
-import { BETA_DEFAULT_DAYS, DEFAULT_PLAN, PLANS } from "@sajtoskop/shared";
+import { DEFAULT_PLAN, KOMP_DEFAULT_DAYS, PLANS } from "@sajtoskop/shared";
 
 /**
  * Ono što vraća svaka uspela mutacija: rečenica, i skoro nikad ništa više —
@@ -66,20 +66,20 @@ export const kreditiBodySchema = z.strictObject({
  * po kome `planFor()` tiho pada na podrazumevani, pa bi konzola tvrdila jedno a
  * proizvod radio drugo.
  *
- * ‼️ `beta` je IZBAČEN iz spiska, i to je odluka D1 (LANSIRANJE §1.1), a ne
- *    previd. Beta nalog nije plan nego tri stvari odjednom — plan, rok i krediti
- *    — pa ide isključivo kroz „Otvori beta nalog" (`POST .../beta`), gde se sve
- *    tri upisuju u jednoj transakciji. Padajući spisak koji nudi `beta` bi
- *    dozvolio pola otvorenog naloga: plan bez roka, dakle NEOGRANIČENU betu.
+ * ‼️ `komp` je IZBAČEN iz spiska, i to je odluka D1 (LANSIRANJE §1.1), a ne
+ *    previd. Komp nalog nije plan nego tri stvari odjednom — plan, rok i krediti
+ *    — pa ide isključivo kroz „Otvori komp" (`POST .../komp`), gde se sve tri
+ *    upisuju u jednoj transakciji. Padajući spisak koji nudi `komp` bi dozvolio
+ *    pola otvorenog naloga: plan bez roka, dakle NEOGRANIČEN komp.
  *
  * Ovo je prvi od tri sloja; drugi je provera u `promeniPlan()`, treći je triger
- * u bazi (0024) koji drži i kad se aplikacija zaobiđe.
+ * u bazi (0025) koji drži i kad se aplikacija zaobiđe.
  */
-export const PLAN_OPCIJE: string[] = Object.keys(PLANS).filter((p) => p !== "beta");
+export const PLAN_OPCIJE: string[] = Object.keys(PLANS).filter((p) => p !== "komp");
 
 export const planBodySchema = z.strictObject({
   plan: z.enum(PLAN_OPCIJE as [string, ...string[]], {
-    error: `Nepoznat plan. Dozvoljeni su: ${PLAN_OPCIJE.join(", ")}. Beta ide kroz „Otvori beta nalog".`,
+    error: `Nepoznat plan. Dozvoljeni su: ${PLAN_OPCIJE.join(", ")}. Komp ide kroz „Otvori komp".`,
   }),
 });
 
@@ -90,7 +90,7 @@ export const PODRAZUMEVANI_PLAN: string = DEFAULT_PLAN;
  *
  * `null` je vrednost koja se šalje, ne izostavljeno polje — zato `.nullable()`, a
  * ne `.optional()`. Razlika je stvarna: `{}` bi značilo „ne diraj rok", a to
- * nijedan od dva obrasca ne nudi i ne sme tiho da postane neograničena beta.
+ * nijedan od dva obrasca ne nudi i ne sme tiho da postane neograničen komp.
  *
  * Rok u PROŠLOSTI je dozvoljen i namerno se ne proverava — tako se beta gasi
  * rukom (§1.5). Potvrdu za taj slučaj traži UI, jer je to jedino mesto gde se
@@ -101,7 +101,7 @@ export const PODRAZUMEVANI_PLAN: string = DEFAULT_PLAN;
  */
 const MAX_GODINA_UNAPRED = 5;
 
-const betaRok = z
+const kompRok = z
   .iso
   .datetime({ error: "Rok mora da bude ISO datum, ili `null` za neograničeno." })
   .refine(
@@ -110,35 +110,35 @@ const betaRok = z
   )
   .nullable();
 
-/** `PATCH /api/admin/korisnici/[id]/beta` — samo rok. */
-export const betaRokBodySchema = z.strictObject({ do: betaRok });
+/** `PATCH /api/admin/korisnici/[id]/komp` — samo rok. */
+export const kompRokBodySchema = z.strictObject({ do: kompRok });
 
 /**
- * `POST /api/admin/korisnici/[id]/beta` — „Otvori beta nalog".
+ * `POST /api/admin/korisnici/[id]/komp` — „Otvori komp".
  *
  * Tri polja jer su tri izmene, i sve tri idu u jednom pozivu (§1.1). `krediti`
- * sme da bude 0: nalog kome se beta samo produžava ne mora da dobije nov paket.
+ * sme da bude 0: nalog kome se komp samo produžava ne mora da dobije nov paket.
  *
  * `refId` generiše SERVER pri otvaranju forme i klijent ga vraća netaknutog —
  * isti obrazac i isti prostor imena kao kod korekcije kredita (F12 §2), jer je
  * to ista knjiga i ista idempotencija. Dvostruki klik zato ne daje dva paketa.
  */
-export const betaNalogBodySchema = z.strictObject({
-  do: betaRok,
+export const kompNalogBodySchema = z.strictObject({
+  do: kompRok,
   krediti: z
     .number()
     .int({ error: "Broj kredita mora da bude ceo broj." })
     .min(0, { error: "Broj kredita ne može da bude negativan." })
-    .max(500, { error: "Najviše 500 kredita po radnji." }),
+    .max(2000, { error: "Najviše 2000 kredita po radnji." }),
   refId: z
     .string()
     .regex(/^adm:[0-9a-f-]{36}$/, { error: "Ključ forme nije ispravan. Osveži stranu." }),
 });
 
 /** Predlog koji obrazac popuni: 50 kredita, rok 30 dana (odluka P6). */
-export const BETA_PREDLOG = {
-  krediti: PLANS.beta.monthlyCredits,
-  dana: BETA_DEFAULT_DAYS,
+export const KOMP_PREDLOG = {
+  krediti: PLANS.komp.monthlyCredits,
+  dana: KOMP_DEFAULT_DAYS,
 } as const;
 
 export const ulogaBodySchema = z.strictObject({
@@ -214,8 +214,8 @@ export const porukaBodySchema = z.strictObject({
     .max(4000, { error: "Poruka je duža od 4000 karaktera." }),
 });
 
-export type BetaRokBody = z.infer<typeof betaRokBodySchema>;
-export type BetaNalogBody = z.infer<typeof betaNalogBodySchema>;
+export type KompRokBody = z.infer<typeof kompRokBodySchema>;
+export type KompNalogBody = z.infer<typeof kompNalogBodySchema>;
 export type KreditiBody = z.infer<typeof kreditiBodySchema>;
 export type PozivnicaBody = z.infer<typeof pozivnicaBodySchema>;
 export type OpozivBody = z.infer<typeof opozivBodySchema>;
