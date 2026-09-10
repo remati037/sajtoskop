@@ -19,6 +19,9 @@
 //   /api/billing/webhook   isto, Stripe (S25) — `stripe.webhooks.constructEvent`
 //   /cenovnik              javan ekran cena; sesija se čita samo da bi se znalo
 //                          da li dugme vodi u checkout ili na registraciju
+//   /pozivnica/[code]      javna strana pozivnice (S27); gost vidi registraciju,
+//                          prijavljen dugme „Prihvati" — a ruta iza njega
+//                          (`/api/pozivnice/prihvati`) sama traži sesiju
 
 import { clerkMiddleware } from "@clerk/nextjs/server";
 

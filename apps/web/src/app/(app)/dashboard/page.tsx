@@ -6,7 +6,9 @@ import { requireSession } from "@/lib/auth";
 import { zahtevajCitanje } from "@/lib/pristup";
 import { userSupabase } from "@/lib/supabase";
 import { citajDnevnik } from "@/lib/dnevnik";
+import { porukaKompa } from "@/lib/pozivnice-schema";
 import { VezaGreska } from "@/components/veza-greska";
+import { Alert } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { StatKartica } from "@/components/ui/stat";
 import { NaslovSekcije, ZaglavljeStranice } from "@/components/ui/stranica";
@@ -69,9 +71,15 @@ const PRECICE = [
   },
 ];
 
-export default async function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  /** `?pozivnica=komp` — stiže sa `/pozivnica/[code]` posle prihvatanja (S27). */
+  searchParams: Promise<{ pozivnica?: string }>;
+}) {
   // Prva linija svake zaštićene stranice — ni middleware ni layout ovo ne rade.
   const userId = await requireSession();
+  const { pozivnica } = await searchParams;
 
   // Dnevnik ne sme da obori dashboard: bez njega strana radi, samo bez poslednjih
   // stavki. Isti obrazac kao registar keša na pretrazi.
@@ -110,6 +118,16 @@ export default async function Page() {
         naslov="Kontrolna tabla"
         opis="Stanje naloga i limiti plana. Sve brojke se resetuju po pravilima iz plana, ne po osećaju."
       />
+
+      {/* S27 (naplata-stripe.md §9.4): potvrda posle komp pozivnice. Query samo
+          kaže DA se prikaže; tekst je iz profila koji je strana ionako
+          pročitala, i stoji samo ako nalog stvarno jeste komp — ručno otkucan
+          `?pozivnica=komp` ne tvrdi ništa što nije tačno. */}
+      {pozivnica === "komp" && profile?.plan === "komp" && (
+        <Alert variant="success" className="mb-6">
+          {porukaKompa(profile.komp_expires_at, profile.credits_balance + profile.credits_topup)}
+        </Alert>
+      )}
 
       {profile ? (
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
