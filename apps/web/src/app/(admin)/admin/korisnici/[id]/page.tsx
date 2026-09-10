@@ -22,6 +22,7 @@ import { requireAdminPage } from "@/lib/admin";
 import { citajKorisnika } from "@/lib/admin-korisnici";
 import { brojAdmina } from "@/lib/admin-radnje";
 import { noviRefId } from "@/lib/admin-radnje-schema";
+import { opisPozivnice } from "@/lib/pozivnice-schema";
 import { KOLONA_LABEL } from "@/lib/pipeline-tipovi";
 import {
   formatDatum,
@@ -208,6 +209,35 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                   napomena="pristup i dalje traje do kraja plaćenog perioda"
                   mono
                 />
+              )}
+              {/* S27: odakle je nalogu komp ili gratis mesec. `invite_id` na
+                  profilu postoji samo između prihvatanja „prvog meseca" i
+                  checkout-a — webhook ga briše čim je sesija završena. */}
+              {detalj.pozivnica && (
+                <>
+                  <Red
+                    naziv="Pozivnica"
+                    vrednost={detalj.pozivnica.code}
+                    napomena={opisPozivnice(
+                      detalj.pozivnica.kind,
+                      detalj.pozivnica.kompDays,
+                      detalj.pozivnica.kompCredits,
+                    )}
+                    mono
+                  />
+                  <Red
+                    naziv="Iskorišćena"
+                    vrednost={formatDatum(detalj.pozivnica.redeemedAt)}
+                    napomena={
+                      detalj.pozivnica.kind === "komp"
+                        ? "komp otvoren pozivnicom"
+                        : profil.invite_id
+                          ? "gratis mesec čeka checkout"
+                          : "gratis mesec potrošen u checkout-u"
+                    }
+                    mono
+                  />
+                </>
               )}
             </dl>
           </Blok>

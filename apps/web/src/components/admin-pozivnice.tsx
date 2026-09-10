@@ -139,10 +139,10 @@ export function Pozivnice({ redovi }: { redovi: PozivnicaRed[] }) {
       {/* ── OBRAZAC ──────────────────────────────────────────── */}
       <section className="lg:sticky lg:top-8 lg:self-start">
         <div className="rounded-xl border border-border bg-bg-elev p-5 shadow-sm">
-          <h2 className="mb-1 text-[15px] font-semibold tracking-tight">Pozovi u betu</h2>
+          <h2 className="mb-1 text-[15px] font-semibold tracking-tight">Otvori ulaz u nalog</h2>
           <p className="mb-5 text-[11px] text-fg-faint">
-            Profil sa 30 kredita nastaje kad se nalog napravi, kroz isti webhook kao i za svakog
-            ko se prijavi sam.
+            Profil nastaje kad se nalog napravi, kroz isti webhook kao i za svakog ko se prijavi
+            sam — bez plana i bez kredita. Pristup daje pristupna pozivnica iznad.
           </p>
 
           <div className="space-y-2.5">
@@ -192,8 +192,10 @@ export function Pozivnice({ redovi }: { redovi: PozivnicaRed[] }) {
               />
             </fieldset>
 
+            {/* Sekundarno od S27: primarno dugme strane je „Napravi pozivnicu"
+                u sekciji iznad (jedno primarno po ekranu, dizajn sistem §7.1). */}
             <Button
-              variant="primary"
+              variant="secondary"
               className="w-full"
               disabled={zauzeto || !email.trim()}
               onClick={() => void pozovi()}
@@ -299,7 +301,8 @@ export function Pozivnice({ redovi }: { redovi: PozivnicaRed[] }) {
 
 // ── sitni delovi ─────────────────────────────────────────────
 
-function IzborNacina({
+/** Izbor jedne od dve opcije kao kartica sa ikonicom. Deli ga i obrazac pristupnih pozivnica. */
+export function IzborNacina({
   izabran,
   onClick,
   disabled,

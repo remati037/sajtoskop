@@ -3315,3 +3315,125 @@ manje stranica (§14.4); dnevni limit AI varijanti se sprovodi (B1, `claim_ai_re
 - **K3 (S27):** UI pozivnica (`/admin/pozivnice`, `/pozivnica/[code]`, `/api/pozivnice/prihvati`).
   Baza i `redeem_invite` su gotovi u 0025.
 - **P4:** mejlovi na `invoice.payment_failed`, `charge.dispute.created`.
+
+---
+
+## S27 — Pozivnice: komp i prvi mesec gratis ☑ (kod) · ručni prolaz otvoren
+
+**Isporučeno 11. septembra 2026.** Izvor: `docs/naplata-stripe.md` §9, §12 (#11, #12), K3 prompt
+(§15). Migracija: **nijedna** — sve iz 0025 je bilo dovoljno. Commit: „S27: pozivnice (komp, prvi
+mesec gratis)".
+
+> ‼️ **Preduslov K2 (S26) NIJE isporučen** — poslednji commit pre ove sesije je S25. S27 je rađen
+> pre njega jer od K2 zavisi na tačno jednom mestu: bedž „Prvi mesec: €0" na
+> `/cenovnik?pozivnica=1`. Do K2 korisnik posle „prvi mesec" pozivnice stiže na običan cenovnik,
+> **ali kupon se svejedno primenjuje** — checkout ga ubacuje na serveru iz `profiles.invite_id`.
+> K2 bedž treba da čita `invite_id` sa profila (ne samo `?pozivnica=1` iz query-ja), da ga vidi i
+> onaj ko se na cenovnik vrati kasnije.
+
+### Šta je urađeno
+
+- **`lib/pozivnice-schema.ts`** (bez `server-only`, deli ga klijent): `pozivnicaPristupBodySchema`
+  (`discriminatedUnion` po `kind`; komp: `komp_days` 1–365 ili `null` — izostavljeno ≠ `null`,
+  `komp_credits` 0–2000; oba: `code` opciono, `email` opciono, `max_uses` 1–100, `note` ≤ 200),
+  `kodSchema` (`upper(trim())` kao u `redeem_invite`), `prihvatiBodySchema` (strictObject — `userId`
+  u telu je 400), `ISHOD_POZIVNICE` (rečenice §9.4 za svih 8 razloga), `ishodPrihvatanja()`,
+  `porukaKompa()`, `opisPozivnice()`, `stanjePozivnice()`, `linkPozivnice()` (kroz `appUrl()`).
+- **`lib/pozivnice-pristup.ts`** (server-only): `generisiKod()` (`SAJT-XXXX-XXXX`,
+  `crypto.randomBytes`, azbuka od 32 znaka bez 0/O/1/I), `citajPozivnice()`,
+  `napraviPozivnicu()`, `opozoviPozivnicu()`, `citajPozivnicuZaStranu()`, `prihvatiPozivnicu()` →
+  `rpc("redeem_invite")`. Sve kroz `adminSupabase()` — obe tabele imaju RLS bez politika.
+- **Rute:** `POST /api/admin/pozivnice/pristup`, `DELETE /api/admin/pozivnice/pristup/[id]` (obe
+  `pripremiRadnju` → 404 za ne-admina + tempo, pa `saAuditom` → `admin_audit` i na uspeh i na pad);
+  `POST /api/pozivnice/prihvati` (5/min po IP, `requireUserId`, `ensureProfile` pre RPC-a da
+  svež nalog ne dobije `no_user`).
+- **`/admin/pozivnice`:** nova sekcija „Pristupne pozivnice" iznad Clerk pozivnica
+  (`components/admin-pozivnice-pristup.tsx`) — obrazac (tip, dana/bez roka, kredita, kod, upotreba,
+  mejl, napomena) i tabela (kod + stanje + „za <mejl>" + napomena, tip, rok/krediti, n/m, ko — link
+  na detalj korisnika, kad, Kopiraj link, Opozovi), filter Sve/Komp/Prvi mesec.
+- **`/pozivnica/[code]`** (van `(app)`): kartica „Pozivnica za <pun pristup N dana i M kredita |
+  prvi mesec gratis>"; gost dobija `AuthEkran` (registracija) sa `posle=/pozivnica/<kod>`,
+  prijavljen dugme „Prihvati" (`components/pozivnica-prihvati.tsx`) sa mejlom naloga i „Odjavi se".
+  Opozvana/istekla/iskorišćena pozivnica se vidi i bez prijave, bez dugmeta. `robots: noindex`.
+- **`/dashboard?pozivnica=komp`:** potvrda „Komp pristup do <datum> / bez roka, N kredita."
+- **Detalj korisnika:** blok „Pristup" dobija redove „Pozivnica" (kod + opis) i „Iskorišćena"
+  (datum + „gratis mesec čeka checkout" / „potrošen u checkout-u"). „Otvori komp" je postojeći
+  obrazac iz S20/S25 — nije diran.
+- **Tačka 6 (webhook):** proverena, bez izmene — `billing.ts` već zove
+  `oznaciPozivnicuIskoriscenom(userId)` na `checkout.session.completed` posle grane
+  `mode !== "subscription"`, dakle za pretplatu a ne za paket. Test to sada drži statički.
+- **Testovi:** `test/pozivnice.ts` (91 provera; u `pnpm --filter web test`): Zod šema, generator
+  (5000 kodova: oblik, bez zabranjenih znakova, bez ponavljanja, svih 32 znaka), prihvati ruta 401
+  bez sesije i 400 za šest loših tela, svih 8 ishoda → rečenica i status, statičke provere
+  (omotač sa revizijom, payload bez mejla i koda, 5/min, RLS bez politika, checkout + webhook).
+
+### Odstupanja od spec-a — namerna, ne previd
+
+- **Opoziv `prvi_mesec` briše i `profiles.invite_id`** naloga koji su je prihvatili a još nisu
+  prošli checkout. Checkout kupon ubacuje bez ikakve provere pozivnice, pa bi opozvana pozivnica
+  inače i dalje davala gratis mesec. Komp se opozivom ne oduzima — ko ga je dobio, zadržava ga.
+- **Radnje u reviziji su `invite.create` / `invite.revoke`**, iste kao za Clerk pozivnice (tako
+  traži K3). Razlikuju se po `payload.tip = "pristupna"`. `payload` nosi id i parametre, **ne mejl
+  i ne kod** (kod je pristup; `target_ref` = id je dovoljan trag).
+- **„Tost" je `Alert` na kontrolnoj tabli**, ne tost — komponente za tost u projektu nema. Tekst se
+  gradi iz profila, i prikazuje se samo ako je nalog stvarno `komp`, pa ručno otkucan query ne tvrdi
+  ništa netačno.
+- **`already_redeemed`** glasi „Ovaj nalog je već iskoristio jednu pozivnicu." umesto „Već si
+  iskoristio pozivnicu." — rečenica ne pretpostavlja rod. Ostale su doslovno iz §9.4 (uz dopunu
+  posle tačke gde pomaže: „za drugu adresu. Prijavi se nalogom sa adresom na koju je poslata.").
+- **Statusi:** `not_found` 404, `revoked`/`expired` 410, `wrong_email` 403, ostalo 409, `no_user` 503.
+- **Gost vidi registraciju, ne prijavu**, na samoj strani pozivnice (isti `AuthEkran` i isti `posle`
+  kao `/?nalog=nov&nazad=`). Pozvani skoro nikad nemaju nalog; prijava je jedan klik na prekidaču.
+  `internaPutanja()` ovde nije potrebna: putanja se sklapa na serveru iz koda koji je već prošao
+  `kodSchema` (`A-Z0-9-`).
+- **Ručni kod sme da ima 0/1/O/I** (admin ga bira svesno), 6–32 znaka; obrazac upozorava kad je
+  ručni kod bez mejla — takav se da pogoditi.
+- **`access_invites.expires_at` nije u obrascu** (nije ni u Zod listi iz prompta) — kolona ostaje
+  `null`, pozivnica se gasi opozivom.
+- **Clerk sekcija:** dugme „Pošalji pozivnicu" je sada sekundarno (jedno primarno po ekranu), a
+  zastarela kopija „Pozovi u betu / profil sa 30 kredita" (netačna od S20) zamenjena je tačnom.
+
+### Provereno
+
+```
+pnpm typecheck                → čisto (shared, web, worker, cli)
+pnpm --filter web lint        → čisto
+pnpm --filter web test        → sve prošlo (uklj. test/pozivnice.ts: 91/91)
+pnpm check:sql                → sve prošlo (S25: redeem_invite — svi ishodi)
+pnpm check:secrets            → bundle preskočen (nema .next build-a)
+```
+
+### Nije urađeno u ovoj sesiji (traži Stripe, bazu i Clerk ključeve)
+
+Sesija nema `.env.local`, pa ni dev server, ni bazu, ni Stripe test mod.
+
+- [ ] **Ručni prolaz §12 #11 (komp)** — admin napravi komp 30d/300 → nov nalog `/pozivnica/KOD` →
+  „Prihvati" → drugi nalog istim kodom → „Kod je već iskorišćen."; checkout plana sa komp naloga → 409.
+- [ ] **Ručni prolaz §12 #12 (prvi mesec)** — admin `prvi_mesec` → nov nalog → kod → checkout Pro
+  (4242) → `invite_id` postavljen pa `null` posle `checkout.session.completed`, `invoice.paid`
+  `amount_due = 0` → dodela 450, status `active`, `trial_end null`.
+- [ ] **Tri poruke uživo:** isti kod drugi put → „već iskorišćen"; kod za drugi mejl → „za drugu
+  adresu"; nalog sa planom → „Već imaš plan." (logika i rečenice pokriveni u `check:sql` i
+  `test/pozivnice.ts`, ali ne kroz UI).
+- [ ] **Vizuelno:** `/pozivnica/[code]` (gost, prijavljen, opozvana, nepostojeći kod) i
+  `/admin/pozivnice` u obe teme i na 390 px.
+
+Ledger izlaz posle ručnog prolaza (`select reason, ref_id, delta from credit_ledger where user_id =
+… order by created_at`):
+
+```
+-- §12 #11 (komp 30d/300):
+-- §12 #12 (prvi mesec gratis, Pro):
+```
+
+### Ostaje na meni
+
+| # | Gde | Šta |
+|---|---|---|
+| R44 | `/admin/pozivnice` | **Vladin komp nalog — NIJE napravljen ni poslat u ovoj sesiji** (sesija nema pristup produkciji). Napravi komp pozivnicu vezanu za Vladin mejl, pošalji link ručno, pa ovde upiši datum i kod: `poslato: ____ · kod: ____` |
+| — | ručni prolaz | stavke iz „Nije urađeno" iznad, ledger zalepiti ovde |
+
+### Preneto dalje
+
+- **K2 (S26)** i dalje otvoren — v. napomenu na vrhu ovog unosa (bedž iz `profiles.invite_id`).
+- **K6 / P4:** mejl korisniku sa pozivnicom (danas admin kopira link ručno).

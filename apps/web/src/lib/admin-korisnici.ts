@@ -16,6 +16,7 @@
 import "server-only";
 import { clerkClient } from "@clerk/nextjs/server";
 import type {
+  AccessInviteKind,
   AdminAuditRow,
   AdminUserRow,
   CreditLedgerRow,
@@ -336,6 +337,20 @@ export type DetaljKorisnika = {
   /** Broj leadova po koloni kanbana. Kolone bez ijednog leada se ne pojavljuju. */
   pipeline: { status: LeadStatusValue; broj: number }[];
   utisci: StavkaUtiska[];
+  /**
+   * Pristupna pozivnica koju je nalog iskoristio (S27). Najviše jedna —
+   * `redeem_invite` odbija drugu (`already_redeemed`). `null` = nijedna.
+   */
+  pozivnica: IskoriscenaPozivnica | null;
+};
+
+export type IskoriscenaPozivnica = {
+  id: string;
+  code: string;
+  kind: AccessInviteKind;
+  kompDays: number | null;
+  kompCredits: number | null;
+  redeemedAt: string;
 };
 
 /**
@@ -360,7 +375,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
 
   // Sedam nezavisnih čitanja, svih sedam odjednom. Nijedno ne zavisi od ishoda
   // drugog, pa bi redom bilo sedam čekanja umesto jednog.
-  const [ledger, otkljucani, pretrage, poslovi, pipeline, utisci, pretplata] = await Promise.all([
+  const [ledger, otkljucani, pretrage, poslovi, pipeline, utisci, pretplata, iskoriscenje] = await Promise.all([
     db
       .from("credit_ledger")
       .select("id, delta, reason, ref_id, created_at")
@@ -422,6 +437,15 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
           canceled_at: string | null;
         }[]
       >(),
+    // Obe tabele pozivnica imaju RLS bez politika (0025), pa i ovo ide kroz
+    // admin klijent. Sama pozivnica se čita posle, po id-ju — jedan red.
+    db
+      .from("access_invite_redemptions")
+      .select("invite_id, redeemed_at")
+      .eq("user_id", id)
+      .order("redeemed_at", { ascending: false })
+      .limit(1)
+      .returns<{ invite_id: string; redeemed_at: string }[]>(),
   ]);
 
   for (const [ime, r] of [
@@ -432,6 +456,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
     ["pipeline", pipeline],
     ["utisci", utisci],
     ["pretplata", pretplata],
+    ["pozivnica", iskoriscenje],
   ] as const) {
     if (r.error) console.error(`[admin] ${ime}:`, r.error.message);
   }
@@ -474,6 +499,34 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
       }
     : null;
 
+  let pozivnica: IskoriscenaPozivnica | null = null;
+  const redIskoriscenja = (iskoriscenje.data ?? [])[0];
+  if (redIskoriscenja) {
+    const { data: inv, error: iErr } = await db
+      .from("access_invites")
+      .select("id, code, kind, komp_days, komp_credits")
+      .eq("id", redIskoriscenja.invite_id)
+      .maybeSingle<{
+        id: string;
+        code: string;
+        kind: AccessInviteKind;
+        komp_days: number | null;
+        komp_credits: number | null;
+      }>();
+
+    if (iErr) console.error("[admin] pozivnica:", iErr.message);
+    else if (inv) {
+      pozivnica = {
+        id: inv.id,
+        code: inv.code,
+        kind: inv.kind,
+        kompDays: inv.komp_days,
+        kompCredits: inv.komp_credits,
+        redeemedAt: redIskoriscenja.redeemed_at,
+      };
+    }
+  }
+
   return {
     profil,
     pretplata: zaPristup,
@@ -501,6 +554,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
     poslovi: (poslovi.data ?? []).map((p) => p.job_queue),
     pipeline: [...poKoloni.entries()].map(([status, broj]) => ({ status, broj })),
     utisci: utisci.data ?? [],
+    pozivnica,
   };
 }
 

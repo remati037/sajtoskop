@@ -313,7 +313,8 @@ export function RadnjeNadKorisnikom(props: RadnjeProps) {
       {/* Jedina radnja u konzoli koja menja tri stvari jednim pozivom, i (uz
           pozivnicu) jedini put kojim plan sme da postane `komp` (LANSIRANJE §1.1,
           odluka D1). Sve tri izmene su u jednoj transakciji u bazi — pola
-          otvorenog komp naloga je gore nego nijedan. UI pozivnica je K3. */}
+          otvorenog komp naloga je gore nego nijedan. Pozivnice su na
+          `/admin/pozivnice` (S27); iskorišćena stoji u bloku „Pristup". */}
       <Pregrada />
       <NaslovSekcije>Komp nalog</NaslovSekcije>
       <div className="mt-2 space-y-2.5">
