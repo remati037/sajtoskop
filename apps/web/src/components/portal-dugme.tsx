@@ -1,7 +1,10 @@
 "use client";
 
 // apps/web/src/components/portal-dugme.tsx
-// „Upravljaj pretplatom" — jedina klijentska stvar na `/krediti` (S21).
+// „Upravljaj pretplatom" / „Računi i kartica" — Stripe Customer Portal (S21,
+// naplata-stripe.md §8). Tekst bira pozivalac: nalog sa pretplatom upravlja
+// pretplatom, nalog koji je kupio samo paket ide na račune i karticu, a
+// upozorenje o paloj naplati (S26) kaže „Ažuriraj karticu".
 //
 // Klijentska je zato što link mora da se traži tek na KLIK: Stripe portal
 // sesija je jednokratna i vremenski ograničena, pa link napravljen pri
@@ -71,7 +74,7 @@ export function PortalDugme({ children, className }: Props) {
       </Button>
 
       {greska && (
-        <p role="alert" className="mt-2 text-xs" style={{ color: "var(--danger)" }}>
+        <p role="alert" className="mt-2 text-xs text-danger">
           {greska}
         </p>
       )}

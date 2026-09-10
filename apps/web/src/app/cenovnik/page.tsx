@@ -15,6 +15,7 @@ import { smeDaKupiPaket } from "@sajtoskop/shared";
 import { getCurrentUserId } from "@/lib/auth";
 import { sellerName } from "@/lib/env";
 import { citajPristup } from "@/lib/pristup";
+import { imaoProbuRanije } from "@/lib/proba";
 import { citajNameru } from "@/lib/cenovnik-namera-schema";
 import { LANDING_URL } from "@/lib/veze";
 import { CenovnikEkran } from "@/components/cenovnik-ekran";
@@ -31,6 +32,26 @@ export const metadata: Metadata = {
     "kredita kao dopuna uz plan, čiji krediti ne ističu.",
 };
 
+/**
+ * Da li rečenica „Proba 7 dana…" sme da stoji iznad kartica (S26).
+ *
+ * Isto pitanje postavlja checkout (`imaoProbuRanije`), pa je odgovor isti po
+ * konstrukciji. Gost probu dobija (nov nalog je nikad nije imao); komp i
+ * pozivnica ne. Kvar upita SKRIVA rečenicu: izostavljeno obećanje je manja
+ * šteta od obećane probe koju Stripe strana onda ne pokaže.
+ */
+async function nudiProbu(userId: string | null, gratisMesec: boolean, komp: boolean) {
+  if (userId === null) return true;
+  if (gratisMesec || komp) return false;
+  return imaoProbuRanije(userId).then(
+    (imao) => !imao,
+    (err: unknown) => {
+      console.error("[cenovnik] čitanje probe:", err);
+      return false;
+    },
+  );
+}
+
 export default async function Page({
   searchParams,
 }: {
@@ -43,7 +64,7 @@ export default async function Page({
    */
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [upit, userId, { pristup }] = await Promise.all([
+  const [upit, userId, { pristup, profile }] = await Promise.all([
     searchParams,
     // `getCurrentUserId()`, ne `currentUser()`: treba nam samo POSTOJANJE sesije,
     // a `currentUser()` za to ide na Clerk API. Mejl se od S18 nigde ne koristi
@@ -57,12 +78,19 @@ export default async function Page({
     // `smeDaKupiPaket(null)` je `false`, što je za gosta i tačno.
     citajPristup().catch((err: unknown) => {
       console.error("[cenovnik] čitanje pristupa:", err);
-      return { pristup: null };
+      return { pristup: null, profile: null };
     }),
   ]);
 
   const prijavljen = userId !== null;
   const namera = citajNameru(upit);
+
+  // [S26] Pozivnica „prvi mesec gratis": izvor istine je `profiles.invite_id`,
+  // isti koji čita checkout. `?pozivnica=1` iz spec-a se NE traži uz njega —
+  // checkout kupon dodaje po `invite_id` bez obzira na link, pa bi ekran koji
+  // čeka parametar pokazao punu cenu i probu, a Stripe onda €0 i bez probe.
+  const gratisMesec = (profile?.invite_id ?? null) !== null;
+  const probaDostupna = await nudiProbu(userId, gratisMesec, pristup?.stanje === "komp");
 
   return (
     // `flex flex-col` + `flex-1` na `<main>`: bez toga futer stoji odmah ispod
@@ -108,6 +136,8 @@ export default async function Page({
             smePaket={smeDaKupiPaket(pristup ?? null)}
             namera={namera}
             prodavac={sellerName()}
+            gratisMesec={gratisMesec}
+            probaDostupna={probaDostupna}
           />
         </div>
       </main>

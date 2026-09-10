@@ -10,13 +10,23 @@
 // Zbog toga i kopija namerno ne kaže „plan ti je aktiviran": u trenutku kad se
 // ova strana prikaže, webhook možda još nije stigao. Kaže da je plaćanje primljeno.
 //
-// `?sesija=cs_…` stiže od Stripe-a; čitanje sesije za tekst („Starter, mesečno,
-// proba do 17.9.") je K2 (S26, naplata-stripe.md §5.4). Ništa se ne upisuje.
+// ── `?sesija=cs_…` (S26, naplata-stripe.md §5.4) ────────────
+// Jedan `checkout.sessions.retrieve` — SAMO za tekst („Starter, mesečno, proba
+// do 17. septembra"), dok webhook ne stigne. Ništa se ne upisuje. Sesija se
+// prikazuje samo svom vlasniku (`client_reference_id` = Clerk `userId`): ID
+// sesije stoji u URL-u, a URL ume da završi u tuđoj istoriji ili na snimku
+// ekrana. Svaki kvar (neispravan ID, tuđa sesija, Stripe ne odgovara,
+// nepodešen ključ) pada na tekst bez detalja — strana zahvalnosti ne sme da
+// pukne zato što je naplata već prošla.
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { z } from "zod";
 import { CircleCheck } from "lucide-react";
 import { getCurrentUserId } from "@/lib/auth";
+import { PAKETI } from "@/lib/cenovnik";
+import { stripe } from "@/lib/stripe-server";
+import { formatDatum, imePlana } from "@/lib/ui-tekst";
 import { LANDING_URL } from "@/lib/veze";
 import { Futer } from "@/components/futer";
 import { Button } from "@/components/ui/button";
@@ -30,10 +40,69 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function Page() {
+/** Stripe ID Checkout sesije. Sve drugo se ni ne šalje Stripe-u. */
+const sesijaIdSchema = z.string().regex(/^cs_(test|live)_[A-Za-z0-9]{8,250}$/);
+
+const PLAN_IZ_METAPODATAKA = z.enum(["starter", "pro", "advanced"]);
+
+type Opis = {
+  /** Naslov strane. Proba nije naplata — i ne sme tako da se zove. */
+  naslov: string;
+  /** „Starter, mesečno, proba do 17. septembra 2026." */
+  stavka: string;
+};
+
+async function opisKupovine(sesijaId: string, userId: string): Promise<Opis | null> {
+  try {
+    const sesija = await stripe().checkout.sessions.retrieve(sesijaId, {
+      expand: ["subscription"],
+    });
+    if (sesija.client_reference_id !== userId) return null;
+
+    if (sesija.mode === "payment") {
+      const paket = PAKETI.find((p) => p.id === sesija.metadata?.paket);
+      return paket
+        ? { naslov: "Plaćanje je primljeno", stavka: `${paket.name}, ${paket.credits} kredita` }
+        : null;
+    }
+
+    if (sesija.mode === "subscription") {
+      const plan = PLAN_IZ_METAPODATAKA.safeParse(sesija.metadata?.plan);
+      if (!plan.success) return null;
+
+      const delovi = [
+        imePlana(plan.data),
+        sesija.metadata?.ciklus === "year" ? "godišnje" : "mesečno",
+      ];
+      const pretplata = typeof sesija.subscription === "object" ? sesija.subscription : null;
+      const krajProbe = pretplata?.trial_end ?? null;
+
+      if (krajProbe) {
+        delovi.push(`proba do ${formatDatum(new Date(krajProbe * 1000).toISOString())}`);
+        return { naslov: "Proba je počela", stavka: delovi.join(", ") };
+      }
+      return { naslov: "Plaćanje je primljeno", stavka: delovi.join(", ") };
+    }
+  } catch (err) {
+    // Poruka, ne ceo objekat: Stripe greška nosi i zahtev, a ovaj log je trajan.
+    console.error("[welcome] čitanje sesije:", err instanceof Error ? err.message : String(err));
+  }
+  return null;
+}
+
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [upit, userId] = await Promise.all([searchParams, getCurrentUserId()]);
   // Kupac ume da plati i pre nego što napravi nalog — tada ga vodimo na
   // registraciju, a ne u aplikaciju u koju ne može da uđe.
-  const ulogovan = (await getCurrentUserId()) !== null;
+  const ulogovan = userId !== null;
+
+  const sirovo = Array.isArray(upit.sesija) ? upit.sesija[0] : upit.sesija;
+  const sesijaId = sesijaIdSchema.safeParse(sirovo);
+  const opis = userId && sesijaId.success ? await opisKupovine(sesijaId.data, userId) : null;
 
   return (
     <div className="relative flex min-h-screen flex-col">
@@ -51,7 +120,13 @@ export default async function Page() {
           <CircleCheck className="h-6 w-6" strokeWidth={1.75} />
         </div>
 
-        <h1 className="h2 mt-6">Plaćanje je primljeno</h1>
+        <h1 className="h2 mt-6">{opis?.naslov ?? "Plaćanje je primljeno"}</h1>
+
+        {opis && (
+          <p className="num mt-3 rounded-full border border-border bg-bg-elev px-3.5 py-1.5 text-sm font-medium">
+            {opis.stavka}
+          </p>
+        )}
 
         <p className="lede mt-4">
           Hvala. Račun stiže mejlom posle svake naplate. Plan se aktivira za koji sekund — ako ga

@@ -20,7 +20,7 @@ import { Download, Radar } from "lucide-react";
 import { creditMonth, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
 import { zahtevajCitanje } from "@/lib/pristup";
-import { citajPretplatuZaEkran } from "@/lib/pretplata";
+import { aktivacijaZa, citajPretplatuZaEkran } from "@/lib/pretplata";
 import { getIstorijaKredita } from "@/lib/krediti";
 import { formatDatum, RAZLOG_KREDITA } from "@/lib/ui-tekst";
 import { cn } from "@/lib/cn";
@@ -83,6 +83,9 @@ export default async function Page() {
         pristup={pristup}
         plan={profile.plan}
         pretplata={pretplata}
+        // S26: iznos, plan i dodela za „Aktiviraj odmah" — iz `plans.ts` po
+        // `lookup_key` pretplate (datum probe i otkazivanje su već u `pretplata`).
+        aktivacija={aktivacijaZa(pretplata)}
         imaStripeKupca={profile.stripe_customer_id !== null}
         izPretplate={profile.credits_balance}
         dokupljeni={profile.credits_topup}

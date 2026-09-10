@@ -9,27 +9,51 @@
 // koje sam platio". Zato ovaj blok razbija zbir na dva reda i uz svaki piše šta
 // se s njim dešava. Svuda drugde u proizvodu stoji ZBIR, jer se troši iz oba.
 //
-// ── iznos u evrima ──────────────────────────────────────────
-// [S25] Iznos plana SME da se prikaže: dolazi iz `plans.ts` po `lookup_key`
-// pretplate (`pretplata.eur`), ne iz Stripe-a, i to je cena koja se stvarno
-// naplaćuje — popusta više nema (pozivnica „prvi mesec" je 100% samo na prvoj
-// fakturi). Blok probe i „Aktiviraj odmah" su K2 (S26); ovde je samo tekst.
+// ── proba (S26, naplata-stripe.md §7) ───────────────────────
+// U stanju `proba` naslov je datum kraja probe, a rečenica kaže koliko se i za
+// šta naplaćuje osmog dana. Iznos dolazi iz `plans.ts` po `lookup_key`
+// pretplate (`pretplata.eur`) — to je cena koja se stvarno naplaćuje.
+// „Aktiviraj odmah" je SEKUNDARNO dugme: §7.1 daje jedno primarno po ekranu,
+// i ono ostaje „Dokupi kredite" / „Pogledaj planove".
+//
+// Otkazana proba je `otkazan` (ne `proba`, v. `stanjePristupa`), ali rečenica
+// je njena: „Proba otkazana, traje do …" — korisnik koji je otkazao probu nije
+// otkazao pretplatu u svojoj glavi, i ne sme da pomisli da će mu kartica biti
+// naplaćena.
+//
+// `past_due` (kartica pala pri obnovi) dobija upozorenje sa portalom iznad
+// svega ostalog — to je jedino stanje u kome čovek MORA nešto da uradi da ne
+// bi izgubio pristup, a portal je jedino mesto gde to može.
 
 import Link from "next/link";
 import { ArrowRight, Coins, Wallet } from "lucide-react";
-import { formatEur, sledecaDodelaKredita, smeDaKupiPaket, type Pristup } from "@sajtoskop/shared";
-import { formatDatum, imePlana } from "@/lib/ui-tekst";
+import {
+  formatEur,
+  sledecaDodelaKredita,
+  smeDaKupiPaket,
+  TRIAL_DAYS,
+  type Pristup,
+} from "@sajtoskop/shared";
+import { formatDatum, imePlana, redniDan } from "@/lib/ui-tekst";
 import type { PretplataZaEkran } from "@/lib/pretplata";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { AktivirajOdmah, type AktivacijaProbe } from "@/components/aktiviraj-odmah";
 import { PortalDugme } from "@/components/portal-dugme";
 
 const CIKLUS_REC = { month: "mesečno", year: "godišnje" } as const;
+
+/** „Osmog" — dan prve naplate, izveden iz `TRIAL_DAYS`, sa velikim slovom. */
+const DAN_NAPLATE = (() => {
+  const d = redniDan(TRIAL_DAYS + 1);
+  return d.charAt(0).toUpperCase() + d.slice(1);
+})();
 
 export function PretplataBlok({
   pristup,
   plan,
   pretplata,
+  aktivacija,
   imaStripeKupca,
   izPretplate,
   dokupljeni,
@@ -40,6 +64,11 @@ export function PretplataBlok({
   /** `profiles.plan`. */
   plan: string;
   pretplata: PretplataZaEkran | null;
+  /**
+   * Iznos, plan i dodela za „Aktiviraj odmah" — iz `aktivacijaZa()`. `null` van
+   * probe, ili kad iznos nije poznat; tada dugmeta nema.
+   */
+  aktivacija: AktivacijaProbe | null;
   /** Ima li nalog `stripe_customer_id`, dakle ima li portal šta da otvori. */
   imaStripeKupca: boolean;
   /** `credits_balance` — kasa koja se resetuje. */
@@ -53,6 +82,7 @@ export function PretplataBlok({
   // Odluka 26.8.: paket traži aktivan plan, komp ili probu. Ko ne sme, ne dobija dugme
   // koje bi ga odvelo u `403` — dobija ono koje ga vodi na planove.
   const smePaket = smeDaKupiPaket(pristup);
+  const naplataPala = pretplata?.status === "past_due";
 
   return (
     <section className="rounded-2xl border border-border bg-bg-elev shadow-sm">
@@ -63,16 +93,31 @@ export function PretplataBlok({
             Pretplata
           </p>
           <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <span className="text-lg font-semibold tracking-tight">{imePlana(plan)}</span>
-            {ciklus && <span className="text-sm text-fg-muted">· {ciklus}</span>}
+            {pristup?.stanje === "proba" ? (
+              <>
+                <span className="text-lg font-semibold tracking-tight">
+                  Proba do <span className="num">{formatDatum(pristup.probaDo)}</span>
+                </span>
+                <span className="text-sm text-fg-muted">
+                  · {imePlana(pretplata?.plan ?? plan)}
+                  {ciklus && `, ${ciklus}`}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-lg font-semibold tracking-tight">{imePlana(plan)}</span>
+                {ciklus && <span className="text-sm text-fg-muted">· {ciklus}</span>}
+              </>
+            )}
           </p>
           <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-fg-muted">
-            <Recenica pristup={pristup} pretplata={pretplata} />
+            <Recenica pristup={pristup} pretplata={pretplata} aktivacija={aktivacija} />
           </p>
         </div>
 
         {/* Jedno primarno dugme na ekranu (§7.1). Šta ono nudi zavisi od toga
-            šta nalog SME: dopunu, ili plan koji dopunu otključava. */}
+            šta nalog SME: dopunu, ili plan koji dopunu otključava. Sve ostalo
+            je sekundarno — i „Aktiviraj odmah", iako naplaćuje. */}
         <div className="flex shrink-0 flex-wrap items-start gap-2">
           <Button asChild variant="primary">
             <Link href={smePaket ? "/cenovnik#paketi" : "/cenovnik"}>
@@ -80,17 +125,39 @@ export function PretplataBlok({
               <ArrowRight aria-hidden />
             </Link>
           </Button>
+          {pristup?.stanje === "proba" && aktivacija && <AktivirajOdmah aktivacija={aktivacija} />}
           {imaStripeKupca ? (
             <PortalDugme>{pretplata ? "Upravljaj pretplatom" : "Računi i kartica"}</PortalDugme>
           ) : (
-            <Button asChild variant="secondary">
-              <Link href="/cenovnik">Pogledaj planove</Link>
-            </Button>
+            // Bez Stripe kupca portal nema šta da otvori. Drugi „Pogledaj
+            // planove" stoji samo kad primarno dugme nudi nešto drugo.
+            smePaket && (
+              <Button asChild variant="secondary">
+                <Link href="/cenovnik">Pogledaj planove</Link>
+              </Button>
+            )
           )}
         </div>
       </div>
 
-      {pristup?.stanje === "grace" && (
+      {naplataPala && (
+        <div className="px-5 pb-5 sm:px-6 sm:pb-6">
+          <Alert variant="warning">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p>
+                <span className="font-medium">Naplata nije prošla. Ažuriraj karticu.</span>{" "}
+                <span className="text-fg-muted">
+                  Stripe pokušava ponovo narednih dana. Dok period ne istekne radi sve; posle toga
+                  pristup prelazi u režim čitanja.
+                </span>
+              </p>
+              {imaStripeKupca && <PortalDugme className="shrink-0">Ažuriraj karticu</PortalDugme>}
+            </div>
+          </Alert>
+        </div>
+      )}
+
+      {pristup?.stanje === "grace" && !naplataPala && (
         <div className="px-5 pb-5 sm:px-6 sm:pb-6">
           <Alert variant="warning">
             <span className="font-medium">
@@ -129,10 +196,16 @@ export function PretplataBlok({
         <div className="mt-3 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
           <Kasa
             ikona={<Wallet aria-hidden />}
-            naslov="Iz pretplate"
+            naslov={pristup?.stanje === "proba" ? "Probni" : "Iz pretplate"}
             iznos={izPretplate}
             objasnjenje={
-              mesecnaDodela > 0 ? (
+              pristup?.stanje === "proba" ? (
+                <>
+                  Važe do kraja probe. Prvom naplatom se postavljaju na{" "}
+                  <span className="num">{aktivacija?.krediti ?? mesecnaDodela}</span> kredita plana
+                  — ne sabiraju se.
+                </>
+              ) : mesecnaDodela > 0 ? (
                 <>
                   Obnavlja se{" "}
                   <span className="num">{formatDatum(sledecaDodelaKredita())}</span> — tada se
@@ -201,9 +274,11 @@ function Kasa({
 function Recenica({
   pristup,
   pretplata,
+  aktivacija,
 }: {
   pristup: Pristup | null;
   pretplata: PretplataZaEkran | null;
+  aktivacija: AktivacijaProbe | null;
 }) {
   if (!pristup) {
     return <>Stanje naloga se trenutno ne čita. Krediti ispod su poslednje što je pročitano.</>;
@@ -220,15 +295,22 @@ function Recenica({
           sve; posle toga imaš još mesec dana da izvezeš svoj rad.
         </>
       ) : (
-        <>Komp pristup bez roka. Krediti stižu svakog meseca dok komp traje.</>
+        <>Komp pristup, neograničeno. Krediti stižu svakog meseca dok komp traje.</>
       );
 
     case "proba":
-      return (
+      return aktivacija ? (
         <>
-          Proba do <span className="num">{formatDatum(pristup.probaDo)}</span>. Tada se kartica
-          naplaćuje{pretplata?.eur !== null && pretplata?.eur !== undefined ? <> <span className="num">{formatEur(pretplata.eur)}</span></> : null}{" "}
-          i dobijaš pune kredite plana.
+          {DAN_NAPLATE} dana kartica se naplaćuje{" "}
+          <span className="num">{formatEur(aktivacija.eur)}</span> za {aktivacija.imePlana} i
+          dobijaš <span className="num">{aktivacija.krediti}</span> kredita. Ako potrošiš probne
+          kredite ranije, možeš da aktiviraš plan odmah.
+        </>
+      ) : (
+        // Ključ pretplate van kataloga (ručno napravljena u panelu): iznos se
+        // ne izmišlja, a bez iznosa se ne nudi ni „Aktiviraj odmah".
+        <>
+          {DAN_NAPLATE} dana kartica se naplaćuje po ceni plana i dobijaš pune kredite plana.
         </>
       );
 
@@ -249,7 +331,12 @@ function Recenica({
       );
 
     case "otkazan":
-      return (
+      return pretplata?.status === "trialing" ? (
+        <>
+          Proba otkazana, traje do <span className="num">{formatDatum(pristup.punDo)}</span>.
+          Kartica se neće naplatiti, a do tada radi sve kao i do sada.
+        </>
+      ) : (
         <>
           Pretplata je otkazana i neće se obnoviti, ali traje do{" "}
           <span className="num">{formatDatum(pristup.punDo)}</span>. Do tog datuma radi sve kao i

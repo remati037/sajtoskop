@@ -235,6 +235,37 @@ export function formatDatum(iso: string): string {
   });
 }
 
+const REDNI_GENITIV = [
+  "",
+  "prvog",
+  "drugog",
+  "trećeg",
+  "četvrtog",
+  "petog",
+  "šestog",
+  "sedmog",
+  "osmog",
+  "devetog",
+  "desetog",
+  "jedanaestog",
+  "dvanaestog",
+  "trinaestog",
+  "četrnaestog",
+  "petnaestog",
+] as const;
+
+/**
+ * `8` → „osmog" — za „prva naplata osmog dana" (S26).
+ *
+ * Postoji zato što se dan prve naplate IZVODI iz `TRIAL_DAYS`, a ne piše rukom:
+ * kad proba jednog dana postane 14 dana, rečenica na cenovniku i na `/krediti`
+ * mora da kaže „petnaestog" bez ijedne izmene teksta. Van tabele pada na „15."
+ * — tačno, samo manje lepo.
+ */
+export function redniDan(n: number): string {
+  return REDNI_GENITIV[n] ?? `${n}.`;
+}
+
 /**
  * „11.09." — za listu besplatnih pretraga, gde datum stoji u svakom redu i pun
  * oblik bi ga razvukao preko pola širine (F9 §4.3).

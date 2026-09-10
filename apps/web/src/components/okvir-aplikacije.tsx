@@ -20,6 +20,7 @@ import { smeDaKupiPaket, type MotorStanje, type Pristup, type Uslovi } from "@sa
 import { cn } from "@/lib/cn";
 import { NAVIGACIJA, naslovZaPutanju, type NavStavka } from "@/lib/navigacija";
 import { PrekidacTeme, PrekidacTemeDugme } from "./prekidac-teme";
+import type { AktivacijaProbe } from "./aktiviraj-odmah";
 import { PristupBaner } from "./pristup-baner";
 import { PristupProvider } from "./pristup-provider";
 import { UtisakDugme } from "./utisak-dugme";
@@ -76,6 +77,13 @@ type Props = {
    * Izvedeno u layout-u kroz `stanjePristupa()`; ovde se samo prikazuje.
    */
   pristup?: Pristup | null;
+  /**
+   * S26: probni krediti su potrošeni — traka nudi „Aktiviraj odmah" sa ovim
+   * iznosom. `null` van tog slučaja, ili kad iznos nije poznat.
+   */
+  aktivacijaProbe?: AktivacijaProbe | null;
+  /** S26: otkazana pretplata je u stvari otkazana PROBA — traka je tako i zove. */
+  probaOtkazana?: boolean;
   children: React.ReactNode;
 };
 
@@ -89,6 +97,8 @@ export function OkvirAplikacije({
   admin = false,
   neprocitano = 0,
   pristup = null,
+  aktivacijaProbe = null,
+  probaOtkazana = false,
   children,
 }: Props) {
   const putanja = usePathname();
@@ -233,7 +243,12 @@ export function OkvirAplikacije({
         {/* S19: traka stoji ISPOD trake kvara i IZNAD sadržaja. Redosled je
             namerno takav — pokvarena veza sa bazom je hitnija vest od isteklog
             roka, i uz nju stanje pristupa ionako nije pouzdano. */}
-        <PristupBaner pristup={pristup} />
+        <PristupBaner
+          pristup={pristup}
+          krediti={krediti}
+          aktivacijaProbe={aktivacijaProbe}
+          probaOtkazana={probaOtkazana}
+        />
 
         {/* Donji razmak postoji zbog plutajućeg dugmeta: bez njega ono stoji
             preko poslednjeg reda tabele na kratkim ekranima. */}

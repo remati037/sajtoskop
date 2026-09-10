@@ -3315,3 +3315,124 @@ manje stranica (§14.4); dnevni limit AI varijanti se sprovodi (B1, `claim_ai_re
 - **K3 (S27):** UI pozivnica (`/admin/pozivnice`, `/pozivnica/[code]`, `/api/pozivnice/prihvati`).
   Baza i `redeem_invite` su gotovi u 0025.
 - **P4:** mejlovi na `invoice.payment_failed`, `charge.dispute.created`.
+
+---
+
+## S26 — Stripe cenovnik, portal, proba UI, „Aktiviraj odmah" ☑ (kod) · ☐ (ručni prolaz)
+
+**Isporučeno 11. septembra 2026.** Izvor: `docs/naplata-stripe.md` (K2 prompt, §15; §4, §5.4, §7,
+§8). Bez migracije. Commit: „S26: Stripe cenovnik, portal, trial UI, aktiviraj odmah".
+
+**Cilj, ispunjen u kodu:** sve što korisnik vidi o naplati radi nad Stripe-om; proba ima svoj UI i
+dugme „Aktiviraj odmah" koje probu pretvara u plaćen plan danas.
+
+### Šta je urađeno
+
+- **`lib/cenovnik.ts`** — `Tier.cena` / `Paket.eur` iz `plans.ts` (od S25), red pogodnosti „Manje firmi
+  nego što si tražio? Razliku vraćamo.", `PROBA_RECENICA` iz `TRIAL_DAYS`/`TRIAL_CREDITS` (dan naplate
+  izveden kroz nov `redniDan()` u `ui-tekst.ts` — „osmog"), `mesecnoOdGodisnje()` („€24,17", u
+  centima, bez `Intl`).
+- **`cenovnik-ekran.tsx`** (ceo fajl) — rečenica o probi iznad kartica samo kad je nalog dobija
+  (`probaDostupna`) i nikad uz pozivnicu; godišnje „(€24,17 mesečno)"; pozivnica → bedž „Prvi mesec €0" +
+  „od drugog meseca €X" (samo mesečni ciklus); 403/409 prikazuju serversku rečenicu, a 409 `kod:
+  "ima_plan"` dodaje link na `/krediti`; 401 → registracija sa povratkom; rečenica na dnu iz §4 sa
+  `mailto:`.
+- **`cenovnik/page.tsx`** — prosleđuje `gratisMesec` (iz `profiles.invite_id`) i `probaDostupna`
+  (`nudiProbu()`: gost da, komp/pozivnica ne, inače `!imaoProbuRanije()`; kvar upita → ne obećava).
+- **`lib/proba.ts`** (nov) — `imaoProbuRanije()` izmešten iz checkout rute; dele ga ruta i cenovnik.
+- **`/api/billing/aktiviraj`** (nova) + **`lib/aktiviraj.ts`** (odluka bez Supabase/Stripe, zbog
+  testa) — IP tempo 10/min, `requireUserId`, prazno telo kroz `aktivirajBodySchema =
+  strictObject({})`, pretplata iz `subscriptions` po `user_id` + `status = 'trialing'`; otkazana proba
+  → 409; pre izmene `subscriptions.retrieve` (dupli klik, kasni webhook, `metadata.user_id` mora da
+  se poklapa); `subscriptions.update(id, { trial_end: "now", proration_behavior: "none",
+  payment_behavior: "error_if_incomplete" })`; odbijena kartica → 402. Ruta ne dira ni kredite ni
+  bazu — to rade webhookovi (`invoice.paid` `subscription_cycle` → 150).
+- **`components/aktiviraj-odmah.tsx`** (nov) — sekundarno dugme + modal „Naplaćuje se €X sada, plan
+  počinje danas."; dok naplata traje modal se ne zatvara; posle uspeha dva `router.refresh()` (odmah i
+  posle 3 s, dok webhook stigne).
+- **`pretplata-blok.tsx`** (ceo fajl) — `proba`: naslov „Proba do <datum>", rečenica „Osmog dana kartica
+  se naplaćuje €X za <plan> i dobijaš <N> kredita…", „Aktiviraj odmah" pored primarnog „Dokupi
+  kredite" (§7.1: primarno ostaje jedno); kasa se u probi zove „Probni". `otkazan` + `trialing`: „Proba
+  otkazana, traje do <datum>". `past_due`: upozorenje „Naplata nije prošla. Ažuriraj karticu." +
+  `PortalDugme` (umesto grace upozorenja, jer je izlaz kartica, ne nov plan). `komp`: „do <datum>" /
+  „neograničeno". Stari komentar o iznosu obrisan.
+- **`lib/pretplata.ts`** — `aktivacijaZa(pretplata)` → `{ eur, imePlana, krediti }` iz `plans.ts`;
+  `null` van probe ili kad `lookup_key` nije naš (tada nema dugmeta).
+- **`(app)/layout.tsx` → `okvir-aplikacije.tsx` → `pristup-baner.tsx`** — `proba` sa NULA kredita:
+  „Probni krediti su potrošeni. Aktiviraj plan odmah ili sačekaj <datum>." + „Aktiviraj odmah"
+  (mali, sekundarni). Drugi čitač pretplate (`citajPretplatuZaEkran`, `cache()`) zove se SAMO u tom
+  slučaju. Otkazana proba u traci: „Proba je otkazana i traje do…".
+- **`portal-dugme.tsx`** — tekst bira pozivalac („Upravljaj pretplatom" / „Računi i kartica" /
+  „Ažuriraj karticu"); inline `style` sa `var(--danger)` → `text-danger`.
+- **`krediti/page.tsx`** — prosleđuje `aktivacija`; `trialEnd`/`cancelAtPeriodEnd`/`eur` već nosi
+  `PretplataZaEkran` (S25).
+- **`/welcome`** — `?sesija=cs_…` (Zod regex) → `checkout.sessions.retrieve(…, { expand:
+  ["subscription"] })` samo za tekst („Starter, mesečno, proba do 18. septembar 2026."), samo vlasniku
+  (`client_reference_id === userId`); naslov „Proba je počela" / „Plaćanje je primljeno"; svaki kvar →
+  tekst bez detalja. Ništa se ne upisuje.
+- **Testovi:** nov `test/aktiviraj.ts` (409 van probe i bez Stripe poziva, aktivna/otkazana/`past_due`,
+  pretplata iz baze po sesiji — nikad tuđa, šema odbija `subscriptionId`/`userId`/`null`/niz, 402,
+  dupli klik, statičko ožičenje rute i klijenta); `test/cenovnik.ts` sekcije 3c/3d (cene i paketi
+  75/200 iz `plans.ts`, `€24,17`/`€49,17`/`€99,17`, rečenica probe izvedena, nema `pri_`/`price_`/
+  Paddle/`drzava`, bedž samo mesečno, 409 link, §4 rečenica, kupon samo mesečno, nigde „trial" u
+  UI-u, jedno primarno dugme u bloku, traka tek na 0 kredita). `package.json` test skripta.
+- **Provere:** `pnpm typecheck` (shared, web, worker, cli), `pnpm --filter @sajtoskop/web lint`,
+  `pnpm --filter @sajtoskop/web test` — čisti. Nijedan hex/oklch u izmenjenim komponentama.
+
+### Odstupanja od spec-a — namerna, ne previd
+
+- **‼️ Kupon „prvi mesec gratis" samo uz mesečni ciklus (izmena checkout rute iz K1).** Kupon je 100%
+  `duration: once` na PRVU fakturu — uz godišnji plan to je cela godina gratis (Pro €590, Advanced
+  €1.190), a pozivnica obećava mesec. Sada `gratisMesec = invite_id !== null && ciklus === "month"`;
+  godišnji izbor sa pozivnicom ide običnim putem (proba ako je nalog nije imao), a `invite_id` se briše
+  na `checkout.session.completed` kao i pre. Ako je godina gratis bila namerna — jedan red u ruti.
+- **`?pozivnica=1` se ne traži.** Checkout kupon primenjuje po `profiles.invite_id` bez obzira na link;
+  ekran koji bi čekao parametar pokazao bi punu cenu i probu, a Stripe onda €0 bez probe. Izvor istine
+  je `invite_id`, i na ekranu i u ruti.
+- **`payment_behavior: "error_if_incomplete"` na aktivaciji** (spec traži samo `trial_end` i
+  `proration_behavior`). Sa podrazumevanim `allow_incomplete` odbijena kartica završi probu i ostavi
+  pretplatu u `past_due` — čovek izgubi probu klikom na „plati sada". Ovako Stripe odbije ceo update
+  (402), proba traje.
+- **`subscriptions.retrieve` pre `update`** — jedan Stripe poziv više; bez njega dupli klik posle
+  uspešne aktivacije (baza još kaže `trialing`) šalje `trial_end: "now"` aktivnoj pretplati.
+- **Rečenica o probi se skriva** nalogu koji je već imao probu, komp nalogu i uz pozivnicu — prompt je
+  traži bezuslovno, ali checkout tim nalozima probu ne daje.
+- **409 iz checkout-a nosi `kod`** (`ima_plan` / `komp`) — ekran se grana po ugovoru, ne po tekstu
+  poruke.
+- **`past_due` zamenjuje grace upozorenje u bloku** kad su oba tačna (kartica pala i period istekao):
+  izlaz je nova kartica kroz portal, ne nov plan.
+
+### Nije urađeno u ovoj sesiji (traži ključeve i Stripe CLI)
+
+`apps/web/.env.local` u ovoj sesiji nema `STRIPE_*`, `NEXT_PUBLIC_APP_URL` ni `CLERK_SECRET_KEY`, a
+`stripe` CLI nije instaliran — preduslov iz prompta („test ključevi u .env.local, stripe listen radi")
+nije ispunjen, pa aplikacija nije podignuta. Ručni prolaz ostaje:
+
+- [ ] (a) `/cenovnik` → checkout (4242) → `/welcome` pokazuje „Proba je počela" i „Starter, mesečno,
+  proba do …" → `/krediti` pokazuje „Proba do <datum>"
+- [ ] (b) potroši 10 kredita → traka „Probni krediti su potrošeni" → „Aktiviraj odmah" → modal → faktura
+  odmah → `/krediti` pokazuje 150 i „Pretplata je aktivna" (+ kartica `4000 0000 0000 0341`: 402, proba
+  ostaje)
+- [ ] (c) portal: otkaži → traka „Proba je otkazana i traje do …" / blok „Proba otkazana, traje do …"
+- [ ] (d) obe teme i 390 px na `/cenovnik` (gost, pozivnica, godišnje) i `/krediti` (proba, `past_due`) —
+  snimci ovde:
+
+  ```
+  -- /cenovnik tamna 390:
+  -- /cenovnik svetla 390:
+  -- /krediti tamna 390:
+  -- /krediti svetla 390:
+  ```
+
+### Ostaje na meni
+
+| # | Gde | Šta |
+|---|---|---|
+| R40 | `.env.local` | i dalje otvoreno iz S25 — bez njega nema ni (a)–(d) |
+| R44 | Stripe panel | proveriti da li **godišnji** kupac sa pozivnicom treba da dobije mesec — ako da, drugi kupon (`amount_off` = mesečna cena) umesto 100% `once`; do tada godišnji ide bez kupona |
+| — | ručni prolaz | (a)–(d) iznad, snimci u ovaj unos |
+
+### Preneto dalje
+
+- **K3 (S27):** `/pozivnica/[code]` posle prihvatanja sme da vodi na `/cenovnik` bez parametra — bedž
+  čita `invite_id`.

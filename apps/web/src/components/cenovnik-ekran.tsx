@@ -5,11 +5,15 @@
 // na Stripe hosted Checkout.
 //
 // ── odakle dolazi cifra ─────────────────────────────────────
-// [S25] Iz `plans.ts` (`PLAN_PRICES`, `CREDIT_PACKS`), kroz `formatEur()`.
-// Stripe hosted Checkout prikazuje iznos na svojoj strani; ovaj ekran ga mora
+// Iz `plans.ts` (`PLAN_PRICES`, `CREDIT_PACKS`), kroz `formatEur()`. Stripe
+// hosted Checkout prikazuje iznos na svojoj strani; ovaj ekran ga mora
 // prikazati PRE toga i čita ga iz jedinog izvora u kodu. Stripe katalog se
 // proverava naspram tog fajla (`pnpm stripe:doktor`), ne obrnuto. Cene su u
 // evrima, bez PDV-a (odluka D1: bez Stripe Tax).
+//
+// Godišnja cena nosi i mesečni ekvivalent („€290 / godišnje (€24,17
+// mesečno)"), izračunat deljenjem sa 12 u `mesecnoOdGodisnje()` — bez `Intl`,
+// zbog hydration-a.
 //
 // ── klik ────────────────────────────────────────────────────
 // `POST /api/billing/checkout { vrsta, plan, ciklus } | { vrsta, paket }` →
@@ -20,6 +24,15 @@
 //     registraciju sa povratkom na SVOJ izbor (`naRegistraciju`).
 //   · svako dugme ima svoje stanje čekanja: između klika i redirekcije stoji
 //     jedan mrežni poziv ka nama.
+//   · `409` nosi `kod` (S26): „ima_plan" dobija poruku i link na `/krediti`
+//     (promena plana ide kroz portal), „komp" samo poruku.
+//
+// ── proba i pozivnica (S26) ─────────────────────────────────
+// Rečenica o probi stoji iznad kartica SAMO kad je nalog stvarno dobija
+// (`probaDostupna`, izvedeno na serveru istom funkcijom koju zove checkout).
+// Pozivnica „prvi mesec gratis" (`gratisMesec`) menja cenu na kartici u bedž
+// „Prvi mesec €0" + „od drugog meseca €X" — i isključuje tekst probe, jer
+// checkout uz kupon probu ne daje. Kupon važi samo uz mesečni ciklus.
 //
 // ── namera sa landinga (S24) ────────────────────────────────
 // `/cenovnik?plan=pro&ciklus=godisnje` / `?paket=200` preselektuje: prekidač
@@ -29,20 +42,27 @@
 // ‼️ Checkout se NAMERNO ne otvara sam na osnovu `?plan=`: to je Stripe sesija
 //    po svakom učitavanju strane, uključujući osvežavanje, „nazad" iz istorije
 //    i svakog bota. Namera preselektuje; klik ostaje čovekov.
-//
-// ‼️ Puna prepravka ovog ekrana (bedž „Prvi mesec €0" uz pozivnicu, tekst
-//    probe, godišnje sa „(€24,17 mesečno)", stanja 409) je K2 (S26). Ovde je
-//    minimum da ekran radi nad Stripe-om.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Coins, Infinity as Beskonacno, Loader2, Lock, TriangleAlert } from "lucide-react";
+import Link from "next/link";
+import {
+  Check,
+  Coins,
+  CreditCard,
+  Infinity as Beskonacno,
+  Loader2,
+  Lock,
+  TriangleAlert,
+} from "lucide-react";
 import {
   CIKLUS_LABELA,
   CIKLUS_SUFIKS,
   CIKLUSI,
   formatEur,
   GODISNJI_BONUS,
+  mesecnoOdGodisnje,
   PAKETI,
+  PROBA_RECENICA,
   TIERS,
   type Ciklus,
   type Paket,
@@ -73,11 +93,16 @@ function kljucKupovine(telo: CheckoutBody): string {
   return telo.vrsta === "plan" ? `${telo.plan}:${telo.ciklus}` : telo.paket;
 }
 
+/** Poruka iznad kartica, sa izlazom kad ga ima. */
+type Greska = { poruka: string; link?: { href: string; tekst: string } };
+
 export function CenovnikEkran({
   prijavljen,
   smePaket,
   namera,
   prodavac,
+  gratisMesec,
+  probaDostupna,
 }: {
   /** Ima li posetilac Clerk sesiju. Bez nje nema `user_id`, dakle ni kupovine. */
   prijavljen: boolean;
@@ -98,11 +123,22 @@ export function CenovnikEkran({
   namera: Namera;
   /** Ime prodavca (LLC, odluka A4) — iz env-a, na serveru. */
   prodavac: string;
+  /**
+   * Nalog ima neiskorišćenu pozivnicu „prvi mesec gratis" (`profiles.invite_id`).
+   * Checkout tada dodaje 100% kupon na prvu MESEČNU fakturu i ne daje probu.
+   */
+  gratisMesec: boolean;
+  /**
+   * Nalog bi u checkout-u dobio probu. `false` za nalog koji je već imao probu,
+   * za komp i uz pozivnicu — rečenica o probi je obećanje, pa se ne ispisuje
+   * onome kome checkout neće dati probu.
+   */
+  probaDostupna: boolean;
 }) {
   // Ciklus iz linka je POČETNA vrednost, ne zaključana: prekidač ostaje živ i
   // čovek koji je sa landinga stigao na „godišnje" sme da se predomisli.
   const [ciklus, setCiklus] = useState<Ciklus>(namera.ciklus ?? "month");
-  const [greska, setGreska] = useState<string | null>(null);
+  const [greska, setGreska] = useState<Greska | null>(null);
   /** Kupovina čije se dugme trenutno čeka. Jedno po ekranu — redirekcija je jedna. */
   const [uToku, setUToku] = useState<string | null>(null);
 
@@ -137,11 +173,27 @@ export function CenovnikEkran({
           return;
         }
 
-        const odg = (await odgovor.json().catch(() => ({}))) as { url?: string; greska?: string };
+        const odg = (await odgovor.json().catch(() => ({}))) as {
+          url?: string;
+          greska?: string;
+          kod?: string;
+        };
 
         if (!odgovor.ok || !odg.url) {
           // 403 (paket bez plana) i 409 (već ima plan / komp) nose rečenicu sa
           // servera koja kaže ŠTA da se uradi — ona ide na ekran, ne opšta.
+          // Kvar (5xx, mreža) ide u `catch` i dobija opštu.
+          if (odgovor.status === 403 || odgovor.status === 409) {
+            setGreska({
+              poruka: odg.greska ?? "Ovu kupovinu nalog trenutno ne može da napravi.",
+              link:
+                odg.kod === "ima_plan"
+                  ? { href: "/krediti", tekst: "Otvori stranu „Krediti“" }
+                  : undefined,
+            });
+            setUToku(null);
+            return;
+          }
           throw new Error(odg.greska ?? `HTTP ${odgovor.status}`);
         }
 
@@ -151,9 +203,12 @@ export function CenovnikEkran({
         window.location.assign(odg.url);
       } catch (err) {
         console.error("[cenovnik] checkout:", err);
-        setGreska(err instanceof Error && err.message && !/^HTTP \d+$/.test(err.message)
-          ? err.message
-          : "Plaćanje se trenutno ne može otvoriti.");
+        setGreska({
+          poruka:
+            err instanceof Error && err.message && !/^HTTP \d+$/.test(err.message)
+              ? err.message
+              : "Plaćanje se trenutno ne može otvoriti.",
+        });
         setUToku(null);
       }
     },
@@ -164,23 +219,43 @@ export function CenovnikEkran({
     <div>
       <PrekidacCiklusa vrednost={ciklus} promeni={setCiklus} />
 
+      {/* Proba (D2): jedna rečenica, ne kartica — ista je za sva tri plana. */}
+      {probaDostupna && !gratisMesec && (
+        <p className="mx-auto mt-6 flex max-w-xl items-start justify-center gap-2 text-center text-sm text-fg-muted">
+          <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-accent-text" aria-hidden />
+          <span>{PROBA_RECENICA}.</span>
+        </p>
+      )}
+
       {greska && (
-        <p
+        <div
           role="alert"
           className="mx-auto mt-8 flex max-w-xl items-start gap-2.5 rounded-xl border border-border bg-bg-elev px-4 py-3 text-sm text-fg-muted shadow-sm"
         >
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warn-text" />
-          <span>
-            <span className="font-medium text-fg">{greska}</span> Ako se ponavlja, javi mi se na{" "}
-            <a
-              href="mailto:podrska@sajtoskop.com"
-              className="font-medium text-accent-text underline underline-offset-4"
-            >
-              podrska@sajtoskop.com
-            </a>
-            .
-          </span>
-        </p>
+          <p>
+            <span className="font-medium text-fg">{greska.poruka}</span>{" "}
+            {greska.link ? (
+              <Link
+                href={greska.link.href}
+                className="font-medium text-accent-text underline underline-offset-4"
+              >
+                {greska.link.tekst}
+              </Link>
+            ) : (
+              <>
+                Ako se ponavlja, javi mi se na{" "}
+                <a
+                  href="mailto:podrska@sajtoskop.com"
+                  className="font-medium text-accent-text underline underline-offset-4"
+                >
+                  podrska@sajtoskop.com
+                </a>
+                .
+              </>
+            )}
+          </p>
+        </div>
       )}
 
       <div className="mt-10 grid grid-cols-1 gap-5 lg:grid-cols-3 lg:items-start">
@@ -189,6 +264,7 @@ export function CenovnikEkran({
             key={tier.name}
             tier={tier}
             ciklus={ciklus}
+            gratisMesec={gratisMesec}
             ceka={uToku === `${tier.id}:${ciklus}`}
             zakljucano={uToku !== null}
             // Namera sa landinga pomera akcenat: izabran plan dobija primarno
@@ -213,10 +289,17 @@ export function CenovnikEkran({
         naKlik={(paket, nazad) => void otvoriCheckout({ vrsta: "paket", paket }, nazad)}
       />
 
-      {/* D5, A4: prodavac je LLC, račun stiže mejlom od Stripe-a u ime LLC-a. */}
-      <p className="mt-8 text-center text-xs text-fg-muted">
+      {/* D5, A4 (§4): prodavac je LLC, račun stiže mejlom od Stripe-a u ime LLC-a. */}
+      <p className="mx-auto mt-8 max-w-2xl text-center text-xs leading-relaxed text-fg-muted">
         Cene su u evrima, bez PDV-a. Prodavac je {prodavac}, SAD; račun stiže mejlom posle svake
-        naplate. Plaćanje preko firme uz fakturu — javi se na podrska@sajtoskop.com.
+        naplate. Plaćanje preko firme uz fakturu — javi se na{" "}
+        <a
+          href="mailto:podrska@sajtoskop.com"
+          className="font-medium text-accent-text underline underline-offset-4"
+        >
+          podrska@sajtoskop.com
+        </a>
+        .
       </p>
     </div>
   );
@@ -278,7 +361,7 @@ function SekcijaPaketa({
             </p>
           </div>
 
-          <p className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-bg-elev px-3 py-2 text-xs font-medium text-fg-muted">
+          <p className="flex shrink-0 items-center gap-2 self-start rounded-lg border border-border bg-bg-elev px-3 py-2 text-xs font-medium text-fg-muted">
             {smePaket ? (
               <>
                 <Beskonacno className="h-3.5 w-3.5 text-accent-text" aria-hidden />
@@ -467,6 +550,7 @@ function PrekidacCiklusa({
 function KarticaPlana({
   tier,
   ciklus,
+  gratisMesec,
   ceka,
   zakljucano,
   izabran,
@@ -475,6 +559,8 @@ function KarticaPlana({
 }: {
   tier: Tier;
   ciklus: Ciklus;
+  /** Pozivnica „prvi mesec gratis" — v. prop na `CenovnikEkran`. */
+  gratisMesec: boolean;
   /** Ovo dugme čeka svoju sesiju. */
   ceka: boolean;
   /** Neko dugme čeka — ostala se gase da ne nastanu dve sesije. */
@@ -494,6 +580,10 @@ function KarticaPlana({
   // Bedž je jedan po kartici i ne mogu oba: kad je plan izabran sa landinga,
   // „Tvoj izbor" ima prednost nad „Najčešći izbor".
   const oznaka = izabran ? "Tvoj izbor" : tier.featured ? "Najčešći izbor" : null;
+  const eur = tier.cena[ciklus].eur;
+  // Kupon je `once` na prvu fakturu — uz godišnji plan bi to bila godina, pa
+  // ga checkout daje samo uz mesečni (v. rutu). Ekran kaže isto.
+  const prviMesecGratis = gratisMesec && ciklus === "month";
 
   return (
     <div
@@ -519,20 +609,46 @@ function KarticaPlana({
 
       <h2 className="text-base font-semibold">{tier.name}</h2>
       {/* Fiksna visina za dva reda, da opis od jednog reda ne razbije poravnanje. */}
-      <p className="mt-1.5 min-h-[2.5rem] text-sm text-fg-muted">{tier.description}</p>
+      <p className="mt-1.5 min-h-10 text-sm text-fg-muted">{tier.description}</p>
 
-      <div className="mt-6 flex min-h-[2.75rem] items-baseline gap-1.5">
-        {/* Iz `plans.ts`, kroz `formatEur` — bez `Intl`, isti string na serveru i u pregledaču. */}
-        <span className="num text-3xl font-semibold tracking-tight">
-          {formatEur(tier.cena[ciklus].eur)}
-        </span>
-        <span className="text-sm text-fg-muted">/ {CIKLUS_SUFIKS[ciklus]}</span>
+      <div className="mt-6 min-h-18">
+        {prviMesecGratis ? (
+          <>
+            {/* Bedž PREKO cene (§9, pozivnica): €0 je ono što se sada plaća,
+                a cifra ispod je ono što sledi — obe moraju da stoje. */}
+            <span className="inline-flex items-center rounded-full bg-accent-wash px-2.5 py-1 text-xs font-semibold text-accent-text">
+              Prvi mesec <span className="num ml-1">€0</span>
+            </span>
+            <p className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-sm text-fg-muted">od drugog meseca</span>
+              <span className="num text-2xl font-semibold tracking-tight">{formatEur(eur)}</span>
+              <span className="text-sm text-fg-muted">/ {CIKLUS_SUFIKS[ciklus]}</span>
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="flex flex-wrap items-baseline gap-x-1.5">
+              {/* Iz `plans.ts`, kroz `formatEur` — bez `Intl`, isti string na serveru i u pregledaču. */}
+              <span className="num text-3xl font-semibold tracking-tight">{formatEur(eur)}</span>
+              <span className="text-sm text-fg-muted">/ {CIKLUS_SUFIKS[ciklus]}</span>
+            </p>
+            {/* Visina reda se drži i na mesečnom, da kartice ne poskoče na prekidaču. */}
+            <p className="mt-1 min-h-5 text-xs text-fg-muted">
+              {ciklus === "year" && (
+                <>
+                  (<span className="num">{mesecnoOdGodisnje(eur)}</span> mesečno)
+                  {gratisMesec && " · „Prvi mesec €0“ važi uz mesečno plaćanje"}
+                </>
+              )}
+            </p>
+          </>
+        )}
       </div>
 
       <Button
         variant={istaknut ? "primary" : "secondary"}
         size="lg"
-        className="mt-6 w-full"
+        className="mt-4 w-full"
         disabled={zakljucano}
         onClick={naKlik}
       >

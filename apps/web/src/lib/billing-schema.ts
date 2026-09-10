@@ -22,3 +22,12 @@ export const checkoutBodySchema = z.discriminatedUnion("vrsta", [
 ]);
 
 export type CheckoutBody = z.infer<typeof checkoutBodySchema>;
+
+/**
+ * `/api/billing/aktiviraj` (S26, §7.4): telo je PRAZNO, i to je cela šema.
+ *
+ * `strictObject({})` ne služi da nešto primi nego da odbije: `{ subscriptionId }`
+ * ili `{ userId }` iz pregledača pada sa `400` umesto da bude tiho ignorisan.
+ * Tiho ignorisano polje je poziv da ga neko sutra „iskoristi" (pravilo 8).
+ */
+export const aktivirajBodySchema = z.strictObject({});

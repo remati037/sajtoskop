@@ -21,8 +21,10 @@
 
 import "server-only";
 import { cache } from "react";
-import { kupovinaZaLookupKey, type Ciklus, type SubscriptionRow } from "@sajtoskop/shared";
+import { kupovinaZaLookupKey, planFor, type Ciklus, type SubscriptionRow } from "@sajtoskop/shared";
+import type { AktivacijaProbe } from "@/components/aktiviraj-odmah";
 import { adminSupabase } from "./supabase";
+import { imePlana } from "./ui-tekst";
 
 /** Ono što ekran i portal traže od pretplate. Više od kapije, manje od cele tabele. */
 export type PretplataZaEkran = {
@@ -73,6 +75,24 @@ function uEkran(r: Red): PretplataZaEkran {
     trialEnd: r.trial_end,
     cancelAtPeriodEnd: r.cancel_at_period_end,
     canceledAt: r.canceled_at,
+  };
+}
+
+/**
+ * Šta modal „Aktiviraj odmah" govori: iznos, ime plana i dodela (S26, §7.4).
+ *
+ * Sve iz `plans.ts` po `lookup_key` pretplate — ni iznos ni broj kredita se ne
+ * čitaju iz Stripe-a. `null` kad pretplata nije u probi ili joj ključ nije iz
+ * našeg kataloga: bez poznatog iznosa dugme se ne crta, jer modal koji ne zna
+ * koliko naplaćuje ne sme ni da ponudi naplatu.
+ */
+export function aktivacijaZa(pretplata: PretplataZaEkran | null): AktivacijaProbe | null {
+  if (!pretplata || pretplata.status !== "trialing") return null;
+  if (pretplata.eur === null || pretplata.plan === null) return null;
+  return {
+    eur: pretplata.eur,
+    imePlana: imePlana(pretplata.plan),
+    krediti: planFor(pretplata.plan).monthlyCredits,
   };
 }
 

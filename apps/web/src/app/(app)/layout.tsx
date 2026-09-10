@@ -23,6 +23,7 @@ import { jeAdminIzProfila } from "@/lib/admin";
 import { requireSession } from "@/lib/auth";
 import { trebaPodsetnik } from "@/lib/feedback";
 import { citajProfil, ensureProfile, zabeleziDolazak } from "@/lib/profile";
+import { aktivacijaZa, citajPretplatuZaEkran } from "@/lib/pretplata";
 import { citajPretplatu, pristupZaProfil, PUTANJA_ZAKLJUCANO } from "@/lib/pristup";
 import { OkvirAplikacije } from "@/components/okvir-aplikacije";
 
@@ -71,6 +72,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const plan = planFor(profile?.plan);
 
+  // S21: ZBIR obe kase, isto kao na `/pretraga` i u `/api/search`.
+  const ukupnoKredita = profile ? profile.credits_balance + profile.credits_topup : null;
+
+  // S26 (§7.4): proba bez ijednog kredita dobija traku sa „Aktiviraj odmah".
+  // Iznos i plan traže `lookup_key`, koji kapija (`citajPretplatu`) namerno ne
+  // nosi — pa drugi čitač, ali SAMO u ovom retkom slučaju. Svaki drugi zahtev
+  // kroz `(app)` ostaje na jednom upitu nad `subscriptions`. `/krediti` deli
+  // isti `cache()`-ovan poziv, pa ni tamo nije drugi upit.
+  const aktivacijaProbe =
+    pristup?.stanje === "proba" && ukupnoKredita === 0
+      ? aktivacijaZa(await citajPretplatuZaEkran(userId))
+      : null;
+  // Otkazana PROBA je `otkazan` (§7.1), ali traka je zove njenim imenom.
+  const probaOtkazana = pristup?.stanje === "otkazan" && pretplata?.status === "trialing";
+
   // [Faza 3, 3.6] Stanje motora utisaka se odavde više NE čita — layout je
   // čekao na feedback upite pre prvog bajta (P4). `UtisciProvider` ga povlači
   // klijentski, sa `/api/utisci/stanje`, posle prvog prikaza. Isti broj upita,
@@ -92,10 +108,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // kroz `router.refresh()` posle svakog otključavanja — ovaj layout je server
     // komponenta i sam od sebe ne zna za klik.
     <OkvirAplikacije
-      // S21: ZBIR obe kase, isto kao na `/pretraga` i u `/api/search`. Do sada
-      // je ovde stajao samo `credits_balance`, pa je nalog sa kupljenim paketom
-      // u bočnoj traci video manji broj nego što mu se stvarno naplaćuje.
-      krediti={profile ? profile.credits_balance + profile.credits_topup : null}
+      // S21: ZBIR obe kase (izračunat gore). Do S21 je ovde stajao samo
+      // `credits_balance`, pa je nalog sa kupljenim paketom u bočnoj traci
+      // video manji broj nego što mu se stvarno naplaćuje.
+      krediti={ukupnoKredita}
       mesecniKrediti={plan.monthlyCredits}
       greska={greska}
       // F10 §4.4: podsetnik posle tri dana. Izvedeno iz profila koji je već
@@ -121,6 +137,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // cenovnik. Isto `stanjePristupa()` koje kapije koriste — ni ovde nema
       // druge računice.
       pristup={pristup}
+      aktivacijaProbe={aktivacijaProbe}
+      probaOtkazana={probaOtkazana}
     >
       {children}
     </OkvirAplikacije>

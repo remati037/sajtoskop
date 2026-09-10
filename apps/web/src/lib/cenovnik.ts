@@ -13,18 +13,23 @@
 // [S25] Iznosi JESU ovde, ali kroz `PLAN_PRICES` iz `plans.ts` — Stripe hosted
 // Checkout nema `PricePreview`, pa cenovnik mora da zna cifru pre nego što
 // čovek ode na Stripe. Jedan izvor (§4): Stripe se proverava naspram
-// `plans.ts` (`pnpm stripe:doktor`), ne obrnuto. Puna prepravka ekrana cena
-// (K2) dolazi u S26; ovde je samo ono što ekran već čita.
+// `plans.ts` (`pnpm stripe:doktor`), ne obrnuto.
+//
+// [S26] Uz to: rečenica o probi (iz `TRIAL_DAYS`/`TRIAL_CREDITS`) i mesečni
+// ekvivalent godišnje cene („€24,17 mesečno").
 
 import {
   CREDIT_PACKS,
   PLAN_PRICES,
   PLANS,
+  TRIAL_CREDITS,
+  TRIAL_DAYS,
   type CenaPlana,
   type Ciklus,
   type PaidPlanId,
   type PaketId,
 } from "@sajtoskop/shared";
+import { redniDan } from "./ui-tekst";
 
 export type { Ciklus };
 export { GODISNJI_BONUS, formatEur } from "@sajtoskop/shared";
@@ -53,6 +58,30 @@ function broj(n: number): string {
 }
 
 /**
+ * Godišnja cena podeljena na 12, sa zarezom: `290` → `„€24,17"`.
+ *
+ * Bez `Intl` iz istog razloga kao `broj()`. Računa se u centima i zaokružuje
+ * JEDNOM, na kraju — `(290 / 12).toFixed(2)` bi dao isto ovde, ali u
+ * binarnom razlomku `x.xx5` ume da ode na pogrešnu stranu, a ovo je cifra
+ * ponude.
+ */
+export function mesecnoOdGodisnje(eurGodisnje: number): string {
+  const centi = Math.round((eurGodisnje * 100) / 12);
+  const celi = Math.floor(centi / 100);
+  const ostatak = String(centi % 100).padStart(2, "0");
+  return `€${broj(celi)},${ostatak}`;
+}
+
+/**
+ * Rečenica iznad kartica (S26, D2). Brojevi iz `plans.ts`, dan prve naplate
+ * izveden iz `TRIAL_DAYS` — ne upisan, da promena probe ne ostavi cenovnik
+ * koji obećava staro.
+ */
+export const PROBA_RECENICA =
+  `Proba ${TRIAL_DAYS} dana, ${TRIAL_CREDITS} kredita, kartica odmah, ` +
+  `prva naplata ${redniDan(TRIAL_DAYS + 1)} dana`;
+
+/**
  * Pogodnosti se RAČUNAJU iz `PLANS`, ne prepisuju.
  *
  * Ranije su brojevi stajali kao tekst na dva mesta — u `plans.ts` kao pravilo i
@@ -75,7 +104,7 @@ function pogodnosti(plan: PaidPlanId, podrska: string): string[] {
     `Do ${broj(p.cacheMissPerDay)} skeniranja dnevno`,
     `${broj(p.aiRewritePerDay)} AI varijanti poruke dnevno`,
     `Izvoz u CSV do ${broj(p.exportPerDay)} redova dnevno`,
-    "Ako nađemo manje firmi nego što si tražio, razliku vraćamo",
+    "Manje firmi nego što si tražio? Razliku vraćamo.",
     podrska,
   ];
 }

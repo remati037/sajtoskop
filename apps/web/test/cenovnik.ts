@@ -32,8 +32,12 @@ import {
   smeDaKupiPaket,
   stanjePristupa,
   STANJA_ZA_PAKET,
+  TRIAL_CREDITS,
+  TRIAL_DAYS,
   type StanjeId,
 } from "@sajtoskop/shared";
+import { mesecnoOdGodisnje, PAKETI, PROBA_RECENICA, TIERS } from "../src/lib/cenovnik";
+import { redniDan } from "../src/lib/ui-tekst";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webSrc = path.resolve(here, "../src");
@@ -347,6 +351,171 @@ console.log("\npaket traži pristup");
   ]) {
     check(izvor(f).includes("smeDaKupiPaket"), `${f} pita sme li nalog da kupi paket`);
   }
+}
+
+// ── 3c. S26: cene iz plans.ts, proba, pozivnica, 409 ───────
+console.log("\ncenovnik nad Stripe-om (S26)");
+
+{
+  // Cene: kartice i paketi nose TAČNO ono što je u `plans.ts`, ne kopiju.
+  check(
+    TIERS.every((t) => t.cena === PLAN_PRICES[t.id]),
+    "svaka kartica čita cenu iz PLAN_PRICES (isti objekat, ne prepis)",
+  );
+  check(
+    PAKETI.every((p) => p.eur === CREDIT_PACKS[p.id].eur && p.credits === CREDIT_PACKS[p.id].credits),
+    "paketi: iznos i krediti iz CREDIT_PACKS (75 / 200)",
+  );
+  check(
+    PAKETI.map((p) => p.credits).join("/") === "75/200",
+    `paketi su 75 i 200 kredita (${PAKETI.map((p) => p.credits).join("/")})`,
+  );
+
+  // „(€24,17 mesečno)" — deljenje sa 12, zarez, bez Intl.
+  check(mesecnoOdGodisnje(290) === "€24,17", `290 / 12 = €24,17 (${mesecnoOdGodisnje(290)})`);
+  check(mesecnoOdGodisnje(590) === "€49,17", `590 / 12 = €49,17 (${mesecnoOdGodisnje(590)})`);
+  check(mesecnoOdGodisnje(1190) === "€99,17", `1190 / 12 = €99,17 (${mesecnoOdGodisnje(1190)})`);
+  check(mesecnoOdGodisnje(12000) === "€1.000,00", "hiljade sa tačkom, centi sa zarezom");
+  check(mesecnoOdGodisnje(120) === "€10,00", "okrugla cifra dobija ,00");
+
+  // Rečenica o probi: brojevi iz plans.ts, dan naplate izveden.
+  check(
+    PROBA_RECENICA.includes(`Proba ${TRIAL_DAYS} dana`) &&
+      PROBA_RECENICA.includes(`${TRIAL_CREDITS} kredita`) &&
+      PROBA_RECENICA.includes("kartica odmah"),
+    `rečenica o probi iz TRIAL_DAYS/TRIAL_CREDITS („${PROBA_RECENICA}")`,
+  );
+  check(
+    PROBA_RECENICA.includes(`prva naplata ${redniDan(TRIAL_DAYS + 1)} dana`),
+    "dan prve naplate je TRIAL_DAYS + 1, izveden",
+  );
+  check(redniDan(8) === "osmog" && redniDan(15) === "petnaestog" && redniDan(40) === "40.", "redniDan: osmog, petnaestog, 40.");
+
+  const cenovnikKod = izvor("lib/cenovnik.ts");
+  check(
+    !/Proba \d+ dana|\b\d+ kredita, kartica/.test(bezKomentara(cenovnikKod)),
+    "u cenovnik.ts nema upisanog broja dana/kredita probe",
+  );
+  check(
+    TIERS.every((t) => t.features.includes("Manje firmi nego što si tražio? Razliku vraćamo.")),
+    'pogodnost „Manje firmi…? Razliku vraćamo." na sve tri kartice',
+  );
+  check(
+    TIERS.every((t) => !t.features.some((f) => /kešu, neograničeno/i.test(f))),
+    '„Pretraga po kešu, neograničeno" je otišla (D10)',
+  );
+
+  const ekran = izvor("components/cenovnik-ekran.tsx");
+  const ekranKod = bezKomentara(ekran);
+  for (const [ime, kod] of [
+    ["cenovnik-ekran.tsx", ekranKod],
+    ["cenovnik.ts", bezKomentara(cenovnikKod)],
+    ["cenovnik/page.tsx", bezKomentara(izvor("app/cenovnik/page.tsx"))],
+  ] as const) {
+    check(!/pri_[0-9a-z]/i.test(kod) && !/price_[0-9A-Za-z]/.test(kod), `${ime}: nema pri_ ni price_ ID-ja`);
+    check(!/paddle|PricePreview|drzava/i.test(kod), `${ime}: nema starog provajdera ni \`drzava\` propa`);
+  }
+
+  check(
+    ekranKod.includes("probaDostupna && !gratisMesec") && ekranKod.includes("PROBA_RECENICA"),
+    "rečenica o probi samo kad je nalog dobija, i nikad uz pozivnicu",
+  );
+  check(
+    ekranKod.includes("Prvi mesec") && ekranKod.includes("od drugog meseca"),
+    'pozivnica: bedž „Prvi mesec €0" i „od drugog meseca €X"',
+  );
+  check(
+    ekranKod.includes('gratisMesec && ciklus === "month"'),
+    'bedž „Prvi mesec €0" samo uz mesečni ciklus (kupon je `once`)',
+  );
+  check(
+    ekranKod.includes("mesecnoOdGodisnje(eur)"),
+    "godišnja cena nosi mesečni ekvivalent",
+  );
+  check(
+    ekranKod.includes('odg.kod === "ima_plan"') && ekranKod.includes('href: "/krediti"'),
+    '409 „već ima plan" → poruka + link na /krediti',
+  );
+  check(
+    /Cene su u evrima, bez PDV-a\. Prodavac je \{prodavac\}, SAD; račun stiže mejlom/.test(ekranKod),
+    "rečenica na dnu (§4): evri, bez PDV-a, LLC, račun mejlom",
+  );
+
+  const stranaKod = bezKomentara(izvor("app/cenovnik/page.tsx"));
+  check(
+    stranaKod.includes("gratisMesec={gratisMesec}") && stranaKod.includes("invite_id"),
+    "strana prosleđuje gratisMesec iz profiles.invite_id",
+  );
+  check(stranaKod.includes("imaoProbuRanije("), "strana pita isto što i checkout: da li je nalog imao probu");
+
+  const ruta = bezKomentara(izvor("app/api/billing/checkout/route.ts"));
+  check(
+    ruta.includes('"ima_plan"') && ruta.includes('"komp"') && /409,\s*\n?\s*"ima_plan"/.test(ruta),
+    "checkout 409 nosi `kod` (ima_plan / komp)",
+  );
+  check(
+    ruta.includes('profil.invite_id !== null && telo.ciklus === "month"'),
+    'kupon „prvi mesec" samo uz mesečni ciklus — ne godina gratis',
+  );
+  check(
+    izvor("app/api/billing/checkout/route.ts").includes('from "@/lib/proba"'),
+    "checkout i cenovnik dele imaoProbuRanije iz lib/proba",
+  );
+
+  // Terminologija: „proba", nikad „trial" u tekstu koji korisnik vidi.
+  for (const f of [
+    "components/cenovnik-ekran.tsx",
+    "components/pretplata-blok.tsx",
+    "components/pristup-baner.tsx",
+    "components/aktiviraj-odmah.tsx",
+    "app/welcome/page.tsx",
+  ]) {
+    check(!/\btrial\b/i.test(bezKomentara(izvor(f))), `${f}: nigde „trial" — samo „proba"`);
+  }
+}
+
+// ── 3d. S26: blok pretplate i traka ────────────────────────
+console.log("\nproba u bloku pretplate i u traci");
+
+{
+  const blok = bezKomentara(izvor("components/pretplata-blok.tsx"));
+  check((blok.match(/variant="primary"/g) ?? []).length === 1, "blok ima tačno jedno primarno dugme (§7.1)");
+  check(blok.includes("<AktivirajOdmah aktivacija={aktivacija} />"), '„Aktiviraj odmah" stoji u bloku');
+  check(
+    blok.includes('pristup?.stanje === "proba" && aktivacija'),
+    '„Aktiviraj odmah" samo u stanju proba i samo uz poznat iznos',
+  );
+  check(blok.includes("Proba do") && blok.includes("pristup.probaDo"), 'naslov „Proba do <datum>"');
+  check(blok.includes("Proba otkazana, traje do"), 'otkazana proba: „Proba otkazana, traje do <datum>"');
+  check(
+    blok.includes("Naplata nije prošla. Ažuriraj karticu.") && blok.includes("naplataPala"),
+    "past_due: upozorenje sa portalom",
+  );
+  check(blok.includes("Komp pristup, neograničeno"), 'komp bez roka: „neograničeno"');
+  check(
+    !/Blok probe i „Aktiviraj odmah" su K2/.test(izvor("components/pretplata-blok.tsx")),
+    'stari komentar „K2 dolazi" je otišao',
+  );
+
+  const modal = izvor("components/aktiviraj-odmah.tsx");
+  check(
+    /Naplaćuje se <span className="num">\{iznos\}<\/span> sada, plan počinje danas\./.test(modal),
+    'modal potvrde: „Naplaćuje se €X sada, plan počinje danas."',
+  );
+
+  const baner = bezKomentara(izvor("components/pristup-baner.tsx"));
+  check(
+    baner.includes('pristup.stanje === "proba"') && baner.includes("krediti !== 0"),
+    "traka za probu izlazi tek na NULA kredita",
+  );
+  check(baner.includes("Probni krediti su potrošeni."), 'traka: „Probni krediti su potrošeni."');
+  check(!baner.includes('variant="primary"'), "traka nema primarno dugme (§7.1)");
+
+  const layout = bezKomentara(izvor("app/(app)/layout.tsx"));
+  check(
+    layout.includes('pristup?.stanje === "proba" && ukupnoKredita === 0'),
+    "drugi čitač pretplate u layout-u samo za probu bez kredita",
+  );
 }
 
 // ── 4. obe kase i linkovi ka cenovniku ─────────────────────

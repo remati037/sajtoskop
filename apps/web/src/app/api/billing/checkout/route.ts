@@ -29,6 +29,7 @@ import { KonfigGreska, stripeServerEnv } from "@/lib/env";
 import { stripe } from "@/lib/stripe-server";
 import { priceIdZa } from "@/lib/stripe-katalog";
 import { citajPretplatu } from "@/lib/pristup";
+import { imaoProbuRanije } from "@/lib/proba";
 import { ensureProfile } from "@/lib/profile";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import { adminSupabase } from "@/lib/supabase";
@@ -40,41 +41,18 @@ export const runtime = "nodejs";
 /** Odgovor nosi jednokratan URL sesije jednog korisnika — nikad u deljeni keš. */
 const HEADERS = { "Cache-Control": "private, no-store" };
 
-const greska = (poruka: string, status: number) =>
-  NextResponse.json({ greska: poruka }, { status, headers: HEADERS });
+/**
+ * `kod` postoji samo uz 409 (S26): ekran cena po njemu bira šta nudi uz
+ * poruku — link na `/krediti` onome ko već ima plan, ništa komp nalogu. Po
+ * tekstu poruke se ne grana: tekst je kopi i menja se, `kod` je ugovor.
+ */
+const greska = (poruka: string, status: number, kod?: "ima_plan" | "komp") =>
+  NextResponse.json({ greska: poruka, ...(kod ? { kod } : {}) }, { status, headers: HEADERS });
 
 type Profil = Pick<
   ProfileRow,
   "plan" | "stripe_customer_id" | "komp_expires_at" | "plan_expires_at" | "credits_topup" | "invite_id"
 >;
-
-/**
- * Je li nalog ikad imao probu: `trial_grant` u knjizi (jednom po nalogu) ili
- * pretplata sa `trial_end`. Drugu probu isti nalog ne dobija (§5.2, §7.6).
- */
-async function imaoProbuRanije(userId: string): Promise<boolean> {
-  const db = adminSupabase();
-
-  const { data: knjiga, error: kErr } = await db
-    .from("credit_ledger")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("reason", "trial_grant")
-    .limit(1)
-    .returns<{ id: number }[]>();
-  if (kErr) throw new Error(`credit_ledger: ${kErr.message}`);
-  if ((knjiga ?? []).length > 0) return true;
-
-  const { data: pretplate, error: pErr } = await db
-    .from("subscriptions")
-    .select("stripe_subscription_id")
-    .eq("user_id", userId)
-    .not("trial_end", "is", null)
-    .limit(1)
-    .returns<{ stripe_subscription_id: string }[]>();
-  if (pErr) throw new Error(`subscriptions: ${pErr.message}`);
-  return (pretplate ?? []).length > 0;
-}
 
 export async function POST(req: Request): Promise<Response> {
   // Tempo pre svega, kao na `/api/unlock`: svaki poziv ovamo pravi sesiju u
@@ -197,13 +175,18 @@ export async function POST(req: Request): Promise<Response> {
     // ── pretplata ────────────────────────────────────────────
     // Ko već ima živu pretplatu, ne pravi drugu — promena plana ide kroz portal.
     if (pretplata && ["trialing", "active", "past_due"].includes(pretplata.status)) {
-      return greska(`Već imaš plan. Promena plana ide kroz „Upravljaj pretplatom" na /krediti.`, 409);
+      return greska(
+        `Već imaš plan. Promena plana ide kroz „Upravljaj pretplatom" na strani „Krediti".`,
+        409,
+        "ima_plan",
+      );
     }
     // Komp ne kupuje plan dok komp traje.
     if (pristup.stanje === "komp") {
       return greska(
         "Imaš komp pristup — plan ti sada ne treba. Kad istekne, ovde ćeš moći da ga uzmeš.",
         409,
+        "komp",
       );
     }
 
@@ -213,7 +196,13 @@ export async function POST(req: Request): Promise<Response> {
 
     // Pozivnica „prvi mesec gratis": bez probe, 100% kupon na prvi period (§9).
     // Inače: proba 7 dana, kartica obavezna, ako je nalog nikad nije imao.
-    const gratisMesec = profil.invite_id !== null;
+    //
+    // ‼️ [S26] Samo uz MESEČNI ciklus. Kupon je 100% `duration: once` — važi za
+    //    prvu fakturu, kolika god da je. Uz godišnji plan to je cela prva godina
+    //    gratis (Pro: €590), a pozivnica obećava mesec. Godišnji izbor sa
+    //    pozivnicom ide običnim putem (proba ako je nalog nije imao), a
+    //    `invite_id` se briše na `checkout.session.completed` kao i uvek.
+    const gratisMesec = profil.invite_id !== null && telo.ciklus === "month";
     const imaoProbu = await imaoProbuRanije(userId);
     const meta = {
       user_id: userId,
