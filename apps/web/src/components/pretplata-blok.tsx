@@ -161,7 +161,14 @@ export function PretplataBlok({
         <div className="px-5 pb-5 sm:px-6 sm:pb-6">
           <Alert variant="warning">
             <span className="font-medium">
-              Pristup ti je istekao <span className="num">{formatDatum(pristup.punDo)}</span>.
+              {/* [S28, O3] Nov nalog u grace-u nema plaćen rok — v. `pristup.ts`. */}
+              {pristup.punDo === null ? (
+                "Besplatni krediti su potrošeni."
+              ) : (
+                <>
+                  Pristup ti je istekao <span className="num">{formatDatum(pristup.punDo)}</span>.
+                </>
+              )}
             </span>{" "}
             <span className="text-fg-muted">
               Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da otvaraš

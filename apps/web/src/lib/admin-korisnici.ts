@@ -79,6 +79,9 @@ export function pristupIzReda(r: AdminUserRow): Pristup {
       kompExpiresAt: r.komp_expires_at,
       planExpiresAt: r.plan_expires_at,
       creditsTopup: r.credits_topup,
+      // [S28, O3] Bez ovoga bi konzola nov nalog bez kredita zvala `zakljucan`,
+      // a kapija ga pušta unutra kao `grace` — dve računice o pristupu.
+      createdAt: r.created_at,
     },
     pretplata,
     Date.now(),
@@ -114,7 +117,7 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
   const [profili, pretplate] = await Promise.all([
     db
       .from("profiles")
-      .select("id, plan, komp_expires_at, plan_expires_at, credits_topup")
+      .select("id, plan, komp_expires_at, plan_expires_at, credits_topup, created_at")
       .limit(MAX_ZA_FILTER_STANJA)
       .returns<
         {
@@ -123,6 +126,7 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
           komp_expires_at: string | null;
           plan_expires_at: string | null;
           credits_topup: number;
+          created_at: string;
         }[]
       >(),
     db
@@ -172,6 +176,7 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
             kompExpiresAt: p.komp_expires_at,
             planExpiresAt: p.plan_expires_at,
             creditsTopup: p.credits_topup,
+            createdAt: p.created_at,
           },
           poKorisniku.get(p.id) ?? null,
           sada,
@@ -536,6 +541,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
         kompExpiresAt: profil.komp_expires_at,
         planExpiresAt: profil.plan_expires_at,
         creditsTopup: profil.credits_topup,
+        createdAt: profil.created_at,
       },
       zaPristup,
       Date.now(),

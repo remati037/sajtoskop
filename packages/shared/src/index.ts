@@ -188,6 +188,7 @@ export {
   lookupKeyZaPaket,
   lookupKeyZaPlan,
   maxRezultataZaDubinu,
+  ONBOARDING_CREDITS,
   PLACES_EUR_PER_CALL,
   PLACES_FREE_CALLS_MONTH,
   PLACES_MAX_PAGES,

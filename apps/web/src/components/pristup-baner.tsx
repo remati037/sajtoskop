@@ -100,8 +100,16 @@ export function PristupBaner({
           {grace ? (
             <>
               <p className="font-medium text-warn-text">
-                Pristup ti je istekao{" "}
-                <span className="num">{formatDatum(pristup.punDo)}</span>.
+                {/* [S28, O3] `punDo === null` je nov nalog koji je potrošio kredite
+                    dobrodošlice: nema datum jer nikad nije ni platio. */}
+                {pristup.punDo === null ? (
+                  "Besplatni krediti su potrošeni."
+                ) : (
+                  <>
+                    Pristup ti je istekao{" "}
+                    <span className="num">{formatDatum(pristup.punDo)}</span>.
+                  </>
+                )}
               </p>
               <p className="mt-1 text-fg-muted">
                 Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da otvaraš

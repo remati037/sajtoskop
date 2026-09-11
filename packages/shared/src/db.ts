@@ -105,6 +105,24 @@ export type ProfileRow = {
    */
   invite_id: string | null;
 
+  /**
+   * Onboarding (S28, migracija 0026, `docs/tok-i-onboarding.md` §4).
+   *
+   * Stanje je u bazi, a ne u `localStorage`-u, namerno: čovek koji nastavi sa
+   * drugog uređaja nastavlja tamo gde je stao (LANSIRANJE §1.8, deo 4).
+   *
+   * `onboarding_steps` je objekat `{"<korak>": "<timestamp>"}` za četiri koraka
+   * (`pretraga`, `otkljucavanje`, `poruka`, `pipeline`); piše ga isključivo
+   * `onboarding_mark_step`. `onboarding_done_at` se postavlja kad sva četiri
+   * postoje, `onboarding_skipped_at` kad čovek traku odbaci — to su dva
+   * različita podatka i jedan ne isključuje drugi.
+   */
+  onboarding_steps: Record<string, string>;
+  onboarding_done_at: string | null;
+  onboarding_skipped_at: string | null;
+  /** Vođene tačke koje su korisniku već prikazane — ključevi iz kataloga (§4.5). */
+  onboarding_hints_seen: string[];
+
   created_at: string;
 };
 
@@ -658,6 +676,9 @@ export type AdminUserRow = {
   sub_trial_end: string | null;
   created_at: string;
   last_seen_at: string | null;
+  /** Onboarding (0026): mera uspeha iz LANSIRANJE §1.8, čitana po nalogu. */
+  onboarding_done_at: string | null;
+  onboarding_skipped_at: string | null;
   unlocks_count: number;
   searches_count: number;
   feedback_count: number;

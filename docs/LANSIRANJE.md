@@ -472,6 +472,14 @@ kome se vrednost proizvoda prvi put vidi.
 
 **Kredit ide u `credits_topup` i dodeljuje se NA REGISTRACIJI.**
 
+> **Ispravka od 12. septembra 2026 (S28).** Nije jedan kredit nego **dva**
+> (`ONBOARDING_CREDITS` u `packages/shared/src/plans.ts`), po §4 dokumenta
+> `docs/tok-i-onboarding.md`. Razlog je D10 iz S25: od tada se i **pristup kešu
+> plaća**, pa prva lista uzme prvi kredit — sa jednim kreditom bi čovek platio listu
+> i ostao bez ijednog otključavanja na njoj. Sve ostalo iz O1 stoji: ista putanja
+> (`create_profile_with_grant`, ref `signup:<user>`), ista kasa (`credits_topup`),
+> jednom po nalogu, razlog `onboarding` (od migracije `0026` puni dopunu).
+
 > ‼️ **Ispravka od 27.8., posle provere koda.** Ovde je najpre pisalo da se kredit dodeljuje
 > *lenjo, pre prvog otključavanja*. **To ne može da radi**, i razlog je kapija pristupa:
 >
@@ -661,13 +669,24 @@ odgovor knjigovođe). Ne blokira nijednu sesiju — blokira **produkciju**, ne r
 | ~~**S22**~~ | Pravni tekstovi + futer | — | 0,5 dana | ☑ |
 | ~~**S23**~~ | ~~F8 — kopi landinga~~ | — | — | ⊘ otpalo (§1.7) |
 | ~~**S24**~~ | Preokret na `app.` poddomen + veze ka landingu | S22 | 0,5 dana | ☑ |
-| **S25** | F8 — kanarinci + pet metrika | — | 0,5 dana | ☐ |
-| **S26** | Sentry + testovi naplate + sandbox prolaz | S18, S19 | 1 dan | ☐ |
-| **S27** | Onboarding 1 — čarobnjak, prvi rezultat, besplatno prvo otključavanje, traka napretka, migracija `0025` | S24 | 1,5 dana | ☐ |
-| **S28** | Onboarding 2 — vođen prolaz, prazna stanja, vodič na zahtev | S27 | 1 dan | ☐ |
+| ~~**S25**~~ | Stripe backend, Paddle uklonjen, plaćen pristup kešu (D10), migracija `0025` | S24 | 1,5 dana | ☑ |
+| ~~**S26**~~ | Stripe cenovnik, portal, proba UI, „Aktiviraj odmah" | S25 | 1 dan | ☑ (kod) |
+| ~~**S27**~~ | Pozivnice: komp i prvi mesec gratis (K3) | S25 | 0,75 dana | ☑ (kod) |
+| **S28** | Onboarding + kartica prospekta, migracija `0026` | S27 | 1,5 dana | ◐ delimično |
 | **R9–R38** | Ostali ručni koraci iz §7 — zaostalo iz ranijih faza, knjigovođa, domen, operativa | razno | ~3 dana | ☐ |
 
-**Ukupno: ~12,5 dana koda + ~3 dana ručnog rada.** Od toga je isporučeno S16–S22 i S24.
+> **‼️ Numeracija sesija se razišla sa ovim dokumentom.** Redovi S25–S28 iznad su
+> prepisani po ONOME ŠTO JE STVARNO ISPORUČENO (v. `docs/SESIJE.md`); promptovi u §6
+> pod istim brojevima su stariji plan i **ne opisuju te sesije**. Kanarinci i pet
+> metrika (stari „S25") i Sentry (stari „S26") nisu isporučeni i nemaju svoj red —
+> vode se kao otvoreno u SESIJE.md.
+>
+> **Onboarding** je iz starih S27/S28 spojen u **jednu** sesiju S28, po
+> `docs/tok-i-onboarding.md` (§4 onboarding, §7 kartica prospekta). Taj dokument
+> **nije u repozitorijumu**, pa je S28 isporučen samo u delu koji ne zavisi od njega —
+> šta tačno, stoji u `docs/SESIJE.md`, unos S28.
+
+**Ukupno: ~12,5 dana koda + ~3 dana ručnog rada.** Isporučeno: S16–S22, S24–S27 i deo S28.
 
 **Onboarding je najveći preostali blok koda** i to je namerno: S27 i S28 su jedini deo plana
 koji dodiruje brojku od koje sve zavisi — koliko ljudi koji otvore nalog dođe do prve poruke
@@ -1455,6 +1474,12 @@ Ažuriraj docs/SESIJE.md i štikliraj S26.
 
 ### S27 — Onboarding 1: čarobnjak, prvi rezultat, traka napretka
 
+> ⊘ **Ovaj prompt nije izvršen i nije više plan.** Stvarni S27 su bile pozivnice (K3,
+> v. `docs/SESIJE.md`), a onboarding je spojen u **S28** po
+> `docs/tok-i-onboarding.md`. Ostaje kao zapis odluke iz §1.8 — imena kolona odavde
+> (`onboarding_steps`, `onboarding_done_at`, `onboarding_skipped_at`) su ono što
+> migracija `0026` i uvodi; `onboarding_city/niche/channel` čekaju čarobnjaka.
+
 **Preduslovi:** S24. Odluka **O1** je pala 27.8. (§1.8) i ugrađena je u prompt ispod.
 
 **Zašto je ovo najvažnija sesija u planu:** sve pre nje čini da proizvod radi i da se naplati.
@@ -1535,6 +1560,11 @@ klika koji nije ponuđen, bez čekanja i bez ijednog Places poziva.
 ---
 
 ### S28 — Onboarding 2: vođen prolaz, prazna stanja, vodič na zahtev
+
+> ⊘ **Nadjačano.** Merodavan je `docs/tok-i-onboarding.md` (§0 C1–C6 i O2–O6, §1.8–1.13,
+> §2.3, §2.5, §4 onboarding, §7 kartica prospekta), koji spaja oba stara onboarding
+> prompta i dodaje karticu prospekta (D12). Prompt ispod ostaje samo zbog četiri tačke
+> vođenog prolaza i zabrane tura koje se pokreću same.
 
 **Preduslovi:** S27.
 

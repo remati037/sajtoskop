@@ -11,7 +11,9 @@
 // [S25] `beta` → `komp`, novo stanje `proba`, otkazana proba, `cancel_at_period_end`.
 
 import {
+  citanjeDoZa,
   GRACE_DAYS,
+  ONBOARDING_CREDITS,
   PLANS,
   stanjePristupa,
   STANJA_ZA_PAKET,
@@ -30,7 +32,17 @@ const DAN = 24 * 60 * 60 * 1000;
 const zaDana = (n: number) => new Date(SADA + n * DAN).toISOString();
 
 function profil(over: Partial<ProfilZaPristup> = {}): ProfilZaPristup {
-  return { plan: "komp", kompExpiresAt: null, planExpiresAt: null, creditsTopup: 0, ...over };
+  // `createdAt: null` je podrazumevano namerno: tako se ponašaju svi testovi
+  // pisani pre S28 (grace bez plaćenog roka ne postoji), pa O3 provere ispod
+  // stoje same i vidi se tačno šta datum registracije menja.
+  return {
+    plan: "komp",
+    kompExpiresAt: null,
+    planExpiresAt: null,
+    creditsTopup: 0,
+    createdAt: null,
+    ...over,
+  };
 }
 
 function pretplata(over: Partial<PretplataZaPristup> = {}): PretplataZaPristup {
@@ -267,6 +279,76 @@ check(
   stanjePristupa(profil({ plan: "pro", planExpiresAt: zaDana(5), creditsTopup: 10 }), pretplata(), SADA)
     .stanje === "aktivan",
   "paket uz aktivnu pretplatu ne pretvara pretplatnika u `dopuna`",
+);
+
+// ── 5a. [S28, O3] grace se broji i od registracije ─────────
+// Nov nalog dobija `ONBOARDING_CREDITS` u `credits_topup` (0026), dakle ulazi
+// kao `dopuna`. Kad ih potroši, nema nijedan plaćen rok — pre S28 bi u tom
+// trenutku bio `zakljucan`, sa prospektima koje je maločas otključao iza
+// katanca. O3: grace se broji od KASNIJEG od plaćenog roka i registracije.
+console.log("\nO3 — grace od registracije");
+
+{
+  const nov = profil({ plan: "dopuna", createdAt: zaDana(-1) });
+
+  const saKreditima = stanjePristupa({ ...nov, creditsTopup: ONBOARDING_CREDITS }, null, SADA);
+  check(
+    saKreditima.stanje === "dopuna" && saKreditima.pun,
+    "nov nalog sa kreditima dobrodošlice → dopuna, pun pristup",
+  );
+
+  const p = stanjePristupa(nov, null, SADA);
+  check(p.stanje === "grace" && p.cita && !p.pun, "potrošeni krediti dobrodošlice → grace, ne zakljucan");
+  check(p.punDo === null, "nov nalog u grace-u nema `punDo` — plaćenog roka nikad nije ni bilo");
+  check(
+    p.citanjeDo === new Date(Date.parse(zaDana(-1)) + GRACE_DAYS * DAN).toISOString(),
+    "`citanjeDo` je registracija + GRACE_DAYS",
+  );
+}
+
+check(
+  stanjePristupa(profil({ plan: "dopuna", createdAt: zaDana(-1) }), null, SADA + 28 * DAN).stanje ===
+    "grace",
+  "29. dan od registracije je još grace",
+);
+check(
+  stanjePristupa(profil({ plan: "dopuna", createdAt: zaDana(-1) }), null, SADA + 30 * DAN).stanje ===
+    "zakljucan",
+  "31. dan od registracije → zakljucan",
+);
+
+// Registracija ne sme da PRODUŽI grace pretplatniku: kod njega je `punDo`
+// uvek kasniji, pa se ništa ne menja. Nalog registrovan pre dve godine kome je
+// plan istekao pre 40 dana ostaje zaključan.
+check(
+  stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(-40), createdAt: zaDana(-700) }),
+    null,
+    SADA,
+  ).stanje === "zakljucan",
+  "star nalog sa isteklim planom ostaje zakljucan — registracija ga ne vraća",
+);
+{
+  const p = stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(-2), createdAt: zaDana(-700) }),
+    null,
+    SADA,
+  );
+  check(
+    p.stanje === "grace" && p.citanjeDo === citanjeDoZa(zaDana(-2)),
+    "pretplatniku u grace-u `citanjeDo` i dalje ide od plaćenog roka, ne od registracije",
+  );
+}
+
+// Obrnut redosled: nalog koji je plan kupio pa mu je istekao PRE nego što je
+// grace od registracije prošao — merodavan je kasniji od dva, dakle plan.
+check(
+  stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(-1), createdAt: zaDana(-20) }),
+    null,
+    SADA,
+  ).citanjeDo === citanjeDoZa(zaDana(-1)),
+  "kad su oba u igri, grace ide od kasnijeg (plan, ne registracija)",
 );
 
 // ── 6. ko sme paket ────────────────────────────────────────

@@ -21,7 +21,8 @@ import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import type { WebhookEvent } from "@clerk/nextjs/webhooks";
 import { NextRequest } from "next/server";
 import { RADNJE, upisiAudit } from "@/lib/admin";
-import { createProfileFromWebhook, obrisiProfil } from "@/lib/profile";
+import { otkaziPretplateNaloga } from "@/lib/otkazivanje";
+import { createProfileFromWebhook, obrisiProfil, stripeKupacZaNalog } from "@/lib/profile";
 import { webhookSecret } from "@/lib/env";
 import { adminSupabase } from "@/lib/supabase";
 
@@ -119,22 +120,56 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (!obrisanId) return new Response("Događaj bez korisničkog ID-ja.", { status: 400 });
 
     try {
+      // ── [S28, C6] prvo Stripe, pa baza ────────────────────
+      // Brisanje profila bez ovoga ostavlja pretplatu ŽIVOM: Stripe nastavlja
+      // da naplaćuje karticu naloga koji u aplikaciji više ne postoji, a
+      // sledeća `invoice.paid` stigne za korisnika koga webhook naplate ne
+      // nalazi — novac uzet, kredita nema.
+      //
+      // Redosled je zato obavezan i pad je namerno „glasan": ako Stripe ne
+      // odgovori, ništa se ne briše, ruta vraća 500 i Svix ponavlja. Nalog koji
+      // je ostao u bazi je vidljiv problem; pretplata koja naplaćuje nepostojeći
+      // nalog nije.
+      const kupac = await stripeKupacZaNalog(obrisanId);
+      const otkazivanje = kupac ? await otkaziPretplateNaloga(obrisanId, kupac) : null;
+
+      if (otkazivanje) {
+        console.log(
+          `[clerk-webhook] user.deleted ${obrisanId} → otkazano ${otkazivanje.otkazane.length}, ` +
+            `preskočeno ${otkazivanje.preskocene.length}`,
+        );
+      }
+
       const postojao = await obrisiProfil(obrisanId);
       console.log(`[clerk-webhook] user.deleted ${obrisanId} → ${postojao ? "obrisan" : "nije ga bilo"}`);
 
       // Trag ostaje i kad brisanje nije krenulo iz konzole — `actor_id` je tada
       // `null` i u reviziji se čita kao „obrisano izvan konzole". Bez ovog reda
       // je brisanje iz Clerk konzole jedina izmena nad bazom bez ijednog zapisa.
+      // `payload` nosi ID-jeve pretplata, ne ništa o kartici i ne mejl
+      // (pravilo 14). Broj otkazanih je jedini podatak po kome se posle zna da
+      // li je naplata stvarno stala pre nego što je nalog nestao.
       await upisiAudit({
         actor: null,
         action: RADNJE.KASKADA,
         target: obrisanId,
-        payload: { postojao },
+        payload: {
+          postojao,
+          otkazane: otkazivanje?.otkazane ?? [],
+          preskocene: otkazivanje?.preskocene ?? [],
+        },
         ok: true,
       });
 
-      return Response.json({ ok: true, obrisan: postojao });
+      return Response.json({
+        ok: true,
+        obrisan: postojao,
+        otkazane: otkazivanje?.otkazane.length ?? 0,
+      });
     } catch (err) {
+      // Ovde pada i otkazivanje pretplate i brisanje profila. Oba su ista
+      // odluka za Svix: ponovi. Profil je u prvom slučaju NETAKNUT — i to je
+      // tačno ono što se hoće (v. `lib/otkazivanje.ts`).
       console.error("[clerk-webhook] kaskada nije uspela:", err);
       await obrisiMarker(eventId);
 

@@ -242,12 +242,19 @@ check(zoveRpc.length === 0, "`admin_open_komp` se zove sa tačno jednog mesta u 
 const zoveStaru = izvori.filter((f) => /admin_open_beta/.test(readFileSync(f, "utf8")));
 check(zoveStaru.length === 0, "`admin_open_beta` više ne postoji nigde u izvoru");
 
-// Registracija: 0 kredita, nema plana.
+// Registracija: krediti dobrodošlice, ali NIJEDAN plan.
+//
+// [S28] Do S28 je ovde stajalo „0 kredita". Broj je od S28 `ONBOARDING_CREDITS`
+// (O1, §4) i to §1.1 ne krši: §1.1 zabranjuje besplatan PLAN, a ne kredite —
+// nalog ostaje `dopuna`, dobija dva kredita u `credits_topup` i posle njih mora
+// na cenovnik. Ono što ovaj test i dalje čuva je da se broj ne otkucava u
+// `profile.ts` i da registracija ne uzima nijedan broj iz tabele planova
+// (tim putem je do S20 nastajao doživotan beta nalog).
 {
   const profil = readFileSync(path.join(webSrc, "lib/profile.ts"), "utf8");
   check(
-    /KREDITI_NA_REGISTRACIJI\s*=\s*0\b/.test(profil),
-    "registracija dodeljuje 0 kredita (nema besplatnog plana za javnost, §1.1)",
+    /KREDITI_NA_REGISTRACIJI\s*=\s*ONBOARDING_CREDITS\b/.test(profil),
+    "registracija dodeljuje `ONBOARDING_CREDITS` iz kataloga, ne broj otkucan u ruti",
   );
   check(!/^import .*\bPLANS\b/m.test(profil), "registracija ne uvozi nijedan broj iz tabele planova");
 }

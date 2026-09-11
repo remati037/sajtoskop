@@ -139,6 +139,9 @@ export function pristupZaProfil(
       kompExpiresAt: profile.komp_expires_at,
       planExpiresAt: profile.plan_expires_at,
       creditsTopup: profile.credits_topup,
+      // [S28, O3] Registracija je početak grace-a za nalog koji plaćen rok nikad
+      // nije imao — v. granu 4 u `stanjePristupa()`.
+      createdAt: profile.created_at,
     },
     pretplata,
     Date.now(),
@@ -198,13 +201,20 @@ export function odbijenica(pristup: Pristup | null, radnja: Radnja): Response | 
   // Nepoznato stanje ne zaključava — v. `IshodPristupa.pristup`.
   if (!pristup || pristup.pun) return null;
 
-  const poruka =
-    pristup.stanje === "grace"
-      ? `${IME_RADNJE[radnja]} ne radi jer ti je pristup istekao. Do ${formatDatum(pristup.citanjeDo)} ` +
-        "možeš da otvaraš svoje prospekte, vodiš pipeline i izvezeš oba CSV-a. " +
-        "Uzmi plan ili paket kredita na /cenovnik i sve se odmah vraća."
-      : `${IME_RADNJE[radnja]} ne radi jer ti je pristup istekao. ` +
-        "Uzmi plan ili paket kredita na /cenovnik.";
+  // [S28, O3] `grace` ima dva uzroka, pa i dve rečenice: istekao plaćen rok
+  // (`punDo` postoji) i potrošeni krediti dobrodošlice na nalogu koji nikad nije
+  // platio (`punDo === null`). Drugome „pristup ti je istekao" ne kaže ništa.
+  const grace = pristup.stanje === "grace";
+  const uvod =
+    grace && pristup.punDo === null
+      ? `${IME_RADNJE[radnja]} ne radi jer su besplatni krediti potrošeni.`
+      : `${IME_RADNJE[radnja]} ne radi jer ti je pristup istekao.`;
+
+  const poruka = grace
+    ? `${uvod} Do ${formatDatum(pristup.citanjeDo)} ` +
+      "možeš da otvaraš svoje prospekte, vodiš pipeline i izvezeš oba CSV-a. " +
+      "Uzmi plan ili paket kredita na /cenovnik i sve se odmah vraća."
+    : `${uvod} Uzmi plan ili paket kredita na /cenovnik.`;
 
   const body: ApiError = { greska: poruka };
   return NextResponse.json(body, { status: 403, headers: HEADERS });

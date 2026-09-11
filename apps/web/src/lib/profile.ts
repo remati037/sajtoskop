@@ -2,23 +2,28 @@
 // Čitanje profila i rezervni put za njegovo kreiranje.
 
 import "server-only";
-import type { ProfileRow, RpcResult } from "@sajtoskop/shared";
+import { ONBOARDING_CREDITS, type ProfileRow, type RpcResult } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
 
 /**
- * Koliko kredita dobija nov nalog: NIJEDAN.
+ * Koliko kredita dobija nov nalog — od S28 `ONBOARDING_CREDITS` (dva).
+ *
+ * Broj stoji u `packages/shared/src/plans.ts`, ne ovde: čita ga i onboarding
+ * (koliko ih je i na šta idu) i `pnpm check:sql` (da RPC dodeli baš toliko), pa
+ * bi lokalna konstanta bila treća kopija istog broja.
  *
  * ‼️ Do S20 je ovde stajalo `PLANS.beta.monthlyCredits`, dakle 50 — a
  *    `create_profile_with_grant` je uz to ostavljao `profiles.plan` na tadašnjem
  *    `default 'beta'`. Registracija je time otvarala neograničen beta nalog sa
  *    punim paketom kredita, što odluka D1 (LANSIRANJE §1.1) izričito zabranjuje:
- *    beta se dodeljuje isključivo iz admin konzole.
+ *    komp se dodeljuje isključivo iz admin konzole ili pozivnicom.
  *
- * Nov nalog od S20 nema ni plan ni kredite i ide na `/cenovnik`. Kredit
- * dobrodošlice ima svoj razlog u knjizi (`onboarding`, 0022) i svoju sesiju
- * (S24) — kad se uvede, menja se OVAJ broj, ne plan.
+ * Od S20 do S28 je bio nula, pa je nov nalog bio `zakljucan` i išao na
+ * `/cenovnik`. Od S28 (O1, `docs/tok-i-onboarding.md` §4) dobija dva kredita u
+ * `credits_topup` — i to je jedino što ga pušta unutra do prve poruke bez
+ * kartice. Plan se pri tome NE dira: nalog je i dalje `dopuna`.
  */
-const KREDITI_NA_REGISTRACIJI = 0;
+const KREDITI_NA_REGISTRACIJI = ONBOARDING_CREDITS;
 
 /**
  * Profil ulogovanog korisnika, kroz RLS.
@@ -121,6 +126,29 @@ export async function zabeleziDolazak(
     .or(`last_seen_at.is.null,last_seen_at.lt.${prag}`);
 
   if (error) console.error("[profile] upis poslednjeg dolaska:", error.message);
+}
+
+/**
+ * Stripe kupac vezan za nalog, ili `null` kad nalog nikad nije bio na checkoutu.
+ *
+ * Postoji zbog brisanja naloga (S28, C6): pre nego što profil nestane, žive
+ * pretplate tog kupca moraju da budu otkazane. Čita se admin klijentom jer
+ * pozivalac je webhook — tamo Clerk sesije nema.
+ *
+ * BACA na grešku iz baze, i to je namerno: nepročitan `stripe_customer_id` nije
+ * „nalog nema pretplatu", nego „ne znam da li ima". Brisanje naloga koje na to
+ * odgovori nastavljanjem je tiho ostavljena naplata.
+ */
+export async function stripeKupacZaNalog(userId: string): Promise<string | null> {
+  const { data, error } = await adminSupabase()
+    .from("profiles")
+    .select("stripe_customer_id")
+    .eq("id", userId)
+    .maybeSingle<{ stripe_customer_id: string | null }>();
+
+  if (error) throw new Error(`Čitanje Stripe kupca nije uspelo: ${error.message}`);
+
+  return data?.stripe_customer_id ?? null;
 }
 
 /**

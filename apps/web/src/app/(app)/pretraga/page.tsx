@@ -51,12 +51,25 @@ export default async function Page() {
           ikona={<Lock aria-hidden />}
           naslov="Pretraga i skeniranje su stali"
           opis={
+            // [S28, O3] Dva razloga za isto stanje, dve rečenice: nalog kome je
+            // plan istekao ima datum, nov nalog koji je potrošio kredite
+            // dobrodošlice ga nema (`punDo === null`) — i njemu „pristup ti je
+            // istekao" ne znači ništa, jer ga nikad nije ni platio.
             pristup.stanje === "grace" ? (
-              <>
-                Pristup ti je istekao <span className="num">{formatDatum(pristup.punDo)}</span>. Do{" "}
-                <span className="num">{formatDatum(pristup.citanjeDo)}</span> tvoji prospekti,
-                pipeline i oba izvoza rade normalno — pretraga, skeniranje i otključavanje ne.
-              </>
+              pristup.punDo === null ? (
+                <>
+                  Besplatni krediti su potrošeni. Do{" "}
+                  <span className="num">{formatDatum(pristup.citanjeDo)}</span> tvoji prospekti,
+                  pipeline i oba izvoza rade normalno — nova lista, skeniranje i otključavanje ne.
+                </>
+              ) : (
+                <>
+                  Pristup ti je istekao{" "}
+                  <span className="num">{formatDatum(pristup.punDo)}</span>. Do{" "}
+                  <span className="num">{formatDatum(pristup.citanjeDo)}</span> tvoji prospekti,
+                  pipeline i oba izvoza rade normalno — pretraga, skeniranje i otključavanje ne.
+                </>
+              )
             ) : (
               "Nalog trenutno nema pristup pretrazi. Otključani prospekti i pipeline su netaknuti."
             )

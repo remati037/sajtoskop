@@ -3557,3 +3557,131 @@ Ledger izlaz posle ručnog prolaza (`select reason, ref_id, delta from credit_le
 ### Preneto dalje
 
 - **K6 / P4:** mejl korisniku sa pozivnicom (danas admin kopira link ručno).
+
+---
+
+## S28 — Onboarding + kartica prospekta ◐ DELIMIČNO (PRD nedostaje)
+
+**Delimično isporučeno 12. septembra 2026.** Commit: „S28: onboarding + kartica prospekta"
+(obim ispod). Migracija: **0026** (`onboarding`).
+
+### ‼️ Zašto delimično — `docs/tok-i-onboarding.md` ne postoji
+
+Zahtev sesije traži da se radi iz `docs/tok-i-onboarding.md` (§0 C1–C6 i O2–O6, §1.8–1.13,
+§2.3, §2.5, §4 CEO, §7 CEO), i da tekstovi budu **doslovno** iz njega (§4.2 četiri ekrana
+čarobnjaka, §4.3 migracija, §4.5 tačke i traka, §4.7 prazna stanja, §7.8 tekstovi kartice).
+
+**Tog fajla nema** — ni u radnom stablu, ni u `git log --all`, ni kao referenca u ijednom
+drugom fajlu (provereno `find`, `grep -rl`, `git log --diff-filter=A`). Sve što o onboardingu
+postoji u repozitorijumu je LANSIRANJE §1.8 (D8, O1), a ona je izričito **nadjačana** §4 tog
+dokumenta na dva mesta koja menjaju ponašanje (2 kredita umesto 1; prva lista se plaća).
+
+Zato je isporučeno **samo ono što je nedvosmisleno iz samog zahteva sesije** i ne zavisi od
+teksta dokumenta. Ostalo nije improvizovano: petnaest komponenti sa izmišljenim srpskim kopijem
+koje posle treba prepisati naspram §4/§7 je gore od ničega (CLAUDE.md, „ne improvizuj tiho
+zaobilaznicu"; zahtev sesije, „ako nešto iz §4/§7 ne može kako piše — reci tačno šta").
+
+### Šta JE urađeno
+
+- **`supabase/migrations/0026_onboarding.sql`** — idempotentna, `pnpm check:sql` prolazi u oba
+  prolaza:
+  - `profiles`: `onboarding_steps jsonb not null default '{}'` (+ `check jsonb_typeof = 'object'`),
+    `onboarding_done_at`, `onboarding_skipped_at`, `onboarding_hints_seen text[] not null default '{}'`.
+    Imena su ista kao u LANSIRANJE §6 (stari S27 prompt). **`onboarding_city/niche/channel` NISU
+    dodate** — one su odgovori čarobnjaka, a čarobnjak nije u ovom obimu; oblik i ograničenja su
+    u §4.3.
+  - `grant_credits`: razlog **`onboarding` sada puni `credits_topup`**, uz `credit_pack`. To nije
+    kozmetika — `credits_balance` ne otvara pristup nalogu bez plana, pa bi nov nalog sa kreditima
+    dobrodošlice i dalje bio `zakljucan` (§1.5, O1). Telo je inače nepromenjeno iz 0025 (pravilo 3:
+    nema nove putanje za kredite).
+  - `create_profile_with_grant`: dodela ide sa razlogom **`onboarding`** (bilo `monthly_grant`).
+    Idempotencija nepromenjena — `credit_ledger_grant_idem_idx` pokriva `onboarding`.
+  - **`onboarding_mark_step(p_user, p_step)`** — četiri koraka (`pretraga`, `otkljucavanje`,
+    `poruka`, `pipeline`), objekat `{korak: timestamp}`; idempotentno (`already`, trenutak se ne
+    pomera), sva četiri → `onboarding_done_at`, **nepoznat korak i `null` BACAJU** (ključ upisuje
+    ruta sa zakucanim stringom; tiho `false` bi bio traka koja se nikad ne završi).
+    `security definer`, samo `service_role`.
+  - `admin_users_page`: `drop` + `create` sa `onboarding_done_at` i `onboarding_skipped_at`
+    (obrazac iz 0025 §7).
+- **`ONBOARDING_CREDITS = 2`** u `packages/shared/src/plans.ts` (+ barrel), i
+  `lib/profile.ts` → `KREDITI_NA_REGISTRACIJI = ONBOARDING_CREDITS` (bilo `0`).
+- **O3 — grace se broji i od registracije.** `ProfilZaPristup.createdAt`; grana 4
+  `stanjePristupa()` računa grace nad `kasniji(punDo, createdAt)`. `punDo` u odgovoru ostaje
+  plaćeni rok (dakle `null` za nov nalog), menja se samo `citanjeDo`. Tip `grace` zato ima
+  `punDo: string | null`, što je nateralo tri UI grane na istinu:
+  `/pretraga` prazno stanje, `pristup-baner.tsx` i `pretplata-blok.tsx` sada razlikuju
+  „Pristup ti je istekao <datum>." od **„Besplatni krediti su potrošeni."**, a i `odbijenica()`
+  u `lib/pristup.ts` ima isti razdvojen uvod. Rečenice **nisu** iz §2.3 (v. „Ostaje").
+  Prosleđivanje `created_at`: `lib/pristup.ts`, `lib/admin-korisnici.ts` (tri poziva, uz kolonu
+  u `select`-u), `api/billing/checkout/route.ts`. Ko sme da kupi paket se NE menja —
+  `STANJA_ZA_PAKET` ne prima ni `grace` ni `zakljucan`.
+- **C6 — brisanje naloga otkazuje žive pretplate PRE brisanja profila.**
+  Nov `lib/otkazivanje.ts` (server-only): `STATUSI_ZA_OTKAZIVANJE = trialing/active/past_due`,
+  `otkaziPretplateNaloga(userId, customerId, klijent?)` — jedan `subscriptions.list({status:"all"})`
+  pa filter u kodu, `subscriptions.cancel(id, {prorate:false})` po pretplati,
+  `customers.update(metadata: {deleted_user, deleted_at})` **posle** otkazivanja. Baca na svaku
+  Stripe grešku. Stripe klijent je ULAZ (`StripeZaOtkazivanje`, tri funkcije) da bi test postojao
+  bez mreže — isti obrazac kao `NaplataSkladiste`.
+  `lib/profile.ts` → `stripeKupacZaNalog()` (baca na grešku baze: „ne znam da li ima pretplatu"
+  nije „nema"). `api/webhooks/clerk/route.ts`: u `user.deleted` prvo kupac → otkazivanje → pa
+  `obrisiProfil`; pad → marker se briše, revizija sa `ok:false`, **500** (Svix ponavlja) i profil
+  ostaje. `admin_audit.payload` nosi spisak otkazanih i preskočenih pretplata, ništa o kartici.
+- **Testovi:**
+  - `packages/shared/test/pristup.ts` — O3: nov nalog sa kreditima → `dopuna`; potrošeni → `grace`
+    bez `punDo`, `citanjeDo = registracija + GRACE_DAYS`; 29. dan grace, 31. zaključano; star nalog
+    sa isteklim planom ostaje zaključan; pretplatniku grace i dalje ide od plaćenog roka.
+  - `apps/web/test/clerk-webhook.ts` (nov, u `pnpm --filter web test`) — lažni Stripe: otkazuju se
+    tačno tri statusa, `prorate: false`, mrtve pretplate se ne diraju, marker posle otkazivanja,
+    pad baca i **ne** upisuje marker; statički: redosled (kupac → otkazivanje → `obrisiProfil`),
+    500 u `catch`-u, revizija bez podataka o kartici.
+  - `scripts/validate-migrations.ts` — `create_profile_with_grant` daje **2 u `credits_topup`** i
+    ne dira `credits_balance` (iznos iz `ONBOARDING_CREDITS`, ne otkucan); `onboarding_mark_step`
+    (no_user, nepoznat korak baca, `null` baca, `already` bez pomeranja trenutka, četiri koraka →
+    `done_at`, `skipped_at` ostaje `null`, `onboarding_steps` mora biti objekat);
+    `admin_users_page` vraća dve nove kolone; `onboarding_mark_step` u spisku prava.
+  - **Ispravljene dve zastarele tvrdnje:** invarijanta u `check:sql` je sada
+    `sum(delta) = credits_balance + credits_topup` (dve kase, registracija puni dopunu), a
+    `test/admin-komp.ts` traži `KREDITI_NA_REGISTRACIJI = ONBOARDING_CREDITS` umesto `= 0`.
+    §1.1 time nije prekršen: on zabranjuje besplatan **plan**, ne kredite — nalog ostaje `dopuna`.
+
+### Šta NIJE urađeno — čeka `docs/tok-i-onboarding.md`
+
+Sve ispod traži doslovan tekst ili strukturu iz dokumenta; ništa od toga nije započeto:
+
+- [ ] `packages/shared/src/onboarding.ts` — KORACI (§4.5), tekst tačaka i trake
+- [ ] `apps/web/src/lib/onboarding.ts` — `zahtevajOnboarding()` + poziv u pet strana
+- [ ] `/pocetak` — čarobnjak (§4.2, četiri ekrana, kombinacije iz `listaKesa()`), `?pozivnica=komp`,
+      `?ponovo=1`, prazan keš; **plus kolone `onboarding_city/niche/channel` u 0026**
+- [ ] `api/onboarding/{korak,preskoci,hint}` + upis koraka iz `api/search`, `lib/unlock.ts`,
+      `api/pipeline`
+- [ ] `onboarding-traka.tsx` + `OnboardingProvider`; brisanje bloka „Prvi koraci" sa `/dashboard`
+- [ ] `vodjena-tacka.tsx` (§4.5), `vodic.tsx` (§4.8)
+- [ ] prazna stanja iz §4.7 (`PraznoStanje` se proširuje, ne dublira)
+- [ ] **KARTICA PROSPEKTA (§7)** — `kartica-prospekta.tsx`, pet stanja, tekstovi §7.8 u
+      `lib/ui-tekst.ts`, `LeadBase` + `ratingCount/hasEmail/nicheLabel/issueCount`,
+      `UnlockResponse.enrichJobId`, ponovni `enrich_full` enqueue, brisanje `lead-tabela.tsx`,
+      grid u `pretraga-ekran.tsx` i `moja-lista-ekran.tsx`, polling §7.4, modal §7.3, tab Poziv,
+      tost „Kopirano. Označi kao kontaktiran?", 402 tekst; `test/kartica.ts`, `test/unlock.ts`
+- [ ] baneri §1.12 / §2.3 (grace sa uzrokom, „Nalog čeka plan") — **rečenice koje su sada u kodu
+      su moje, ne iz §2.3**: „Besplatni krediti su potrošeni." na tri mesta + u `odbijenica()`.
+      Kad dokument stigne, ovo su prva četiri mesta koja se prepisuju.
+- [ ] `/api/pozivnice/prihvati` → `/pocetak?pozivnica=komp`; `/welcome` dugme „Napravi prvu listu"
+- [ ] `test/onboarding.ts` (TS strana kataloga koraka) — SQL strana je u `check:sql`
+
+### Provereno
+
+```
+pnpm typecheck             → čisto (shared, web, worker, cli)
+pnpm check:sql             → Sve prošlo (0026 u oba prolaza; 2 kredita u topup; mark_step)
+pnpm test                  → sve prošlo (shared: pristup + smoke; web: 11 fajlova)
+pnpm --filter web lint     → čisto
+pnpm build                 → čisto
+```
+
+### Ostaje na meni
+
+| # | Gde | Šta |
+|---|---|---|
+| — | `docs/tok-i-onboarding.md` | **Dokument u repozitorijum.** Bez njega ostatak S28 ne može da se radi bez izmišljanja kopija. |
+| — | migracija `0026` | Primeniti na Supabase pre deploya (nov nalog do tada dobija 2 kredita u `credits_balance`, što ga NE pušta unutra). |
+| — | ručni prolaz | Brisanje naloga iz Clerk-a sa živom test pretplatom → pretplata `canceled` PRE nego što profil nestane (screenshot Stripe eventa ovde). Onboarding prolazi i `api_budget` izlaz nemaju šta da testiraju dok čarobnjaka nema. |

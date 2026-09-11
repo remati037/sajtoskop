@@ -51,7 +51,13 @@ const greska = (poruka: string, status: number, kod?: "ima_plan" | "komp") =>
 
 type Profil = Pick<
   ProfileRow,
-  "plan" | "stripe_customer_id" | "komp_expires_at" | "plan_expires_at" | "credits_topup" | "invite_id"
+  | "plan"
+  | "stripe_customer_id"
+  | "komp_expires_at"
+  | "plan_expires_at"
+  | "credits_topup"
+  | "invite_id"
+  | "created_at"
 >;
 
 export async function POST(req: Request): Promise<Response> {
@@ -94,7 +100,9 @@ export async function POST(req: Request): Promise<Response> {
 
     const { data: profil, error } = await adminSupabase()
       .from("profiles")
-      .select("plan, stripe_customer_id, komp_expires_at, plan_expires_at, credits_topup, invite_id")
+      .select(
+        "plan, stripe_customer_id, komp_expires_at, plan_expires_at, credits_topup, invite_id, created_at",
+      )
       .eq("id", userId)
       .maybeSingle<Profil>();
     if (error) throw new Error(`profiles: ${error.message}`);
@@ -107,6 +115,9 @@ export async function POST(req: Request): Promise<Response> {
         kompExpiresAt: profil.komp_expires_at,
         planExpiresAt: profil.plan_expires_at,
         creditsTopup: profil.credits_topup,
+        // [S28, O3] Ne menja ko sme da kupi: `STANJA_ZA_PAKET` ne prima ni
+        // `grace` ni `zakljucan`, a O3 samo jedno od njih pretvara u drugo.
+        createdAt: profil.created_at,
       },
       pretplata,
       Date.now(),

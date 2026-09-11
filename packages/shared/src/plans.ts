@@ -134,6 +134,24 @@ export const TRIAL_DAYS = 7;
 /** Koliko kredita nosi proba. Jednom po NALOGU, ref `trial:<user>` (§3.4). */
 export const TRIAL_CREDITS = 10;
 
+// ── onboarding (D8, O1) ─────────────────────────────────────
+
+/**
+ * Koliko kredita dobija nov nalog na registraciji (S28, `docs/tok-i-onboarding.md` §4).
+ *
+ * DVA, ne jedan: LANSIRANJE §1.8 (O1) je odlučio jedan, a §4 onboarding
+ * dokumenta ga je podigao na dva — prvi kredit ide na prvu listu (od S25 se i
+ * pristup kešu plaća, D10), drugi na prvo otključavanje. Sa jednim kreditom bi
+ * čovek platio listu i ostao bez ijednog poteza na njoj.
+ *
+ * Dodeljuje se JEDNOM PO NALOGU, u istoj putanji u kojoj profil i nastaje
+ * (`create_profile_with_grant`, ref `signup:<user>`), sa razlogom `onboarding`
+ * — a taj razlog od migracije 0026 puni `credits_topup`. To nije kozmetika:
+ * `credits_balance` ne otvara pristup nalogu bez plana, pa bi nov nalog sa
+ * kreditima u toj kasi i dalje bio `zakljucan` (v. `stanjePristupa`, §1.5).
+ */
+export const ONBOARDING_CREDITS = 2;
+
 // ═══════════════════════════════════════════════════════════
 // CENE — JEDINI IZVOR. STRIPE SE PROVERAVA NASPRAM OVOGA.
 // ═══════════════════════════════════════════════════════════

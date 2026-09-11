@@ -58,6 +58,21 @@ export type ProfilZaPristup = {
   planExpiresAt: string | null;
   /** `profiles.credits_topup` — kasa koja ne ističe (paketi, §1.4). */
   creditsTopup: number;
+  /**
+   * `profiles.created_at` — trenutak registracije (S28, O3).
+   *
+   * Postoji SAMO zbog grane 4 (grace): nov nalog nema nijedan plaćen rok, pa bi
+   * bez ovoga prelazio iz `dopuna` pravo u `zakljucan` istog trenutka u kom
+   * potroši kredite dobrodošlice — i to na `/zakljucano`, sa prospektima koje je
+   * maločas otključao iza katanca. Grace se zato broji od KASNIJEG od dva
+   * datuma: plaćenog roka i registracije.
+   *
+   * `null` znači „ne znam kad je nastao" i tada se ponaša kao pre S28 (nema
+   * grace-a bez plaćenog roka). Nijedna druga grana ovo polje ne čita: za nalog
+   * sa plaćenim rokom je `punDo` uvek kasniji od registracije, pa bi uračunavanje
+   * `createdAt` više gore bila promena bez ijedne posledice osim rizika.
+   */
+  createdAt: string | null;
 };
 
 /**
@@ -159,7 +174,17 @@ export type Pristup =
       stanje: "grace";
       pun: false;
       cita: true;
-      punDo: string;
+      /**
+       * Plaćeni rok koji je istekao — `null` kad ga nikad nije ni bilo.
+       *
+       * [S28, O3] Do S28 je ovde bio `string`, jer se u grace ulazilo samo
+       * istekom plaćenog roka. Od O3 u grace ulazi i NOV nalog koji je potrošio
+       * kredite dobrodošlice, a on nikad nije imao rok — pa je `null` ovde
+       * podatak, ne propust: „pristup ti je istekao <datum>" i „besplatni
+       * krediti su potrošeni" su dve različite rečenice i UI ih po ovom polju i
+       * razlikuje (§2.3, §1.12).
+       */
+      punDo: string | null;
       /** Dan do kog sme da izveze svoj rad. Ovo je datum koji baner ispisuje. */
       citanjeDo: string;
     })
@@ -216,7 +241,9 @@ export function citanjeDoZa(punDo: string | null): string | null {
  *   2. pun pristup po datumu — komp / otkazan / proba / aktivan
  *   3. `credits_topup > 0` — dopuna PRETIČE grace, jer je kupljen paket
  *      povratak u pun pristup, a ne produžetak samrtnog roka
- *   4. grace, pa zaključano
+ *   4. grace, pa zaključano — grace se broji od KASNIJEG od `punDo` i
+ *      `createdAt` (S28, O3: nov nalog koji potroši kredite dobrodošlice ima
+ *      mesec dana da čita svoje, isto kao pretplatnik kome je plan istekao)
  */
 export function stanjePristupa(
   profil: ProfilZaPristup,
@@ -244,7 +271,6 @@ export function stanjePristupa(
   const citanjeDo = citanjeDoZa(punDo);
 
   const punDoMs = msIli(punDo);
-  const citanjeDoMs = msIli(citanjeDo);
 
   // 2. Pun pristup traje dok traje kasniji od dva roka.
   if (punDo !== null && citanjeDo !== null && punDoMs !== null && punDoMs > sada) {
@@ -298,8 +324,23 @@ export function stanjePristupa(
   }
 
   // 4. Grace: čita i izvozi svoje, ne troši ništa (§1.5).
-  if (punDo !== null && citanjeDo !== null && citanjeDoMs !== null && citanjeDoMs > sada) {
-    return { stanje: "grace", pun: false, cita: true, planLimita: plan, punDo, citanjeDo };
+  //
+  // [S28, O3] Broji se od KASNIJEG od plaćenog roka i registracije. Nalog koji
+  // je imao pretplatu time ne dobija ni dan više (registracija mu je davno pre
+  // `punDo`), a nalog koji plan nikad nije imao dobija mesec dana od
+  // registracije — bez toga je „potrošio si kredite dobrodošlice" isto što i
+  // „nalog ti je istekao pre mesec dana", pa bi čovek odmah posle prve poruke
+  // završio na `/zakljucano` bez ijednog otključanog prospekta.
+  //
+  // `punDo` u odgovoru OSTAJE plaćeni rok (dakle `null` za nov nalog):
+  // registracija nije datum do kog je nešto plaćeno, a baner i modal iz njega
+  // ispisuju rečenicu o pretplati. `citanjeDo` je jedini datum koji se ovde
+  // menja, i on je jedini koji grace i prikazuje.
+  const graceDo = citanjeDoZa(kasniji(punDo, profil.createdAt));
+  const graceDoMs = msIli(graceDo);
+
+  if (graceDo !== null && graceDoMs !== null && graceDoMs > sada) {
+    return { stanje: "grace", pun: false, cita: true, planLimita: plan, punDo, citanjeDo: graceDo };
   }
 
   return { stanje: "zakljucan", pun: false, cita: false, planLimita: plan, punDo, citanjeDo };

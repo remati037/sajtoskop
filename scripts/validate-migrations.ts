@@ -21,7 +21,7 @@ import { budgetDay, nextDayReset, nextMonthReset } from "../apps/worker/src/lib/
 // Katalog je od S16 u `packages/shared`; od S25 (Stripe) se u bazu upisuje
 // `lookup_key`, ne `price_` ID. Test koristi PRAVI ključ iz kataloga, ne
 // izmišljen string — provera mora da prođe nad podatkom kakav i produkcija piše.
-import { PLAN_PRICES, TRIAL_CREDITS } from "../packages/shared/src/plans";
+import { ONBOARDING_CREDITS, PLAN_PRICES, TRIAL_CREDITS } from "../packages/shared/src/plans";
 
 const PRO_MESECNO = PLAN_PRICES.pro.month.lookupKey;
 
@@ -147,12 +147,26 @@ async function main(): Promise<void> {
   check((await balance()) === 30, "dodato tačno 30, ne 60");
 
   console.log("\ncreate_profile_with_grant");
+  // [0026] Dodela na registraciji ide sa razlogom `onboarding`, dakle u
+  // `credits_topup` — u `credits_balance` ne bi OTVORILA pristup nalogu bez
+  // plana, pa bi onboarding počinjao na katancu (LANSIRANJE §1.5, §1.8 O1).
+  // Iznos je `ONBOARDING_CREDITS` iz kataloga, ne broj otkucan ovde.
   const cpg = (u: string) =>
-    one<Rpc>(`select * from create_profile_with_grant($1,'x@y.rs',30,$2)`, [u, `signup:${u}`]);
+    one<Rpc>(`select * from create_profile_with_grant($1,'x@y.rs',$2,$3)`,
+      [u, ONBOARDING_CREDITS, `signup:${u}`]);
   check((await cpg("u2"))?.reason === "created", "novi profil → created");
   check((await cpg("u2"))?.reason === "existing", "ponovljen webhook → existing");
-  const u2 = await one<{ credits_balance: number }>(`select credits_balance from profiles where id='u2'`);
-  check(u2?.credits_balance === 30, "ponovljen webhook ne daje 60 kredita");
+  const u2 = await one<{ credits_balance: number; credits_topup: number }>(
+    `select credits_balance, credits_topup from profiles where id='u2'`);
+  check(u2?.credits_topup === ONBOARDING_CREDITS,
+    `registracija daje ${ONBOARDING_CREDITS} u credits_topup (${u2?.credits_topup})`);
+  check(u2?.credits_balance === 0, "registracija ne dira credits_balance");
+  check(
+    (await one<{ n: number }>(
+      `select count(*)::int as n from credit_ledger
+        where user_id = 'u2' and reason = 'onboarding' and ref_id = 'signup:u2'`))?.n === 1,
+    "ponovljen webhook ne daje kredite dvaput (jedan red `onboarding` u knjizi)",
+  );
 
   // ── 0002: budžet Google poziva ──────────────────────────
   // Ovde se proverava baš ono zbog čega je brojač i otišao iz fajla u bazu:
@@ -493,11 +507,15 @@ async function main(): Promise<void> {
   await db.exec(`select create_profile_with_grant('u3', 'c@d.rs', 30, 'signup:u3')`);
   await db.exec(`select spend_credit_and_unlock('u3', 'p1')`);
   await db.exec(`select grant_monthly_credits('u3', 30, '2026-11')`);
-  const knjiga = await one<{ zbir: number; balans: number }>(
+  // [0026] Invarijanta je nad ZBIROM obe kase, ne nad `credits_balance`: od
+  // 0026 registracija puni `credits_topup` (`onboarding`), a potrošnja uzima
+  // prvo iz balansa pa iz dopune (0022). Knjiga i dalje mora da se poklopi sa
+  // stanjem — samo se stanje sabira iz dve kolone.
+  const knjiga = await one<{ zbir: number; stanje: number }>(
     `select (select coalesce(sum(delta),0) from credit_ledger where user_id = 'u3')::int as zbir,
-            (select credits_balance from profiles where id = 'u3')::int as balans`);
-  check(knjiga?.zbir === knjiga?.balans && knjiga?.balans === 30,
-    `sum(delta) = credits_balance = 30  (${knjiga?.zbir} = ${knjiga?.balans})`);
+            (select credits_balance + credits_topup from profiles where id = 'u3')::int as stanje`);
+  check(knjiga?.zbir === knjiga?.stanje && knjiga?.stanje === 59,
+    `sum(delta) = credits_balance + credits_topup = 59  (${knjiga?.zbir} = ${knjiga?.stanje})`);
 
   // ── F4: dnevni cap na export ─────────────────────────────
   console.log("\nclaim_export");
@@ -1408,10 +1426,12 @@ async function main(): Promise<void> {
   check((await grantW(5, "poklon", null))?.reason === "invalid_reason",
     "grant_credits odbija nepoznat razlog");
 
-  // Razlog bira kasu, ne pozivalac: samo `credit_pack` puni credits_topup.
+  // Razlog bira kasu, ne pozivalac. Od 0026 kasu koja NE ISTIČE pune DVA
+  // razloga: `credit_pack` i `onboarding` (v. 0026 §2) — jer je `credits_topup`
+  // jedina kolona koja otvara pristup nalogu bez plana (§1.5).
   k = await kase("w1");
-  check(k?.b === 101 && k?.t === 50,
-    "razlog bira kasu — credit_pack u dopunu, ostalo u balans");
+  check(k?.b === 100 && k?.t === 51,
+    `razlog bira kasu — credit_pack i onboarding u dopunu, ostalo u balans (${k?.b} / ${k?.t})`);
 
   // ── [S25] apply_subscription (Stripe) — stanje BEZ kredita ──
   // Krediti idu odvojeno (`apply_invoice_paid`), jer Stripe šalje stanje
@@ -1994,26 +2014,98 @@ async function main(): Promise<void> {
 
   // Registracija: profil bez plana i bez kredita. `existing` mora da radi i kad
   // dodele nema — do 0024 se izvodio iz postojanja `monthly_grant` reda.
-  console.log("\nS20: registracija ne dodeljuje kredite");
+  console.log("\nS20/S28: registracija dodeljuje kredite dobrodošlice");
   const cpg0 = (u: string) =>
     one<Rpc>(`select * from create_profile_with_grant($1,'n@x.rs',0,$2)`, [u, `signup:${u}`]);
   check((await cpg0("reg1"))?.reason === "created", "nov nalog bez kredita → created");
   check((await cpg0("reg1"))?.reason === "existing", "ponovljen webhook bez kredita → existing");
-  const reg1 = await one<{ plan: string; bal: number }>(
-    `select plan, credits_balance as bal from profiles where id='reg1'`);
-  check(reg1?.plan === "dopuna" && reg1.bal === 0,
-    `registracija: plan '${reg1?.plan}', ${reg1?.bal} kredita`);
+  const reg1 = await one<{ plan: string; bal: number; top: number }>(
+    `select plan, credits_balance as bal, credits_topup as top from profiles where id='reg1'`);
+  check(reg1?.plan === "dopuna" && reg1.bal === 0 && reg1.top === 0,
+    `poziv sa 0 kredita ne dodeljuje ništa: plan '${reg1?.plan}', ${reg1?.bal} + ${reg1?.top}`);
+
+  // [S28] Plan se dodelom NE menja: nov nalog je i dalje `dopuna`, samo sa
+  // dva kredita u kasi koja otvara pristup (`stanjePristupa()` ga čita kao
+  // `dopuna`, ne `zakljucan`).
+  await db.exec(`select create_profile_with_grant('reg2','n2@x.rs',${ONBOARDING_CREDITS},'signup:reg2')`);
+  const reg2 = await one<{ plan: string; bal: number; top: number }>(
+    `select plan, credits_balance as bal, credits_topup as top from profiles where id='reg2'`);
+  check(reg2?.plan === "dopuna" && reg2.bal === 0 && reg2.top === ONBOARDING_CREDITS,
+    `registracija sa kreditima dobrodošlice: plan '${reg2?.plan}', ${reg2?.bal} + ${reg2?.top}`);
+
+  // ── 0026: onboarding_mark_step ───────────────────────────
+  console.log("\nS28: onboarding_mark_step");
+  type Korak = { ok: boolean; reason: string; steps: Record<string, string>; done_at: string | null };
+  const korak = (u: string, k: string) =>
+    one<Korak>(`select * from onboarding_mark_step($1,$2)`, [u, k]);
+
+  check((await korak("nema_ga", "pretraga"))?.reason === "no_user", "nepostojeći nalog → no_user");
+
+  // Nepoznat korak BACA: ključ upisuje ruta, sa zakucanim stringom — tipfeler
+  // tamo je greška u kodu, a tiho `false` bi bio traka koja se nikad ne završi.
+  await mustFail(`select onboarding_mark_step('reg2','izmisljen')`, "nepoznat korak baca");
+  await mustFail(`select onboarding_mark_step('reg2', null)`, "korak `null` baca");
+
+  const prviKorak = await korak("reg2", "pretraga");
+  check(prviKorak?.reason === "marked" && prviKorak.done_at === null,
+    "prvi korak → marked, bez done_at");
+  check(Object.keys(prviKorak?.steps ?? {}).length === 1 && "pretraga" in (prviKorak?.steps ?? {}),
+    "korak je upisan kao ključ u onboarding_steps");
+
+  const ponovoKorak = await korak("reg2", "pretraga");
+  check(ponovoKorak?.reason === "already" &&
+        ponovoKorak.steps.pretraga === prviKorak?.steps.pretraga,
+    "isti korak drugi put → already, trenutak se ne menja");
+
+  await korak("reg2", "otkljucavanje");
+  await korak("reg2", "poruka");
+  check((await korak("reg2", "pipeline"))?.done_at !== null,
+    "sva četiri koraka → onboarding_done_at");
+
+  const stanjeKoraka = await one<{ n: number; done: string | null; skipped: string | null }>(
+    `select (select count(*) from jsonb_each(p.onboarding_steps))::int as n,
+            p.onboarding_done_at::text as done, p.onboarding_skipped_at::text as skipped
+       from profiles p where p.id='reg2'`);
+  check(stanjeKoraka?.n === 4 && stanjeKoraka.done !== null,
+    `četiri ključa i done_at u profilu (${stanjeKoraka?.n})`);
+  check(stanjeKoraka?.skipped === null,
+    "završen onboarding ne upisuje `onboarding_skipped_at` (to su dva različita podatka)");
+
+  // Poziv posleKorak završetka ne pomera `done_at` — ni za milisekundu.
+  const posleKorak = await korak("reg2", "pretraga");
+  const doneUvek = await one<{ done: string | null }>(
+    `select onboarding_done_at::text as done from profiles where id='reg2'`);
+  check(posleKorak?.reason === "already" && doneUvek?.done === stanjeKoraka?.done,
+    "korak posle završetka → already, done_at nepomeren");
+
+  check(
+    (await one<{ t: string }>(
+      `select jsonb_typeof(onboarding_steps) as t from profiles where id='reg1'`))?.t === "object",
+    "onboarding_steps je podrazumevano prazan objekat, ne null",
+  );
+  await mustFail(`update profiles set onboarding_steps = '[]'::jsonb where id='reg1'`,
+    "onboarding_steps koji nije objekat odbijen");
+  check(
+    (await one<{ prazan: boolean }>(
+      `select array_length(onboarding_hints_seen, 1) is null as prazan
+         from profiles where id='reg1'`))?.prazan === true,
+    "onboarding_hints_seen postoji i podrazumevano je prazan niz",
+  );
 
   // ── kolone i sužavanje po ID-jevima u listi korisnika ────
   console.log("\nadmin_users_page: ulazi za stanjePristupa()");
   type StranaB = {
     id: string; credits_topup: number; komp_expires_at: string | null;
-    plan_expires_at: string | null; sub_status: string | null; sub_trial_end: string | null; ukupno: string;
+    plan_expires_at: string | null; sub_status: string | null; sub_trial_end: string | null;
+    onboarding_done_at: string | null; onboarding_skipped_at: string | null; ukupno: string;
   };
   const redBeta = (await db.query<StranaB>(
     `select * from admin_users_page('b1@',null,null,'created_at','desc',25,0)`)).rows[0];
   check(redBeta?.id === "beta1" && redBeta.komp_expires_at !== null && "sub_trial_end" in redBeta,
     "lista vraća komp_expires_at, plan_expires_at, sub_trial_end i obe kase");
+  // [0026] Mera uspeha onboardinga se čita po nalogu ili nikako (LANSIRANJE §1.8).
+  check("onboarding_done_at" in (redBeta ?? {}) && "onboarding_skipped_at" in (redBeta ?? {}),
+    "lista vraća onboarding_done_at i onboarding_skipped_at");
   const probni = (await db.query<StranaB>(
     `select * from admin_users_page(null,'proba',null,'created_at','desc',25,0)`)).rows;
   check(Array.isArray(probni), "filter `proba` (sub_status = trialing) postoji");
@@ -2045,7 +2137,8 @@ async function main(): Promise<void> {
                     "redeem_invite", "has_search_access",
                     "admin_set_role", "admin_overview",
                     "claim_request", "zabelezi_utisak", "dopuni_utisak",
-                    "get_job_for_user", "inkrementiraj_analizu", "search_listing"]) {
+                    "get_job_for_user", "inkrementiraj_analizu", "search_listing",
+                    "onboarding_mark_step"]) {
     const r = await one<{ anon: boolean; svc: boolean }>(
       `select has_function_privilege('anon', p.oid, 'execute') as anon,
               has_function_privilege('service_role', p.oid, 'execute') as svc
