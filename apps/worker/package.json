@@ -18,7 +18,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
     "@sajtoskop/shared": "workspace:*",
-    "@supabase/supabase-js": "^2.112.0",
+    "@supabase/supabase-js": "^2.112.3",
     "ipaddr.js": "^2.5.0",
     "p-limit": "^6.2.0",
     "playwright": "1.62.1",
