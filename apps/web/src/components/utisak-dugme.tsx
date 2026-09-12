@@ -41,7 +41,7 @@ import { naslovZaPutanju } from "@/lib/navigacija";
 import type { ApiError } from "@/lib/search-types";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
-import { useUtisci } from "./utisci-provider";
+import { useUtisci, type KontekstGreske } from "./utisci-provider";
 
 type Ocena = 1 | 2 | 3;
 
@@ -78,6 +78,8 @@ export function UtisakDugme({
 
   const [panel, setPanel] = useState(false);
   const [podsetnik, setPodsetnik] = useState(false);
+  /** [S29] Kontekst sa kojim je panel otvoren kroz „Prijavi grešku". */
+  const [bug, setBug] = useState<KontekstGreske | null>(null);
 
   const dugme = useRef<HTMLButtonElement>(null);
   const okvir = useRef<HTMLDivElement>(null);
@@ -102,8 +104,54 @@ export function UtisakDugme({
     return () => clearTimeout(t);
   }, [traziUtisak]);
 
+  // ── S29 §5.3 D: „Prijavi grešku" otvara OVAJ panel ─────────
+  // Zahtev stiže kroz provider sa bilo kog mesta (kartica, modal, tost), a
+  // ovde se pretvara u otvoren panel sa pretpostavljenim tipom `bug`.
+  // `rucno` se postavlja da podsetnik na dan 3 ne bi iskočio preko njega.
+  const zahtevBuga = utisci?.zahtevBuga ?? null;
+  const preuzetBug = utisci?.preuzetBug;
+
+  useEffect(() => {
+    if (!zahtevBuga) return;
+    rucno.current = true;
+    setBug(zahtevBuga.ctx);
+    setPodsetnik(false);
+    setPanel(true);
+    preuzetBug?.();
+  }, [zahtevBuga, preuzetBug]);
+
+  // ── „Prijavi grešku" sa strane VAN okvira aplikacije ───────
+  // `/welcome` i ostale strane izvan `(app)` nemaju ni provider ni ovo dugme,
+  // pa nemaju ni panel koji bi otvorile. Zato tamo link vodi ovamo, a razlog
+  // putuje kroz adresu: `?bug=welcome`.
+  //
+  // Čita se iz `window.location`, ne kroz `useSearchParams()`: ovo je jednokratna
+  // radnja na montiranju, a `useSearchParams()` bi tražio Suspense granicu oko
+  // dugmeta koje stoji u okviru SVAKE strane.
+  //
+  // Parametar se odmah briše iz adrese (`replaceState`, bez navigacije), da
+  // osvežavanje strane ne bi otvaralo panel iznova.
+  useEffect(() => {
+    const par = new URLSearchParams(window.location.search);
+    const korak = par.get("bug");
+    if (!korak) return;
+
+    par.delete("bug");
+    const upit = par.toString();
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + (upit ? `?${upit}` : "") + window.location.hash,
+    );
+
+    rucno.current = true;
+    setBug({ korak });
+    setPanel(true);
+  }, []);
+
   const zatvoriPanel = useCallback(() => {
     setPanel(false);
+    setBug(null);
     // Fokus se vraća na dugme (§6.2). Bez ovoga tastatura ostaje na `<body>`-ju i
     // korisnik koji je došao prečicom mora ponovo da tabuje kroz celu stranu.
     dugme.current?.focus();
@@ -209,6 +257,7 @@ export function UtisakDugme({
           aria-haspopup="dialog"
           onClick={() => {
             rucno.current = true;
+            setBug(null);
             setPanel((p) => !p);
           }}
           title="Pošalji utisak — stiže direktno meni (Ctrl/⌘ + Shift + U)"
@@ -244,7 +293,7 @@ export function UtisakDugme({
           // 360 px na ekranu od 390 px bi ostavilo 15 px sa svake strane.
           className="fixed bottom-16 left-4 right-4 z-40 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-xl border border-border bg-bg-elev shadow-card sm:bottom-17 sm:left-auto sm:right-5 sm:w-90"
         >
-          <UtisakForma izvor="dugme" naZatvori={zatvoriPanel} />
+          <UtisakForma izvor="dugme" naZatvori={zatvoriPanel} bug={bug} />
         </div>
       )}
 
@@ -272,9 +321,16 @@ type Slika = { path: string; pregled: string };
 function UtisakForma({
   izvor,
   naZatvori,
+  bug = null,
 }: {
   izvor: FeedbackSource;
   naZatvori: () => void;
+  /**
+   * [S29 §5.3 D] Panel je otvoren iz „Prijavi grešku": tip je unapred `bug`,
+   * a kontekst putuje uz PRVI zahtev (POST), jer se `ctx` gradi u trenutku
+   * nastanka reda — dopuna ga više ne bi upisala.
+   */
+  bug?: KontekstGreske | null;
 }) {
   const putanja = usePathname();
 
@@ -282,7 +338,7 @@ function UtisakForma({
   const [id, setId] = useState<number | null>(null);
   const [traziDopunu, setTraziDopunu] = useState(false);
   const [nagrada, setNagrada] = useState(false);
-  const [tip, setTip] = useState<FeedbackKind | null>(null);
+  const [tip, setTip] = useState<FeedbackKind | null>(bug ? "bug" : null);
   const [tekst, setTekst] = useState("");
   const [slika, setSlika] = useState<Slika | null>(null);
   const [slikaCeka, setSlikaCeka] = useState(false);
@@ -335,6 +391,9 @@ function UtisakForma({
           route: putanja,
           // Jedini podatak o uređaju koji server ne zna sam.
           viewport: `${window.innerWidth}×${window.innerHeight}`,
+          // [S29] Samo identifikatori. Status posla, poruku greške i stanje
+          // naloga čita server iz baze — ovo telo ih ne nosi (pravilo 8).
+          ...(bug ? { ctx_kljuc: bug } : {}),
         }),
       });
 
@@ -499,9 +558,9 @@ function UtisakForma({
       <div className="flex items-start gap-2 border-b border-border px-4 py-3 sm:px-5">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold tracking-tight">
-            {otvorenaDopuna ? "Zabeleženo, hvala." : "Kako ti ide?"}
+            {otvorenaDopuna ? "Zabeleženo, hvala." : bug ? "Šta nije radilo?" : "Kako ti ide?"}
           </p>
-          <p className="truncate text-xs text-fg-muted">{ekran} · beta</p>
+          <p className="truncate text-xs text-fg-muted">{ekran}</p>
         </div>
 
         {izvor === "dugme" && (
@@ -541,7 +600,9 @@ function UtisakForma({
 
         {!otvorenaDopuna && (
           <p className="text-xs text-fg-muted">
-            Klik na ocenu je već poslat utisak. Ostalo je dopuna.
+            {bug
+              ? "Oceni koliko je smetalo, pa u sledećem koraku napiši šta se desilo. Ono što je bilo na ekranu sam već zabeležio."
+              : "Klik na ocenu je već poslat utisak. Ostalo je dopuna."}
           </p>
         )}
 

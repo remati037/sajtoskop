@@ -18,9 +18,9 @@
 
 import "server-only";
 import {
+  type AdminNps,
   opisOdgovora,
   pitanjeZaKljuc,
-  PRAG_CENE_RSD,
   type FeedbackRow,
   type FeedbackSource,
 } from "@sajtoskop/shared";
@@ -44,10 +44,8 @@ const DIGEST_PROZOR_MS = 48 * 60 * 60 * 1000;
 /** Gornja granica po mejlu. Preko ovoga digest prestaje da bude čitljiv. */
 const DIGEST_PLAFON = 150;
 
-/** Ispod ovoliko odgovora medijana cene nije dokaz nego signal (F11 §10). */
-export const UZORAK_ZA_MEDIJANU = 12;
-
-const rsd = new Intl.NumberFormat("sr-Latn-RS");
+/** Ispod ovoliko odgovora NPS nije dokaz nego signal (F11 §10). */
+export const UZORAK_ZA_NPS = 12;
 
 export type DigestIshod = {
   poslato: number;
@@ -93,11 +91,22 @@ export async function posaljiDigest(osnova: string, sada = Date.now()): Promise<
 
   const mejlovi = await mejloviZa(redovi.map((r) => r.user_id));
 
+  // [S29] Dve brojke na vrhu digesta.
+  //
+  // Digest je spisak pojedinačnih zapisa i lako se čita kao „danas je bilo
+  // sedam stvari". Ove dve linije su ono što se iz spiska ne vidi: raspoloženje
+  // (NPS) i šta ljudi traže a nemam (Fali). Obe su JEDAN dodatan upit, oba nad
+  // funkcijama koje ekran ionako zove — nijedna nova infrastruktura.
+  //
+  // Pad bilo koje od njih ne sme da zaustavi digest: mejl sa spiskom je vredniji
+  // od mejla koji nije otišao.
+  const zaglavlje = await digestZaglavlje(redovi, sada);
+
   const ishod = await posaljiMejl({
     za: [podesavanje.env.FEEDBACK_EMAIL_TO],
     subject: `Utisci dana · ${redovi.length} ${redovi.length === 1 ? "zapis" : "zapisa"}`,
-    text: digestTekst(redovi, mejlovi, osnova),
-    html: digestHtml(redovi, mejlovi, osnova),
+    text: digestTekst(redovi, mejlovi, osnova, zaglavlje),
+    html: digestHtml(redovi, mejlovi, osnova, zaglavlje),
   });
 
   if (!ishod.ok) return { poslato: 0, razlog: ishod.greska };
@@ -117,6 +126,63 @@ export async function posaljiDigest(osnova: string, sada = Date.now()): Promise<
   }
 
   return { poslato: redovi.length, razlog: null };
+}
+
+/**
+ * Dve linije na vrhu digesta: NPS ove nedelje i koliko je novih „Fali" stiglo.
+ *
+ * „Ove nedelje" je namerno kraći prozor od ukupnog skora: dnevni mejl koji
+ * prikazuje NPS od početka vremena bi mesecima pokazivao isti broj i prestao da
+ * se čita. Ukupan skor stoji na `/admin` i u nedeljnom izveštaju.
+ *
+ * Obe linije su tihe na grešku i tihe kad nemaju šta da kažu — red „NPS: —" u
+ * dnevnom mejlu je šum.
+ */
+async function digestZaglavlje(redovi: FeedbackRow[], sada: number): Promise<string[]> {
+  const linije: string[] = [];
+
+  try {
+    const { data, error } = await adminSupabase().rpc("admin_nps");
+    if (error) throw new Error(error.message);
+
+    const nps = ((data ?? []) as AdminNps[])[0];
+    if (nps && nps.n > 0) {
+      linije.push(
+        `NPS ove nedelje: ${nps.score ?? "—"} · ${nps.n} ${nps.n === 1 ? "odgovor" : "odgovora"} ukupno · ` +
+          `${nps.poslednjih_30_dana} u poslednjih 30 dana ` +
+          `(${nps.promoteri} promotera · ${nps.pasivni} pasivnih · ${nps.detraktori} detraktora)`,
+      );
+    }
+  } catch (err) {
+    console.error("[digest] NPS:", err);
+  }
+
+  // „Novih" je ono što je u OVOM digestu, ne ukupno: brojku koja raste sama od
+  // sebe niko ne primeti.
+  const noviFali = redovi.filter((r) => r.prompt_key === "fali").length;
+  if (noviFali > 0) {
+    const odNedelje = new Date(sada - 7 * 24 * 60 * 60 * 1000).toISOString();
+    let ukupno: number | null = null;
+
+    try {
+      const { count, error } = await adminSupabase()
+        .from("feedback")
+        .select("id", { count: "exact", head: true })
+        .eq("prompt_key", "fali")
+        .gte("created_at", odNedelje);
+      if (error) throw new Error(error.message);
+      ukupno = count ?? null;
+    } catch (err) {
+      console.error("[digest] Fali:", err);
+    }
+
+    linije.push(
+      `Fali: ${noviFali} ${noviFali === 1 ? "nov" : "novih"}` +
+        (ukupno === null ? "" : ` · ${ukupno} ove nedelje`),
+    );
+  }
+
+  return linije;
 }
 
 /** Mejlovi za sve autore iz digesta — jednim upitom, nikad po redu. */
@@ -198,6 +264,7 @@ function digestTekst(
   redovi: FeedbackRow[],
   mejlovi: Map<string, string>,
   osnova: string,
+  zaglavlje: string[],
 ): string {
   const blokovi = poSlojevima(redovi).map(([sloj, grupa]) =>
     [
@@ -213,6 +280,7 @@ function digestTekst(
   );
 
   return [
+    ...(zaglavlje.length > 0 ? [...zaglavlje, ""] : []),
     `${redovi.length} ${redovi.length === 1 ? "utisak" : "utisaka"} od poslednjeg digesta.`,
     "Ono što gori (bug, ocena 1, incident) je stiglo odmah i ovde se ne ponavlja.",
     "",
@@ -225,6 +293,7 @@ function digestHtml(
   redovi: FeedbackRow[],
   mejlovi: Map<string, string>,
   osnova: string,
+  zaglavlje: string[],
 ): string {
   const blokovi = poSlojevima(redovi).map(([sloj, grupa]) =>
     [
@@ -244,7 +313,11 @@ function digestHtml(
 
   return [
     `<div style="font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0a0b0c;max-width:640px">`,
-    `<p style="margin:0">${redovi.length} ${redovi.length === 1 ? "utisak" : "utisaka"} od poslednjeg digesta. Ono što gori je stiglo odmah i ovde se ne ponavlja.</p>`,
+    ...zaglavlje.map(
+      (red) =>
+        `<p style="margin:0 0 4px;font-weight:600">${escapeHtml(red)}</p>`,
+    ),
+    `<p style="margin:${zaglavlje.length > 0 ? "14px" : "0"} 0 0">${redovi.length} ${redovi.length === 1 ? "utisak" : "utisaka"} od poslednjeg digesta. Ono što gori je stiglo odmah i ovde se ne ponavlja.</p>`,
     ...blokovi,
     `<p style="margin:24px 0 0;font-size:13px"><a href="${escapeHtml(`${osnova}/admin/utisci`)}" style="color:#6c757f">Sve prijave →</a></p>`,
     `</div>`,
@@ -439,8 +512,9 @@ export type IzvestajIshod = { ok: boolean; razlog: string | null };
  * `/admin/utisci`. Izveštaj koji sam broji bi za mesec dana tvrdio drugu brojku
  * od ekrana, i onda nijedna ne bi značila ništa.
  *
- * Medijana se NE računa ovde: `medijanaCene()` iz `feedback-katalog.ts` je
- * jedini izvor istine, jer su sredine opsega tamo gde i sami opsezi.
+ * [S29] Medijane cene više nema — pitanje je obrisano iz kataloga. Na njeno
+ * mesto ide NPS, i on se ovde takođe NE računa: `admin_nps()` je jedini izvor
+ * istine, a `admin_overview` ga prosleđuje.
  */
 export async function posaljiNedeljniIzvestaj(
   osnova: string,
@@ -455,16 +529,13 @@ export async function posaljiNedeljniIzvestaj(
     citajTezu(),
   ]);
 
-  const medijana = pregled.medijana;
-  const uzorak = pregled.medijanaUzorak;
-
   const datum = new Intl.DateTimeFormat("sr-Latn-RS", {
     timeZone: "Europe/Belgrade",
     day: "2-digit",
     month: "2-digit",
   }).format(new Date(sada));
 
-  const linije = izvestajLinije(pregled, cute, medijana, uzorak, teza, osnova);
+  const linije = izvestajLinije(pregled, cute, teza, osnova);
 
   const ishod = await posaljiMejl({
     za: [podesavanje.env.FEEDBACK_EMAIL_TO],
@@ -484,13 +555,12 @@ type Pregled = Awaited<ReturnType<typeof citajPregled>>;
 function izvestajLinije(
   p: Pregled,
   cute: { email: string | null; id: string }[],
-  medijana: number | null,
-  uzorak: number,
   teza: Teza,
   osnova: string,
 ): string[] {
   const pitanja = p.utisci.po_pitanju;
   const zbir = p.utisci.pitanja;
+  const nps = p.utisci.nps;
 
   const procenat = (deo: number, celo: number) =>
     celo > 0 ? `${Math.round((deo / celo) * 100)} %` : "—";
@@ -516,16 +586,19 @@ function izvestajLinije(
       `(${procenat(zbir.odbaceno, zbir.prikazano)})`,
     "  Cilj iz F11 §10: odgovorenost ≥ 40 %, odbacivanje < 25 %.",
     "",
-    "MEDIJANA CENE",
-    medijana === null
-      ? "  Nijedan odgovor na pitanje o ceni."
-      : `  ${rsd.format(medijana)} RSD mesečno, iz ${uzorak} ${uzorak === 1 ? "odgovora" : "odgovora"}.` +
-        `  (prag iz 00-kontekst §2: ${rsd.format(PRAG_CENE_RSD)} RSD)`,
+    "NPS",
+    nps.n === 0
+      ? "  Nijedan odgovor na pitanje o preporuci."
+      : `  ${nps.score} · iz ${nps.n} ${nps.n === 1 ? "odgovora" : "odgovora"} ` +
+        `(${nps.promoteri} promotera · ${nps.pasivni} pasivnih · ${nps.detraktori} detraktora)`,
+    nps.n > 0 ? `  Poslednjih 30 dana: ${nps.poslednjih_30_dana}.` : "",
     // Rečenica koja mora da stoji SVAKI put (§10). Za tri meseca ne sme da
-    // ispadne da je 1.900 RSD bila „istraženo utvrđena cena".
-    uzorak < UZORAK_ZA_MEDIJANU
-      ? `  Medijana iz manje od ${UZORAK_ZA_MEDIJANU} odgovora nije dokaz nego signal.`
-      : `  I sa ${uzorak} odgovora ovo je signal, ne dokaz — uzorak je cela beta.`,
+    // ispadne da je skor bio „istraženo utvrđen".
+    nps.n === 0
+      ? ""
+      : nps.n < UZORAK_ZA_NPS
+        ? `  Skor iz manje od ${UZORAK_ZA_NPS} odgovora nije dokaz nego signal.`
+        : `  I sa ${nps.n} odgovora ovo je signal, ne dokaz — uzorak je ceo proizvod.`,
     "",
     "PRIJAVE",
     `  Ukupno ${p.utisci.ukupno} · novih 7 dana ${p.utisci.novih_7d} · ` +

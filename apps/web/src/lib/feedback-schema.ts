@@ -52,6 +52,49 @@ export const greskaSchema = z.strictObject({
 export const dnevnikSchema = z.array(greskaSchema).max(5);
 
 /**
+ * Odakle je „Prijavi grešku" kliknuto (S29 §5.3 D).
+ *
+ * Zatvoren spisak, ne slobodan string, i to iz istog razloga iz kog `prompt_key`
+ * mora da postoji u katalogu (pravilo 16): `ctx` je jsonb, a jsonb bez šeme je
+ * kanta. Ovo je ujedno i JEDINO polje konteksta koje server ne može da zna sam
+ * — sve ostalo (`stanje` naloga, status i greška posla) čita iz baze.
+ */
+export const korakEnum = z.enum([
+  /** Kartica prospekta u stanju greške. */
+  "kartica",
+  /** Modal skeniranja koji je pao. */
+  "skeniranje",
+  /** Tost posle 402/403/500 na otključavanju. */
+  "unlock",
+  /** Tost posle 402/403/500 na pretrazi. */
+  "pretraga",
+  /** Prva strana posle registracije. */
+  "welcome",
+  /** Blok pretplate u stanju `past_due`. */
+  "pretplata",
+]);
+
+/**
+ * Ključ konteksta uz prijavu greške.
+ *
+ * IDENTIFIKATORI I NIŠTA VIŠE. Server iz `placeId` i `jobId` sam čita ono što
+ * ih opisuje — status posla, poruku greške, plan i rok naloga — pa telo koje
+ * tvrdi `stanje: 'aktivan'` ne menja nijedan upisan bajt (pravilo 8).
+ *
+ * `jobId` je string, ne broj: stiže iz adrese i iz `data-` atributa, a jedina
+ * provera koja ovde treba je da je to cifra i da nije roman.
+ */
+export const ctxKljucSchema = z.strictObject({
+  placeId: z.string().trim().min(1).max(128).optional(),
+  jobId: z
+    .string()
+    .trim()
+    .regex(/^\d{1,15}$/, { error: "ID posla je broj." })
+    .optional(),
+  korak: korakEnum.optional(),
+});
+
+/**
  * `POST /api/feedback` — nastanak utiska.
  *
  * Dva oblika u istoj šemi, jer je i tabela jedna (F11 odluka 1):
@@ -81,6 +124,8 @@ export const utisakBodySchema = z
     errors: dnevnikSchema.optional(),
     /** Putanja u privatnom bucketu `feedback`, iz `POST /api/feedback/slika`. */
     screenshot_path: z.string().max(200).optional(),
+    /** [S29] Kontekst prijave greške — samo identifikatori, v. gore. */
+    ctx_kljuc: ctxKljucSchema.optional(),
   })
   .refine((v) => v.rating !== undefined || v.prompt_key !== undefined, {
     error: "Zapis bez ocene i bez pitanja nema sadržaj.",

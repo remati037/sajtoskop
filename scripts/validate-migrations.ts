@@ -999,9 +999,11 @@ async function main(): Promise<void> {
   // provera da „najstariji na čekanju" uopšte nešto vidi, jer se na njemu pali
   // jedino crveno stanje osim budžeta (F12 §3.4).
   check(Number(pregled?.v?.poslovi?.na_cekanju ?? 0) >= 1, "pregled vidi posao na čekanju");
+  // [S29] `cena_odgovori` je otišao sa pitanjem o ceni; na njegovom mestu je
+  // NPS, i to POZVAN iz `admin_nps()`, ne prepisan u drugoj funkciji.
   check(
-    Array.isArray(pregled?.v?.utisci?.cena_odgovori),
-    "pregled vraća SIROVE odgovore o ceni — medijanu računa medijanaCene()",
+    pregled?.v?.utisci?.nps !== undefined && pregled?.v?.utisci?.cena_odgovori === undefined,
+    "pregled više ne nosi odgovore o ceni nego NPS",
   );
 
   // ── F11.3: utisci u konzoli ──────────────────────────────
@@ -1014,18 +1016,12 @@ async function main(): Promise<void> {
   // pokažu isti broj (F11 §6.6).
   console.log("\nF11.3 — admin_overview: utisci");
 
-  // Odgovor na pitanje o ceni — ulazi u `cena_odgovori`, iz kog `medijanaCene()`
-  // računa medijanu. SQL je ovde ne dira (sredine opsega su u katalogu).
-  await db.exec(`
-    insert into feedback (user_id, prompt_key, answers, source)
-    values ('f11', 'cena', '{"odgovor":"990-1990"}'::jsonb, 'kampanja')
-  `);
-
   // Funnel po pitanju: jedno odgovoreno, jedno odbačeno, jedno samo prikazano.
+  // [S29] `cena` je zamenjena sa `nps-7` — pitanja `cena` više nema u katalogu.
   await db.exec(`
     update feedback_prompts set status = 'odgovoreno' where user_id='f11' and prompt_key='prva-lista';
     insert into feedback_prompts (user_id, prompt_key, status)
-      values ('f11', 'cena', 'odgovoreno'), ('f11', 'prazan-rezultat', 'odbaceno');
+      values ('f11', 'nps-7', 'odgovoreno'), ('f11', 'prazan-rezultat', 'odbaceno');
   `);
 
   // Prijava sa ishodom — `resolved_at` upisuje ruta pri prelasku u završni
@@ -1039,7 +1035,7 @@ async function main(): Promise<void> {
     po_pitanju: { kljuc: string; prikazano: number; odgovoreno: number; odbaceno: number }[];
     obrada: { reseno: number; prosek_sec: number; nereseno: number };
     pitanja: { prikazano: number; odgovoreno: number };
-    cena_odgovori: string[];
+    nps: { score: number | null; n: number };
   };
 
   const sviUtisci = (
@@ -1072,11 +1068,6 @@ async function main(): Promise<void> {
     (sviUtisci?.obrada.nereseno ?? 0) >= 1,
     `nerešene se broje odvojeno (${sviUtisci?.obrada.nereseno})`,
   );
-  check(
-    sviUtisci?.cena_odgovori.includes("990-1990") === true,
-    "odgovor o ceni izlazi SIROV — medijanu i dalje računa medijanaCene()",
-  );
-
   check(
     (await one<{ n: number }>(
       `select count(*)::int as n from pg_indexes
@@ -2121,6 +2112,117 @@ async function main(): Promise<void> {
   check(prazno.rows.length === 0,
     "prazan p_ids je nijedan pogodak, ne bez ograničenja");
 
+  // ── 0027: NPS i „Fali" ───────────────────────────────────
+  // Dve funkcije koje čitaju ono što je S29 dodala u katalog. Obe bi tiho
+  // vratile prazno da im promakne ključ — `jsonb` nema šemu, pa promašen naziv
+  // ne puca nego nestane sa ekrana.
+  console.log("\nS29: admin_nps i admin_fali");
+
+  type Nps = {
+    score: number | null;
+    n: number;
+    promoteri: number;
+    pasivni: number;
+    detraktori: number;
+    poslednjih_30_dana: number;
+  };
+
+  // Prazna tabela je prvi slučaj, ne poslednji: `/admin` se otvara i pre nego
+  // što ijedan čovek odgovori, i tada NE SME da puca ni da pokaže nulu — nula
+  // je stvarna ocena (koliko promotera toliko detraktora), a ovde odgovora
+  // prosto nema.
+  await db.exec(`delete from feedback where prompt_key in ('nps-7', 'fali')`);
+
+  const praznoNps = await one<Nps>(`select * from admin_nps()`);
+  check(praznoNps?.n === 0, "admin_nps na praznoj tabeli vraća n = 0");
+  check(praznoNps?.score === null, "bez ijednog odgovora skor je NULL, ne 0");
+  check(
+    praznoNps?.promoteri === 0 && praznoNps.pasivni === 0 && praznoNps.detraktori === 0,
+    "prazna podela po grupama, bez greške",
+  );
+
+  // Jedan odgovor „9" → 100 % promotera, dakle skor 100 (ručni prolaz iz S29).
+  await db.exec(`
+    insert into feedback (user_id, prompt_key, answers, source)
+    values ('f11', 'nps-7', '{"ocena":9}'::jsonb, 'kampanja')
+  `);
+  const jedan = await one<Nps>(`select * from admin_nps()`);
+  check(jedan?.n === 1 && jedan.score === 100, `jedna devetka → skor ${jedan?.score}, n ${jedan?.n}`);
+  check(jedan?.poslednjih_30_dana === 1, "svež odgovor ulazi u prozor od 30 dana");
+
+  // Podela 9–10 / 7–8 / 0–6 je definicija, ne izbor: pasivni ulaze u imenilac
+  // i ni u jedan brojilac.
+  await db.exec(`
+    insert into feedback (user_id, prompt_key, answers, source) values
+      ('f11', 'nps-7', '{"ocena":10}'::jsonb, 'kampanja'),
+      ('f11', 'nps-7', '{"ocena":8}'::jsonb,  'kampanja'),
+      ('f11', 'nps-7', '{"ocena":7}'::jsonb,  'kampanja'),
+      ('f11', 'nps-7', '{"ocena":6}'::jsonb,  'kampanja'),
+      ('f11', 'nps-7', '{"ocena":0}'::jsonb,  'kampanja')
+  `);
+  const sest = await one<Nps>(`select * from admin_nps()`);
+  check(
+    sest?.n === 6 && sest.promoteri === 2 && sest.pasivni === 2 && sest.detraktori === 2,
+    `podela 9–10 / 7–8 / 0–6 (${sest?.promoteri} · ${sest?.pasivni} · ${sest?.detraktori})`,
+  );
+  check(sest?.score === 0, "isto promotera i detraktora → skor 0 (pasivni samo u imeniocu)");
+
+  // Zapis iz starije verzije kataloga ili ručno popravljen red umeju da nose
+  // string umesto broja. Takav red se PRESKAČE, a ne obara ceo izveštaj.
+  await db.exec(`
+    insert into feedback (user_id, prompt_key, answers, source) values
+      ('f11', 'nps-7', '{"ocena":"9"}'::jsonb,  'kampanja'),
+      ('f11', 'nps-7', '{"odgovor":"9"}'::jsonb, 'kampanja'),
+      ('f11', 'nps-7', '{"ocena":42}'::jsonb,   'kampanja')
+  `);
+  const posleSmeca = await one<Nps>(`select * from admin_nps()`);
+  check(posleSmeca?.n === 6, `neispravan zapis se preskače, ne ruši izveštaj (n = ${posleSmeca?.n})`);
+
+  // ── admin_fali ───────────────────────────────────────────
+  type Fali = { message: string; count: number; route: string | null; poslednji_put: string };
+
+  // Tri zapisa istog zahteva u tri pisanja — moraju u JEDAN red sa brojem 3.
+  // Bez toga se najtraženija stvar razbije na tri reda i ne primeti se.
+  await db.exec(`
+    insert into feedback (user_id, prompt_key, answers, source, route) values
+      ('f11', 'fali', '{"tekst":"Filter po recenzijama"}'::jsonb,  'pitanje', '/pretraga'),
+      ('f11', 'fali', '{"tekst":"filter po recenzijama "}'::jsonb, 'pitanje', '/pretraga'),
+      ('f11', 'fali', '{"tekst":"  filter po recenzijama"}'::jsonb,'pitanje', '/lista'),
+      ('f11', 'fali', '{"tekst":"izvoz u Excel"}'::jsonb,          'pitanje', '/lista')
+  `);
+
+  const fali = await db.query<Fali>(`select * from admin_fali()`);
+  check(fali.rows.length === 2, `dva različita zahteva, ne četiri (${fali.rows.length})`);
+  check(
+    fali.rows[0]?.count === 3,
+    `isti tekst u tri pisanja je jedan red sa brojem ${fali.rows[0]?.count}`,
+  );
+  check(
+    fali.rows[0]?.message.toLowerCase().trim() === "filter po recenzijama",
+    "najtraženije je prvo u listi",
+  );
+
+  const poRuti = await db.query<Fali>(`select * from admin_fali('/lista')`);
+  check(
+    poRuti.rows.length === 2 && poRuti.rows.every((r) => r.route === "/lista"),
+    `filter po ruti sužava na jedan ekran (${poRuti.rows.length} reda)`,
+  );
+  check(
+    (await db.query<Fali>(`select * from admin_fali('')`)).rows.length === 2,
+    "prazan filter znači „sve”, ne „ništa”",
+  );
+
+  // Sam razmak nema šta da kaže i ne sme da napravi red u listi. (Zapis BEZ
+  // `tekst`-a baza ionako ne prima — `feedback_ima_sadrzaj`.)
+  await db.exec(`
+    insert into feedback (user_id, prompt_key, answers, source)
+    values ('f11', 'fali', '{"tekst":"   "}'::jsonb, 'pitanje')
+  `);
+  check(
+    (await db.query<Fali>(`select * from admin_fali()`)).rows.length === 2,
+    "zapis sa praznim tekstom ne pravi red u listi",
+  );
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
@@ -2138,7 +2240,7 @@ async function main(): Promise<void> {
                     "admin_set_role", "admin_overview",
                     "claim_request", "zabelezi_utisak", "dopuni_utisak",
                     "get_job_for_user", "inkrementiraj_analizu", "search_listing",
-                    "onboarding_mark_step"]) {
+                    "onboarding_mark_step", "admin_nps", "admin_fali"]) {
     const r = await one<{ anon: boolean; svc: boolean }>(
       `select has_function_privilege('anon', p.oid, 'execute') as anon,
               has_function_privilege('service_role', p.oid, 'execute') as svc

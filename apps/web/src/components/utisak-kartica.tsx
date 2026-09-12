@@ -6,15 +6,16 @@
 // ── zašto je ovo jedina kartica sa akcentom ──────────────────
 // Zelena ivica i zelena podloga su u ovom proizvodu rezervisane za jednu stvar:
 // „ovde ima para" (dizajn sistem §3.3). Kartica koja to pozajmi mora da vredi
-// koliko i lead bez sajta — a to su tačno dva trenutka u životu naloga: pitanje o
-// ceni, od kog zavisi hoće li proizvod ikad biti naplaćen, i prvi potpisan posao.
-// Oba se dešavaju jednom. Treće takve kartice ne sme da bude.
+// koliko i lead bez sajta — a to su tačno dva trenutka u životu naloga: NPS, od
+// kog zavisi da li se proizvod uopšte prepričava, i prvi potpisan posao. Oba se
+// dešavaju jednom. Treće takve kartice ne sme da bude.
 //
 // ── prvi klik je već poslat utisak ───────────────────────────
 // Isto pravilo kao kod mikro-trake (F10 odluka 2): klik na opseg upisuje red.
-// Drugi korak („bi li ga preporučio kolegi") i rečenica dopune idu kroz
-// `PATCH`, pa se odgovor na serveru spaja sa prvim i PONOVO proverava šemom iz
-// kataloga — drugi korak nije rupa u kapiji (pravilo 16).
+// Drugi korak („bi li ga preporučio kolegi"), treći („smem li to da citiram")
+// i rečenica dopune idu kroz `PATCH`, pa se odgovor na serveru spaja sa prvim i
+// PONOVO proverava šemom iz kataloga — nijedan korak posle prvog nije rupa u
+// kapiji (pravilo 16).
 //
 // Nijedan hex u JSX-u; iznosi su `.num`, jer su brojevi koji se porede.
 
@@ -32,7 +33,7 @@ const MAX_PORUKA = 2000;
 const HVALA = "Zabeleženo. Hvala.";
 const HVALA_SA_KREDITOM = "Poslato. Hvala — dodao sam ti 1 kredit.";
 
-type Korak = "pitanje" | "drugi" | "dopuna" | "hvala" | "greska";
+type Korak = "pitanje" | "drugi" | "treci" | "dopuna" | "hvala" | "greska";
 
 export function UtisakKartica({ kljuc, className }: { kljuc: string; className?: string }) {
   const utisci = useUtisci();
@@ -92,7 +93,11 @@ export function UtisakKartica({ kljuc, className }: { kljuc: string; className?:
     setCeka(true);
 
     try {
-      const odgovor = await utisci.posalji(kljuc, { odgovor: vrednost });
+      // Ključ prvog odgovora dolazi iz kataloga: `nps-7` piše u `ocena`, sve
+      // ostalo u `odgovor`. Kartica ga ne bira i ne zna zašto je takav.
+      const odgovor = await utisci.posalji(kljuc, {
+        [pitanje.kljucOdgovora ?? "odgovor"]: vrednost,
+      });
       setId(odgovor.id);
 
       if (pitanje.drugiKorak && odgovor.id !== null) {
@@ -123,6 +128,39 @@ export function UtisakKartica({ kljuc, className }: { kljuc: string; className?:
 
     try {
       await utisci.dopuniOdgovor(id, { [drugi.kljucOdgovora]: vrednost });
+
+      // Treći korak se otvara SAMO posle odgovora koji ga je i pozvao („Da").
+      // Tražiti dozvolu za citat od nekoga ko je rekao „Ne" je pitanje na koje
+      // ne postoji dobar odgovor — a šema takav zapis ionako ne bi primila.
+      const treci = pitanje?.treciKorak;
+      if (treci && vrednost === treci.kadDrugi) {
+        setKorak("treci");
+        tajmer.current = setTimeout(() => utisci.zatvori(), NESTAJE_MS);
+        return;
+      }
+
+      if (pitanje?.dopuna) {
+        setKorak("dopuna");
+        tajmer.current = setTimeout(() => utisci.zatvori(), NESTAJE_MS);
+      } else {
+        zavrsi(HVALA);
+      }
+    } catch {
+      padni();
+    } finally {
+      setCeka(false);
+    }
+  }
+
+  async function odgovoriTreci(vrednost: string) {
+    const treci = pitanje?.treciKorak;
+    if (!treci || id === null || ceka || !utisci) return;
+
+    otkazi();
+    setCeka(true);
+
+    try {
+      await utisci.dopuniOdgovor(id, { [treci.kljucOdgovora]: vrednost });
 
       if (pitanje?.dopuna) {
         setKorak("dopuna");
@@ -178,9 +216,13 @@ export function UtisakKartica({ kljuc, className }: { kljuc: string; className?:
             <p className="text-[13px] font-medium text-accent-text">{pitanje.uvod}</p>
           )}
 
-          {korak === "pitanje" || korak === "drugi" ? (
+          {korak === "pitanje" || korak === "drugi" || korak === "treci" ? (
             <p className="mt-0.5 text-[15px] font-semibold tracking-[-0.02em] text-fg">
-              {korak === "drugi" ? pitanje.drugiKorak?.naslov : pitanje.naslov}
+              {korak === "drugi"
+                ? pitanje.drugiKorak?.naslov
+                : korak === "treci"
+                  ? pitanje.treciKorak?.naslov
+                  : pitanje.naslov}
             </p>
           ) : null}
         </div>
@@ -202,6 +244,9 @@ export function UtisakKartica({ kljuc, className }: { kljuc: string; className?:
           sufiks={pitanje.sufiks}
           ceka={ceka}
           brojevi
+          // Skala 0–10 ne sme da se prelama kako padne: na telefonu ide 6 + 5
+          // (dakle 0–5 pa 6–10), a ne „devetka sama u trećem redu".
+          skala={pitanje.opcije.length === 11}
           onIzbor={(v) => void odgovori(v)}
         />
       )}
@@ -215,8 +260,17 @@ export function UtisakKartica({ kljuc, className }: { kljuc: string; className?:
         />
       )}
 
+      {korak === "treci" && pitanje.treciKorak && (
+        <RedOpcija
+          opcije={pitanje.treciKorak.opcije}
+          izabrano={null}
+          ceka={ceka}
+          onIzbor={(v) => void odgovoriTreci(v)}
+        />
+      )}
+
       {/* Rečenica koja MORA da stoji ispod pitanja o ceni (F11 §2.3). */}
-      {pitanje.napomena && (korak === "pitanje" || korak === "drugi") && (
+      {pitanje.napomena && (korak === "pitanje" || korak === "drugi" || korak === "treci") && (
         <p className="mt-3 max-w-[62ch] text-xs leading-relaxed text-fg-muted">
           {pitanje.napomena}
         </p>
@@ -282,8 +336,18 @@ export function UtisakKartica({ kljuc, className }: { kljuc: string; className?:
 }
 
 /**
- * Red opcija. `brojevi` uključuje `.num` — iznosi u dinarima se porede po
- * vrednosti, pa moraju u tabular figure (dizajn sistem §4).
+ * Red opcija. `brojevi` uključuje `.num` — brojevi koji se porede po vrednosti
+ * moraju u tabular figure (dizajn sistem §4).
+ *
+ * ── zašto skala ima svoj raspored ────────────────────────────
+ * `flex-wrap` je dobar za tri reči različite dužine, a loš za jedanaest brojeva:
+ * prelom pada gde stigne, pa na 390 px ispadne 7 + 4, a sutra 8 + 3 kad se
+ * promeni padding. Skala je red koji se ČITA s leva na desno („koliko od 10"),
+ * i prelom koji ne pada na sredini je prelom koji laže.
+ *
+ * Zato `grid`: 6 kolona na telefonu (0–5 gore, 6–10 dole) i svih 11 u jednom
+ * redu od `sm` naviše. Ćelije su jednake širine, pa je i meta za prst jednaka
+ * za svaku ocenu — a to je jedina stvar koja kod skale sme da bude ista.
  */
 function RedOpcija({
   opcije,
@@ -291,6 +355,7 @@ function RedOpcija({
   sufiks,
   ceka,
   brojevi = false,
+  skala = false,
   onIzbor,
 }: {
   opcije: readonly Opcija[];
@@ -298,27 +363,38 @@ function RedOpcija({
   sufiks?: string;
   ceka: boolean;
   brojevi?: boolean;
+  /** Jedanaest brojeva u nizu (0–10), ne tri reči — v. gore. */
+  skala?: boolean;
   onIzbor: (vrednost: string) => void;
 }) {
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      {opcije.map((o) => (
-        <button
-          key={o.vrednost}
-          type="button"
-          disabled={ceka}
-          onClick={() => onIzbor(o.vrednost)}
-          className={cn(
-            "inline-flex h-9 items-center rounded-lg border border-border-strong bg-bg-elev px-3 text-[13px] font-medium text-fg transition-colors hover:border-fg-muted disabled:pointer-events-none disabled:opacity-45",
-            brojevi && "num",
-            izabrano === o.vrednost && "border-border-accent bg-accent-wash text-accent-text",
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className={cn("mt-3", !skala && "flex flex-wrap items-center gap-2")}>
+      <div
+        className={cn(
+          skala ? "grid grid-cols-6 gap-1.5 sm:grid-cols-11 sm:gap-1" : "contents",
+        )}
+      >
+        {opcije.map((o) => (
+          <button
+            key={o.vrednost}
+            type="button"
+            disabled={ceka}
+            onClick={() => onIzbor(o.vrednost)}
+            className={cn(
+              "inline-flex h-9 items-center rounded-lg border border-border-strong bg-bg-elev text-[13px] font-medium text-fg transition-colors hover:border-fg-muted disabled:pointer-events-none disabled:opacity-45",
+              skala ? "justify-center px-0" : "px-3",
+              brojevi && "num",
+              izabrano === o.vrednost && "border-border-accent bg-accent-wash text-accent-text",
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
 
-      {sufiks && <span className="text-xs num text-fg-muted">{sufiks}</span>}
+      {sufiks && (
+        <span className={cn("num text-xs text-fg-muted", skala && "mt-2 block")}>{sufiks}</span>
+      )}
     </div>
   );
 }

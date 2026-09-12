@@ -41,7 +41,7 @@ export async function posaljiPozivnicuMejlom(opts: {
   link: string;
   poruka: string | null;
 }): Promise<MejlIshod> {
-  const uvod = "Pozivam te u zatvorenu betu Sajtoskopa — alata koji pronalazi biznise u Srbiji sa lošim ili nepostojećim sajtom i priprema materijal za kontakt.";
+  const uvod = "Pozivam te u Sajtoskop — alat koji pronalazi biznise u Srbiji sa lošim ili nepostojećim sajtom i priprema materijal za kontakt.";
   const rok = "Link važi 30 dana. Nalog otvaraš sam, lozinku biraš sam.";
 
   const tekst = [
@@ -53,7 +53,7 @@ export async function posaljiPozivnicuMejlom(opts: {
     "",
     rok,
     "",
-    "Beta je besplatna i nemam nijedan tvoj podatak o plaćanju.",
+    "Nemam nijedan tvoj podatak o plaćanju.",
     "Ako te ovo ne zanima, samo obriši mejl — nema drugog podsetnika.",
     "",
     POTPIS,
@@ -69,13 +69,13 @@ export async function posaljiPozivnicuMejlom(opts: {
         : []),
       dugmeHtml(opts.link, "Otvori nalog"),
       `<p style="margin:16px 0 0;font-size:13px;color:#6c757f">${escapeHtml(rok)}</p>`,
-      `<p style="margin:10px 0 0;font-size:13px;color:#6c757f">Beta je besplatna i nemam nijedan tvoj podatak o plaćanju. Ako te ovo ne zanima, samo obriši mejl — nema drugog podsetnika.</p>`,
+      `<p style="margin:10px 0 0;font-size:13px;color:#6c757f">Nemam nijedan tvoj podatak o plaćanju. Ako te ovo ne zanima, samo obriši mejl — nema drugog podsetnika.</p>`,
     ]),
   ].join("");
 
   return posaljiMejl({
     za: [opts.za],
-    subject: "Poziv u betu Sajtoskopa",
+    subject: "Poziv u Sajtoskop",
     text: tekst,
     html,
     replyTo: mojaAdresa(),

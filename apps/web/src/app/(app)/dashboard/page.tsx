@@ -94,7 +94,7 @@ export default async function Page({
   const [{ profile, pristup }, dnevnik] = await Promise.all([
     zahtevajCitanje(),
     citajDnevnik(userId).catch((err: unknown) => {
-      console.error("[dashboard] beta dnevnik:", err);
+      console.error("[dashboard] novo u Sajtoskopu:", err);
       return null;
     }),
   ]);
@@ -219,7 +219,7 @@ export default async function Page({
       {dnevnik && dnevnik.ukupno > 0 && (
         <section className="mt-9">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <NaslovSekcije>Beta dnevnik</NaslovSekcije>
+            <NaslovSekcije>Novo u Sajtoskopu</NaslovSekcije>
             {dnevnik.izUtisaka > 0 && (
               <p className="num text-xs text-fg-muted">
                 {dnevnik.izUtisaka} od {dnevnik.ukupno} promena iz utisaka

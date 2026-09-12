@@ -13,6 +13,7 @@ import { MojaListaEkran } from "@/components/moja-lista-ekran";
 import { VezaGreska } from "@/components/veza-greska";
 import { Button } from "@/components/ui/button";
 import { PraznoStanje, ZaglavljeStranice } from "@/components/ui/stranica";
+import { FaliMikro } from "@/components/fali-mikro";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export default async function Page() {
       {!profile ? (
         <VezaGreska sta="Otključani prospekti" />
       ) : leads.length === 0 ? (
+        <>
         <PraznoStanje
           ikona={<ListChecks />}
           naslov="Još nemaš nijedan otključan prospekt."
@@ -68,6 +70,12 @@ export default async function Page() {
             <Link href="/pretraga">Idi na pretragu</Link>
           </Button>
         </PraznoStanje>
+
+          {/* [S29 §5.3 C] Prazno posle nedelju dana više nije „nisam stigao"
+              nego „nešto ne valja". Prag je u komponenti, jer je svojstvo ovog
+              mesta, a ne pravilo motora. */}
+          <FaliMikro posleDana={7} className="mx-auto mt-4 w-full max-w-lg" />
+        </>
       ) : (
         <MojaListaEkran
           leads={leads}

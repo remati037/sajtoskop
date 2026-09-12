@@ -20,6 +20,7 @@ import type {
 } from "@sajtoskop/shared";
 import { pitanjeZaKljuc, proveriOdgovor } from "@sajtoskop/shared";
 import type { DopunaBody } from "./feedback-schema";
+import { citajPristup } from "./pristup";
 import { posaljiUtisak, type MejlIshod, type UtisakZaMejl } from "./feedback-mail";
 import { naslovZaPutanju } from "./navigacija";
 import { adminSupabase } from "./supabase";
@@ -118,6 +119,14 @@ export type UtisakUlaz = {
   errors?: KlijentskaGreska[] | null;
   /** Putanja u privatnom bucketu `feedback`, već proverena u `/slika`. */
   screenshotPath?: string | null;
+
+  // ── S29 ──────────────────────────────────────────────────
+  /**
+   * Kontekst prijave greške — ISKLJUČIVO identifikatori (`placeId`, `jobId`,
+   * `korak`). Sve što ih opisuje (status posla, poruka greške, plan i rok
+   * naloga) čita `zabelezi_utisak` iz baze, nikad iz tela (pravilo 8).
+   */
+  ctxKljuc?: { placeId?: string; jobId?: string; korak?: string } | null;
 };
 
 export type UtisakIshod =
@@ -162,6 +171,9 @@ export async function zabeleziUtisak(userId: string, ulaz: UtisakUlaz): Promise<
     p_screenshot: ulaz.screenshotPath ?? null,
     p_dnevni_plafon: UPIS_DNEVNI_PLAFON,
     p_mejl_limit: MEJL_DNEVNI_LIMIT,
+    // [S29] RPC iz ovoga uzima samo `placeId`, `jobId` i `korak`; ostatak
+    // konteksta gradi iz profila i `job_queue` (migracija 0027).
+    p_ctx_extra: ulaz.ctxKljuc ?? null,
   });
 
   if (error) throw new Error(`Upis utiska nije uspeo: ${error.message}`);
@@ -328,6 +340,24 @@ export async function dopuniUtisak(
  * ne dodeljuje. Nijedan utisak se pritom ne gubi.
  */
 export async function nagradaDostupna(userId: string, sada = Date.now()): Promise<boolean> {
+  // [S29] Proba ne zarađuje kredite.
+  //
+  // Probni nalog je već dobio 10 kredita koje nije platio (`apply_trial_start`),
+  // i traje dve nedelje. Kredit za utisak bi tu bio treća kasa u istom prozoru,
+  // a utisak iz probe je i inače najjeftiniji za kupiti — što je tačno ono što
+  // nagrada ne sme da bude. Čip „+1 kredit" se zato probi ne prikazuje, a
+  // odgovor mu se upisuje kao i svakom drugom: nagrada otpada, utisak ne.
+  //
+  // Sumnja ide protiv nagrade, isto kao kod brojanja kvote ispod: kad kapija
+  // padne, kredit se ne dodeljuje i nijedan utisak se pritom ne gubi.
+  try {
+    const { pristup } = await citajPristup();
+    if (pristup?.stanje === "proba") return false;
+  } catch (err) {
+    console.error("[feedback] provera stanja pristupa za nagradu:", err);
+    return false;
+  }
+
   const { data, error } = await adminSupabase()
     .from("credit_ledger")
     .select("created_at")
@@ -552,11 +582,55 @@ export async function oznaciPodsetnikVidjen(userId: string): Promise<void> {
  * pa mu se podsetnik odloži do sledećeg trošenja. Prihvatljivo — podsetnik nije
  * naplata, sme da promaši dan.
  */
-export function trebaPodsetnik(profil: ProfileRow | null, mesecniKrediti: number): boolean {
+export function trebaPodsetnik(
+  profil: ProfileRow | null,
+  mesecniKrediti: number,
+  /**
+   * [S29] Broj otključanih prospekata. Bez ijednog nema šta da se oceni.
+   *
+   * Ovo je uslov, ne ukras: „Kako ti ide?" čoveku koji je tri dana imao nalog i
+   * nijedan lead nije otvorio je pitanje na koje pošten odgovor ne postoji, a
+   * pokvaren („ok") ulazi u istu tabelu kao i odgovor nekoga ko alat zaista
+   * koristi.
+   */
+  otkljucano: number,
+): boolean {
   if (!profil) return false;
   if (profil.feedback_prompted_at !== null) return false;
   if (profil.credits_balance >= mesecniKrediti) return false;
+  if (otkljucano < 1) return false;
 
   const star = Date.now() - new Date(profil.created_at).getTime();
   return star >= 3 * DAN_MS;
+}
+
+/**
+ * Isto, ali sa brojanjem otključanih — za layout, koji broj nema pri ruci.
+ *
+ * Jeftine kapije se proveravaju PRVE i bez ijednog upita: profil je već
+ * pročitan, a `feedback_prompted_at`, balans i starost naloga odbiju gotovo
+ * svako učitavanje strane. Upit nad `unlocks` ide tek za nalog koji bi
+ * podsetnik inače dobio — dakle jednom u životu naloga, a ne na svakoj
+ * navigaciji (F11 §3.3: „nula dodatnih upita po navigaciji").
+ *
+ * Pad brojanja znači da podsetnika nema. Podsetnik sme da promaši dan; ono što
+ * ne sme je da se pojavi čoveku koji nema šta da oceni.
+ */
+export async function trebaPodsetnikSada(
+  profil: ProfileRow | null,
+  mesecniKrediti: number,
+): Promise<boolean> {
+  if (!trebaPodsetnik(profil, mesecniKrediti, 1)) return false;
+
+  const { count, error } = await adminSupabase()
+    .from("unlocks")
+    .select("place_id", { count: "exact", head: true })
+    .eq("user_id", profil!.id);
+
+  if (error) {
+    console.error("[feedback] broj otključanih za podsetnik:", error.message);
+    return false;
+  }
+
+  return (count ?? 0) >= 1;
 }

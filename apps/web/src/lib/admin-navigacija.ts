@@ -60,7 +60,7 @@ export const ADMIN_NAVIGACIJA: AdminStavka[] = [
     href: "/admin/dnevnik",
     label: "Dnevnik",
     Ikona: Newspaper,
-    opis: "Beta dnevnik — šta se promenilo i zašto",
+    opis: "Novo u Sajtoskopu — šta se promenilo i zašto",
   },
   {
     href: "/admin/revizija",

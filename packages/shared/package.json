@@ -9,7 +9,7 @@
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx test/smoke.ts && tsx test/pristup.ts"
+    "test": "tsx test/smoke.ts && tsx test/pristup.ts && tsx test/feedback-katalog.ts && tsx test/feedback-motor.ts"
   },
   "dependencies": { "zod": "^4.0.0" }
 }

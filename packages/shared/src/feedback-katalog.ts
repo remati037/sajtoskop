@@ -12,6 +12,10 @@
 //
 // F11.1 je doneo tri pitanja sa `/pretrage`. F11.2 dodaje preostala četiri iz
 // §2.1 i §2.3 i uvodi `do:` — datum posle kog pitanje za motor ne postoji.
+//
+// S29 briše pitanje o ceni (naplata postoji, opsezi u RSD su mrtva brojka),
+// zamenjuje `KRAJ_BETE` rokom koji ne govori o beti i dodaje `nps-7`, `fali` i
+// treći korak na `prvi-potpisan`.
 
 import { z } from "zod";
 import type { FeedbackKind } from "./db";
@@ -50,6 +54,15 @@ export type Pitanje = {
   naslov: string;
   opcije: Opcija[];
   /**
+   * Pod kojim ključem prvi odgovor ulazi u `answers`. Podrazumevano `odgovor`.
+   *
+   * Postoji zbog `nps-7`: ocena 0–10 je broj koji `admin_nps()` sabira, pa
+   * mora da stoji pod svojim imenom (`ocena`), a ne pod istim ključem pod kojim
+   * stoje i `jeste` i `presudno`. Sve ostalo i dalje piše u `odgovor` — jedno
+   * pravilo za `opisOdgovora()` umesto devet.
+   */
+  kljucOdgovora?: string;
+  /**
    * Poslednji dan važenja, `YYYY-MM-DD`. Posle njega pitanje za motor ne
    * postoji (§9: „Beta se završila, a pitanja ostala").
    *
@@ -78,6 +91,19 @@ export type Pitanje = {
    */
   drugiKorak?: { naslov: string; kljucOdgovora: string; opcije: Opcija[] };
   /**
+   * Treći korak, isti put kao drugi. Postoji samo na `prvi-potpisan`: pošto je
+   * čovek rekao da bi preporučio, jedino što još fali je pravo da se to
+   * citira. Otvara se SAMO posle „Da" — tražiti citat od nekoga ko je rekao
+   * „Ne" je pitanje na koje ne postoji dobar odgovor.
+   */
+  treciKorak?: {
+    naslov: string;
+    kljucOdgovora: string;
+    /** Vrednost drugog koraka posle koje se treći uopšte otvara. */
+    kadDrugi: string;
+    opcije: Opcija[];
+  };
+  /**
    * Višestruki izbor koji se otvara samo za neke odgovore („Ponešto", „Netačno").
    * Isti put kao `drugiKorak`.
    */
@@ -100,8 +126,9 @@ export type Pitanje = {
   /**
    * Odgovor se NIKAD ne nagrađuje kreditima, ni kad nosi poruku.
    *
-   * Postoji zbog `cene` i samo zbog nje (odluka 8): plaćena brojka o ceni je
-   * pokvarena brojka, a dopisana rečenica uz nju je deo istog odgovora.
+   * Postojalo je zbog `cene` (odluka 8); od S29 ga nosi `nps-7`, iz istog
+   * razloga: plaćena ocena je pokvarena ocena. Rečenica uz nju je deo istog
+   * odgovora, pa ni ona ne donosi kredit.
    */
   bezNagrade?: true;
   /**
@@ -114,75 +141,25 @@ export type Pitanje = {
 };
 
 /**
- * Kraj bete — jedini datum koji nose sva pitanja koja postoje zbog nje.
+ * Rok koji nose sva pitanja u katalogu.
  *
- * Menja se ovde i nigde više. Beta koja se produži je jedna izmena reda, a ne
- * sedam raštrkanih datuma od kojih se dva zaborave.
- */
-export const KRAJ_BETE = "2026-12-31";
-
-/**
- * Incident nije kampanja: `posao-pao` je usluga korisniku (§2.2) i preživljava
- * kraj bete. Rok svejedno ima — ništa u katalogu ne sme da živi bez roka.
- */
-const KRAJ_INCIDENTA = "2027-12-31";
-
-// ── cena: opsezi i medijana ──────────────────────────────────
-// Odgovori su opsezi, ne slobodno polje. Slobodno polje daje „pa ne znam,
-// zavisi", a opseg daje broj koji ulazi u medijanu (F11 §2.3).
-
-export type CenaOpseg = { vrednost: string; label: string; sredina: number };
-
-/** Šest opsega u RSD mesečno. `sredina` je ono što ulazi u medijanu. */
-export const CENA_OPSEZI: readonly CenaOpseg[] = [
-  { vrednost: "ne-bih", label: "Ne bih plaćao", sredina: 0 },
-  { vrednost: "do-990", label: "do 990", sredina: 700 },
-  { vrednost: "990-1990", label: "990–1.990", sredina: 1490 },
-  { vrednost: "1990-3900", label: "1.990–3.900", sredina: 2945 },
-  { vrednost: "3900-6900", label: "3.900–6.900", sredina: 5400 },
-  { vrednost: "6900-plus", label: "6.900+", sredina: 8500 },
-];
-
-/**
- * Prag iz `00-kontekst.md` §2. Ispod ovoga je alat interni alat za Remati.
- * Stoji uz opsege, jer je jedini razlog zbog kog se medijana uopšte računa.
- */
-export const PRAG_CENE_RSD = 1500;
-
-const CENA_SREDINA = new Map(CENA_OPSEZI.map((o) => [o.vrednost, o.sredina]));
-
-/**
- * Medijana iz sredina opsega.
+ * Bio je `KRAJ_BETE`, i to je bila greška u imenu, ne u datumu: pitanja nisu
+ * postojala zbog bete nego zbog toga što na njih još nemam odgovor. Proizvod
+ * koji se naplaćuje i dalje ima šta da pita, pa rok ostaje — ništa u katalogu
+ * ne sme da živi bez roka (§9) — ali više ne tvrdi da se nešto završava.
  *
- * Živi uz katalog, a ne uz admin ekran, zato što je i sam raspored opsega ovde:
- * kad se opsezi ikad promene, medijana se menja u istom fajlu ili nikako.
- *
- * Nepoznata vrednost se preskače — zapis iz starije verzije kataloga ne sme da
- * obori ceo izveštaj.
+ * Menja se ovde i nigde više.
  */
-export function medijanaCene(odgovori: readonly string[]): number | null {
-  const iznosi = odgovori
-    .map((o) => CENA_SREDINA.get(o))
-    .filter((n): n is number => typeof n === "number")
-    .sort((a, b) => a - b);
-
-  if (iznosi.length === 0) return null;
-
-  const sredina = iznosi.length >> 1;
-  const gornji = iznosi[sredina] ?? 0;
-  if (iznosi.length % 2 === 1) return gornji;
-
-  const donji = iznosi[sredina - 1] ?? 0;
-  return Math.round((donji + gornji) / 2);
-}
+export const ROK_PITANJA = "2027-12-31";
 
 // ── šeme odgovora ────────────────────────────────────────────
 // `strictObject`: nepoznat ključ je greška, ne šum. `answers` ulazi u bazu kakav
 // jeste, pa je ovo poslednje mesto na kom se može odbiti.
 //
-// Ključ prvog odgovora je svuda `odgovor` — i tamo gde bi „opseg" ili „ocena"
-// zvučalo prirodnije. Zahvaljujući tome `opisOdgovora()` (mejl, admin lista)
-// ima jedno pravilo umesto sedam.
+// Ključ prvog odgovora je `odgovor` svuda osim na `nps-7`, gde je `ocena` —
+// tamo je vrednost broj koji se sabira, pa mora da stoji pod svojim imenom.
+// Zahvaljujući tom pravilu `opisOdgovora()` (mejl, admin lista) ima dva
+// slučaja umesto devet.
 
 const semaPrvaLista = z.strictObject({
   odgovor: z.enum(["jeste", "delimicno", "nije"]),
@@ -227,13 +204,54 @@ const semaPorukaKvalitet = z.strictObject({
   kanal: z.enum(["mejl", "viber", "instagram"]).optional(),
 });
 
-const semaPrviPotpisan = z.strictObject({
-  odgovor: z.enum(["presudno", "pomoglo", "malo"]),
-  preporuka: z.enum(["da", "mozda", "ne"]).optional(),
+/**
+ * Treći korak (`citat`) sme da postoji SAMO uz `preporuka: 'da'`.
+ *
+ * Bez ove provere bi zapis mogao da tvrdi „ne bih preporučio" i uz to nosi
+ * dozvolu da se citira na sajtu — a to je tačno onaj citat koji ne smem da
+ * objavim. Kapija je ovde, a ne u komponenti: drugi i treći korak idu kroz
+ * `PATCH`, pa ih klijent može poslati i mimo redosleda.
+ */
+const semaPrviPotpisan = z
+  .strictObject({
+    odgovor: z.enum(["presudno", "pomoglo", "malo"]),
+    preporuka: z.enum(["da", "mozda", "ne"]).optional(),
+    citat: z.enum(["da-ime", "da-bez", "ne"]).optional(),
+  })
+  .refine((v) => v.citat === undefined || v.preporuka === "da", {
+    error: "Dozvola za citat ide samo uz preporuku „da”.",
+  });
+
+/**
+ * NPS, 0–10 (§5.3 A).
+ *
+ * `coerce`: kartica šalje vrednost opcije, a vrednost opcije je string. Broj je
+ * ono što `admin_nps()` sabira, pa se pretvara ovde — na granici, jednom, a ne
+ * u svakom kasnijem upitu nad jsonb-om.
+ */
+const semaNps = z.strictObject({
+  ocena: z.coerce
+    .number()
+    .int({ error: "Ocena je ceo broj." })
+    .min(0, { error: "Ocena ide od 0 do 10." })
+    .max(10, { error: "Ocena ide od 0 do 10." }),
 });
 
-const semaCena = z.strictObject({
-  odgovor: z.enum(CENA_OPSEZI.map((o) => o.vrednost) as [string, ...string[]]),
+/**
+ * „Šta ti ovde fali" (§5.3 C) — jedino pitanje bez ijedne ponuđene opcije i bez
+ * uslova nad nalogom. Okida ga ekran koji NEMA šta da pokaže, pa je tekst jedini
+ * mogući odgovor: klik tu ne bi nosio nijednu informaciju.
+ *
+ * `query` je ono što je korisnik tražio kad je pretraga vratila nulu (combobox
+ * niša). Nije obavezno — prazno stanje `/liste` i `/pipeline` ga nemaju.
+ */
+const semaFali = z.strictObject({
+  tekst: z
+    .string()
+    .trim()
+    .min(2, { error: "Napiši bar dve reči." })
+    .max(200, { error: "Do 200 karaktera." }),
+  query: z.string().trim().max(120).optional(),
 });
 
 const semaZastoNeVracas = z.strictObject({
@@ -263,7 +281,7 @@ export const KATALOG: readonly Pitanje[] = [
     oblik: "mikro",
     prioritet: 50,
     naslov: "Je l' ti ova lista upotrebljiva?",
-    do: KRAJ_BETE,
+    do: ROK_PITANJA,
     opcije: [
       { vrednost: "jeste", label: "Jeste" },
       { vrednost: "delimicno", label: "Delimično" },
@@ -278,7 +296,7 @@ export const KATALOG: readonly Pitanje[] = [
     oblik: "mikro",
     prioritet: 60,
     naslov: "Šta si tražio?",
-    do: KRAJ_BETE,
+    do: ROK_PITANJA,
     opcije: [],
     tekstPrvi: true,
     // Odgovor je spisak niša i gradova koje ljudi traže a ja ih nemam — direktan
@@ -292,7 +310,7 @@ export const KATALOG: readonly Pitanje[] = [
     oblik: "mikro",
     prioritet: 55,
     naslov: "Drže li podaci vodu?",
-    do: KRAJ_BETE,
+    do: ROK_PITANJA,
     opcije: [
       { vrednost: "sve-tacno", label: "Sve tačno" },
       { vrednost: "ponesto", label: "Ponešto" },
@@ -321,7 +339,7 @@ export const KATALOG: readonly Pitanje[] = [
     oblik: "mikro",
     prioritet: 52,
     naslov: "Bi li je poslao ovakvu?",
-    do: KRAJ_BETE,
+    do: ROK_PITANJA,
     opcije: [
       { vrednost: "poslao", label: "Poslao bih" },
       { vrednost: "izmene", label: "Uz sitne izmene" },
@@ -337,7 +355,7 @@ export const KATALOG: readonly Pitanje[] = [
     prioritet: 70,
     uvod: "Prvi potpisan preko Sajtoskopa.",
     naslov: "Koliko je alat pomogao?",
-    do: KRAJ_BETE,
+    do: ROK_PITANJA,
     opcije: [
       { vrednost: "presudno", label: "Presudno" },
       { vrednost: "pomoglo", label: "Pomoglo" },
@@ -354,25 +372,65 @@ export const KATALOG: readonly Pitanje[] = [
         { vrednost: "ne", label: "Ne" },
       ],
     },
+    // Treći korak (§5.3 B): pitanje za dozvolu, ne za tekst. Tekst je već tu —
+    // dopuna ispod je ono što se citira. Otvara se samo posle „Da", jer je
+    // svaki drugi odgovor već rekao da citata nema.
+    treciKorak: {
+      naslov: "Smem li to da citiram?",
+      kljucOdgovora: "citat",
+      kadDrugi: "da",
+      opcije: [
+        { vrednost: "da-ime", label: "Da, sa imenom" },
+        { vrednost: "da-bez", label: "Da, bez imena" },
+        { vrednost: "ne", label: "Radije ne" },
+      ],
+    },
+    dopuna: { placeholder: "Šta bi rekao kolegi o Sajtoskopu?", obavezna: false },
     sema: semaPrviPotpisan,
   },
   {
-    kljuc: "cena",
+    // §5.3 A. Zamenjuje pitanje o ceni: cena više nije pretpostavka nego
+    // cenovnik, pa jedina kampanjska brojka koja još nedostaje je ta da li bi
+    // ovo iko preporučio. F11 odluka 13 je NPS odbila jer proizvod tada nije
+    // imao cenu — sada je ima, pa razlog više ne stoji (§5.2).
+    kljuc: "nps-7",
     sloj: "kampanja",
     oblik: "kartica",
     prioritet: 40,
-    uvod: "Beta se jednom završava",
-    naslov: "Koliko bi ti Sajtoskop mesečno vredeo?",
-    do: KRAJ_BETE,
-    sufiks: "RSD/mes",
-    napomena: "Iskren odgovor mi je vredniji od lepog. Ovo ne menja tvoj pristup u beti.",
-    opcije: CENA_OPSEZI.map((o) => ({ vrednost: o.vrednost, label: o.label })),
-    dopuna: { placeholder: "Šta bi morao da uradi za tu cenu?", obavezna: false },
-    // Odluka 8, doslovno: plaćena brojka o ceni je pokvarena brojka. Ni odgovor
-    // ni rečenica uz njega ne donose kredit.
+    uvod: "Jedno pitanje, jedan klik.",
+    naslov: "Koliko je verovatno da bi Sajtoskop preporučio kolegi?",
+    kljucOdgovora: "ocena",
+    do: ROK_PITANJA,
+    sufiks: "0 = nikako · 10 = sigurno",
+    napomena: "Iskrena ocena mi je vrednija od lepe. Ovo ne menja tvoj pristup ni cenu.",
+    opcije: Array.from({ length: 11 }, (_, i) => ({
+      vrednost: String(i),
+      label: String(i),
+    })),
+    dopuna: { placeholder: "Šta bi morao da uradi za devetku?", obavezna: false },
+    // Isti razlog kao nekad kod cene (odluka 8): plaćena ocena je pokvarena
+    // ocena, a rečenica uz nju je deo istog odgovora.
     bezNagrade: true,
-    uslov: (u) => u.danaOdRegistracije >= 7 && u.otkljucano >= 5,
-    sema: semaCena,
+    // Sedam dana i bar jedno otključavanje — dovoljno da čovek zna šta ocenjuje.
+    uslov: (u) => u.danaOdRegistracije >= 7 && u.otkljucano >= 1,
+    sema: semaNps,
+  },
+  {
+    // §5.3 C. Jedino pitanje koje okida PRAZNO stanje, i jedino bez uslova nad
+    // nalogom: ekran koji nema šta da pokaže je isti ekran i prvog i stotog
+    // dana. Ponavlja se na 24 h iz istog razloga iz kog i `posao-pao` — prazna
+    // lista koja se ponovi sutra je nova prazna lista.
+    kljuc: "fali",
+    sloj: "kontekst",
+    oblik: "mikro",
+    prioritet: 58,
+    naslov: "Šta ti ovde fali?",
+    do: ROK_PITANJA,
+    opcije: [],
+    tekstPrvi: true,
+    ponovi: { naSati: 24 },
+    dopuna: { placeholder: "npr. filter po broju recenzija", obavezna: false },
+    sema: semaFali,
   },
   {
     kljuc: "zasto-ne-vracas",
@@ -380,7 +438,7 @@ export const KATALOG: readonly Pitanje[] = [
     oblik: "mikro",
     prioritet: 45,
     naslov: "Nisi bio 10 dana. Šta te je zaustavilo?",
-    do: KRAJ_BETE,
+    do: ROK_PITANJA,
     opcije: [
       { vrednost: "nemam-vremena", label: "Nemam trenutno vremena" },
       { vrednost: "malo-prospekata", label: "Nisam našao dovoljno prospekata" },
@@ -398,7 +456,7 @@ export const KATALOG: readonly Pitanje[] = [
     oblik: "mikro",
     prioritet: 100,
     naslov: "Skeniranje nije prošlo. Da vidim šta se desilo?",
-    do: KRAJ_INCIDENTA,
+    do: ROK_PITANJA,
     opcije: [
       { vrednost: "dnevnik", label: "Pošalji mi dnevnik" },
       { vrednost: "ne-treba", label: "Ne treba" },
@@ -473,14 +531,25 @@ export function opisOdgovora(pitanje: Pitanje, answers: Record<string, unknown>)
   const label = (opcije: readonly Opcija[], vrednost: string) =>
     opcije.find((o) => o.vrednost === vrednost)?.label ?? vrednost;
 
-  const odgovor = answers.odgovor;
-  if (typeof odgovor === "string") delovi.push(label(pitanje.opcije, odgovor));
+  // Ključ prvog odgovora je `odgovor` svuda osim na `nps-7` (`ocena`). Ocena je
+  // broj i ostaje broj — labela `9` i vrednost `9` su ista stvar, pa se ne
+  // prevodi nego ispisuje uz skalu, da se u inboksu ne čita kao „ocena 9/3".
+  const kljucPrvog = pitanje.kljucOdgovora ?? "odgovor";
+  const odgovor = answers[kljucPrvog];
+  if (typeof odgovor === "number") delovi.push(`${odgovor}/10`);
+  else if (typeof odgovor === "string") delovi.push(label(pitanje.opcije, odgovor));
 
-  // Drugi korak i čipovi su deo istog odgovora, pa i jedan red u inboksu.
+  // Drugi i treći korak i čipovi su deo istog odgovora, pa i jedan red u inboksu.
   const drugi = pitanje.drugiKorak;
   if (drugi) {
     const v = answers[drugi.kljucOdgovora];
     if (typeof v === "string") delovi.push(`${drugi.naslov} ${label(drugi.opcije, v)}`);
+  }
+
+  const treci = pitanje.treciKorak;
+  if (treci) {
+    const v = answers[treci.kljucOdgovora];
+    if (typeof v === "string") delovi.push(`${treci.naslov} ${label(treci.opcije, v)}`);
   }
 
   const cipovi = pitanje.cipovi;
@@ -498,6 +567,10 @@ export function opisOdgovora(pitanje: Pitanje, answers: Record<string, unknown>)
 
   const tekst = answers.tekst;
   if (typeof tekst === "string" && tekst.trim()) delovi.push(tekst.trim());
+
+  // Šta je čovek tražio kad je pretraga vratila nulu (`fali` iz combobox-a).
+  const upit = answers.query;
+  if (typeof upit === "string" && upit.trim()) delovi.push(`tražio: ${upit.trim()}`);
 
   const jobId = answers.jobId;
   if (typeof jobId === "number") delovi.push(`posao #${jobId}`);

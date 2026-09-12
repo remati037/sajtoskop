@@ -186,7 +186,7 @@ export function AdminDnevnik({ stavke }: Props) {
               disabled={zauzeto}
               className="h-4 w-4 accent-accent"
             />
-            Objavljeno (vidi se u Beta dnevniku korisnika)
+            Objavljeno (vidi se korisniku u „Novo u Sajtoskopu”)
           </label>
 
           <div className="flex gap-2">
@@ -221,7 +221,7 @@ export function AdminDnevnik({ stavke }: Props) {
       <section className="space-y-2">
         {stavke.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-fg-muted">
-            Dnevnik je prazan. Prva stavka se pojavljuje ovde — i u Beta dnevniku
+            Dnevnik je prazan. Prva stavka se pojavljuje ovde — i u „Novo u Sajtoskopu”
             korisnika kad je objaviš.
           </p>
         ) : (

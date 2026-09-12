@@ -71,11 +71,13 @@ export async function POST(req: Request): Promise<Response> {
     if (!outcome.ok) {
       switch (outcome.reason) {
         case "insufficient_credits":
-          // 402 Payment Required. Beta ne naplaćuje, ali kredit je i dalje ono
-          // čega je ponestalo — klijent po statusu zna da ponudi „vidi kredite",
-          // a ne „pokušaj ponovo".
+          // 402 Payment Required: kredit je ono čega je ponestalo — klijent po
+          // statusu zna da ponudi „vidi kredite", a ne „pokušaj ponovo".
+          //
+          // [S29] Rečenica više ne pominje betu ni iznos: mesečna dodela zavisi
+          // od plana (`plans.ts`), a zakucanih „30 kredita" odavno nema.
           return greska(
-            "Nemaš dovoljno kredita. Beta plan dobija 30 kredita prvog u mesecu.",
+            "Nemaš dovoljno kredita. Pogledaj stanje i dopuni ga na `/krediti`.",
             402,
           );
 

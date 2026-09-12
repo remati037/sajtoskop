@@ -13,7 +13,12 @@
 // pregled.
 
 import "server-only";
-import type { ChangelogRow, FeedbackRow, FeedbackStatus } from "@sajtoskop/shared";
+import type {
+  AdminFali,
+  ChangelogRow,
+  FeedbackRow,
+  FeedbackStatus,
+} from "@sajtoskop/shared";
 import { adminSupabase } from "./supabase";
 
 /** Stranica po 25, isto kao lista korisnika i revizija. */
@@ -33,7 +38,18 @@ export const ZAVRSNI_STATUSI: readonly FeedbackStatus[] = ["reseno", "odbijeno",
 export type UpitUtisaka = {
   /** `''` = svi; `'otvoreno'` = spisak iz `OTVORENI_STATUSI`; inače jedan status. */
   status: string;
-  /** Sloj je `feedback.source` — dugme, podsetnik, pitanje, kampanja, incident. */
+  /**
+   * Sloj je `feedback.source` — dugme, podsetnik, pitanje, kampanja, incident.
+   *
+   * [S29] Dva pseudo-sloja uz njih: `'fali'` i `'citat'`. Nisu izvori nego
+   * POGLEDI, i zato dele isti filter umesto da dobiju svoju traku: čovek koji
+   * traži „šta ljudima fali" bira jednu stvar sa jednog mesta, a ne dve.
+   *
+   *   - `'citat'` je običan filter nad redovima (`answers->>'citat'` postoji)
+   *   - `'fali'` menja ceo prikaz: umesto 25 pojedinačnih redova ide zbirna
+   *     lista iz `admin_fali()`, jer je kod tog pitanja zanimljivo šta se
+   *     PONAVLJA, a ne ko je to napisao u utorak
+   */
   sloj: string;
   /** `'1' | '2' | '3'`, ili `'bez'` za odgovore na pitanja (nemaju ocenu). */
   ocena: string;
@@ -108,7 +124,11 @@ export async function citajUtiske(upit: UpitUtisaka): Promise<ListaUtisaka> {
   if (upit.status === "otvoreno") q = q.in("status", [...OTVORENI_STATUSI]);
   else if (upit.status) q = q.eq("status", upit.status);
 
-  if (upit.sloj) q = q.eq("source", upit.sloj);
+  // [S29] `citat` je pogled nad redovima, ne sloj: traže se odgovori na
+  // `prvi-potpisan` kod kojih je treći korak dao dozvolu. `fali` ovde ne stiže
+  // — za njega strana zove `citajFali()` i crta drugu listu.
+  if (upit.sloj === "citat") q = q.not("answers->>citat", "is", null);
+  else if (upit.sloj && upit.sloj !== "fali") q = q.eq("source", upit.sloj);
 
   // „Bez ocene" je odgovor na pitanje: kampanjski i kontekstualni zapisi nemaju
   // ocenu nego odgovor (0011, `rating` je nullable).
@@ -130,6 +150,25 @@ export async function citajUtiske(upit: UpitUtisaka): Promise<ListaUtisaka> {
     strana_max: Math.max(1, Math.ceil(ukupno / PO_STRANI)),
     nemaKorisnika: false,
   };
+}
+
+/**
+ * Zbirna lista „Šta ti ovde fali" (S29 §5.3 C), iz `admin_fali()` (0027).
+ *
+ * Grupisanje po tekstu radi Postgres, ne TS: lista koja se grupiše u pregledaču
+ * grupiše samo ono što je na tekućoj stranici, pa bi „filter po recenzijama"
+ * ispao dvaput sa brojem 2 i 1 umesto jednom sa 3.
+ *
+ * `p_route` sužava na jedan ekran. Prazan string i `null` znače „sve" — filter
+ * koji ne filtrira nije greška.
+ */
+export async function citajFali(ruta = ""): Promise<AdminFali[]> {
+  const { data, error } = await adminSupabase().rpc("admin_fali", {
+    p_route: ruta.trim() || null,
+  });
+
+  if (error) throw new Error(`Čitanje „Fali" liste nije uspelo: ${error.message}`);
+  return (data ?? []) as AdminFali[];
 }
 
 /**

@@ -4,7 +4,7 @@
 // Detalj prijave u panelu desno (F11 §6.6).
 //
 // Sve što se o jednoj prijavi zna, pa ispod toga četiri radnje: status, oznake,
-// beleška, nagrada i veza sa Beta dnevnikom. Panel je jedina površina sa senkom
+// beleška, nagrada i veza sa „Novo u Sajtoskopu". Panel je jedina površina sa senkom
 // na ovom ekranu — lista levo je tabela, a ne kartica.
 //
 // ── šta ovde NIJE zaštita ────────────────────────────────────
@@ -21,7 +21,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BookMarked,
+  Check,
   Coins,
+  Copy,
   ExternalLink,
   ImageOff,
   Loader2,
@@ -42,7 +44,7 @@ import {
   STATUS_UTISKA,
   STATUSI,
 } from "@/lib/admin-utisci-schema";
-import { formatDatum } from "@/lib/ui-tekst";
+import { formatDatum, formatDatumKratko } from "@/lib/ui-tekst";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -91,6 +93,13 @@ export function PanelUtiska(props: PanelProps) {
 
   const zauzeto = radi !== null || ceka;
   const pitanje = red.prompt_key ? pitanjeZaKljuc(red.prompt_key) : null;
+
+  // [S29] Dozvola za citat. `answers` je `Record<string, unknown>`, pa se
+  // vrednost proverava, ne pretpostavlja — zapis iz starije verzije kataloga
+  // ne sme da obori panel.
+  const citat = red.answers.citat;
+  const tipCitata =
+    typeof citat === "string" && citat in CITAT ? (citat as keyof typeof CITAT) : null;
 
   async function posalji(kljuc: string, putanja: string, init: RequestInit) {
     setRadi(kljuc);
@@ -251,6 +260,77 @@ export function PanelUtiska(props: PanelProps) {
         </div>
       )}
 
+      {/* ── kontekst prijave greške (S29 §5.3 D) ──────────── */}
+      {/* Sve ovo je server upisao u `ctx` u trenutku prijave: iz pregledača su
+          stigli samo identifikatori, a status posla i stanje naloga su
+          pročitani iz baze (0027). Zato se ovde ne zove nijedna ruta — ono što
+          je bilo istina u trenutku prijave je zapis, ne trenutno stanje. */}
+      {(red.ctx.placeId || red.ctx.jobId || red.ctx.korak || red.ctx.greska) && (
+        <div className="mt-4">
+          <NaslovSekcije>Kontekst</NaslovSekcije>
+          <dl className="mt-1.5 divide-y divide-border border-y border-border text-[13px]">
+            {red.ctx.korak && <Red naziv="Odakle">{KORAK[red.ctx.korak] ?? red.ctx.korak}</Red>}
+
+            {red.ctx.placeId && (
+              <Red naziv="Prospekt">
+                {/* Vodi na pretragu sa tim prospektom — panel je mesto sa kog
+                    se prijava proverava, ne samo čita. */}
+                <Link
+                  href={`/pretraga?place=${encodeURIComponent(red.ctx.placeId)}`}
+                  className="num inline-flex items-center gap-1 underline-offset-4 hover:underline"
+                >
+                  {red.ctx.placeId}
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              </Red>
+            )}
+
+            {red.ctx.jobId !== undefined && (
+              <Red naziv="Posao">
+                <span className="num">#{red.ctx.jobId}</span>
+                {red.ctx.greska ? (
+                  <>
+                    {" · "}
+                    <span className={red.ctx.greska.status === "failed" ? "text-danger" : ""}>
+                      {red.ctx.greska.status}
+                    </span>
+                    <span className="ml-1.5 num text-fg-faint">
+                      {red.ctx.greska.tip} · {red.ctx.greska.attempts}×
+                    </span>
+                  </>
+                ) : (
+                  // Posao nije nađen u redu, ili ga ovaj nalog nije platio.
+                  // Broj se pamti; ono što bi ga opisalo se ne izmišlja.
+                  <span className="ml-1.5 text-fg-faint">bez zapisa u redu poslova</span>
+                )}
+              </Red>
+            )}
+
+            {red.ctx.stanje && (
+              <Red naziv="Pristup">
+                {red.ctx.stanje.plan}
+                {red.ctx.stanje.plan_expires_at && (
+                  <span className="ml-1.5 num text-fg-faint">
+                    do {formatDatumKratko(red.ctx.stanje.plan_expires_at)}
+                  </span>
+                )}
+                {red.ctx.stanje.credits_topup > 0 && (
+                  <span className="ml-1.5 num text-fg-faint">
+                    +{red.ctx.stanje.credits_topup} dopuna
+                  </span>
+                )}
+              </Red>
+            )}
+          </dl>
+
+          {red.ctx.greska?.poruka && (
+            <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-border bg-bg-inset px-2.5 py-2 num text-[11.5px] text-fg-muted">
+              {red.ctx.greska.poruka}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* ── poruka ────────────────────────────────────────── */}
       <div className="mt-4">
         <NaslovSekcije>Poruka</NaslovSekcije>
@@ -262,6 +342,31 @@ export function PanelUtiska(props: PanelProps) {
           <p className="mt-1.5 text-[13px] text-fg-faint">Bez teksta.</p>
         )}
       </div>
+
+      {/* ── citat (S29 §5.3 B) ────────────────────────────── */}
+      {/* Treći korak na `prvi-potpisan` je jedina dozvola koja u ovoj bazi
+          postoji. Zato stoji odvojeno, a ne kao red u „Pitanje": ono što sme
+          da se objavi mora da se vidi na prvi pogled, a ne da se traži u
+          `answers`. Šema pušta `citat` samo uz `preporuka: 'da'`, pa ovde nema
+          ni jedne dodatne provere — kapija je u katalogu. */}
+      {tipCitata && (
+        <div className="mt-4">
+          <NaslovSekcije>Citat</NaslovSekcije>
+          <p className="mt-1.5 text-[13px]">
+            {CITAT[tipCitata]}
+            {tipCitata === "ne" && (
+              <span className="ml-1.5 text-fg-faint">— ne objavljivati.</span>
+            )}
+          </p>
+
+          {tipCitata !== "ne" && (
+            <KopirajReferencu
+              tekst={referenca(red, tipCitata)}
+              nemaTekst={!red.message?.trim()}
+            />
+          )}
+        </div>
+      )}
 
       {/* ── slika ─────────────────────────────────────────── */}
       {red.screenshot_path && (
@@ -437,7 +542,7 @@ export function PanelUtiska(props: PanelProps) {
 
         {/* ── BETA DNEVNIK ────────────────────────────────── */}
         <div className="my-5 border-t border-border" />
-        <NaslovSekcije>Beta dnevnik</NaslovSekcije>
+        <NaslovSekcije>Novo u Sajtoskopu</NaslovSekcije>
         <div className="mt-2 space-y-2.5">
           {dnevnik.length === 0 ? (
             <p className="text-[11px] text-fg-faint">
@@ -510,6 +615,94 @@ export function PanelUtiska(props: PanelProps) {
 // ── sitni delovi ─────────────────────────────────────────────
 
 const OCENA: Record<1 | 2 | 3, string> = { 1: "Loše (1/3)", 2: "Ok (2/3)", 3: "Odlično (3/3)" };
+
+/** Odakle je „Prijavi grešku" kliknuto — isti spisak kao `korakEnum` u šemi. */
+const KORAK: Record<string, string> = {
+  kartica: "Kartica prospekta",
+  skeniranje: "Skeniranje",
+  unlock: "Otključavanje",
+  pretraga: "Pretraga",
+  welcome: "Prva strana",
+  pretplata: "Pretplata",
+};
+
+/** Treći korak na `prvi-potpisan` (S29 §5.3 B). */
+const CITAT: Record<string, string> = {
+  "da-ime": "Sme da se citira, sa imenom.",
+  "da-bez": "Sme da se citira, bez imena.",
+  ne: "Ne želi da se citira.",
+};
+
+/**
+ * Referenca spremna za nalepiti — citat, potpis i datum.
+ *
+ * Potpis kod `da-ime` je MEJL, jer je to jedino ime koje konzola ima: `profiles`
+ * nosi adresu, a puno ime živi u Clerku, koji ovaj ekran namerno ne zove (v.
+ * zaglavlje `admin-utisci.ts`). Zato uz dugme stoji i rečenica da ime treba
+ * potvrditi — referenca potpisana tuđim mejlom je gora od nijedne.
+ */
+function referenca(red: PanelProps["red"], tip: string): string {
+  const citat = red.message?.trim();
+  const potpis = tip === "da-ime" ? (red.email ?? red.user_id) : "korisnik Sajtoskopa";
+  const datum = formatDatumKratko(red.created_at);
+
+  return citat ? `„${citat}” — ${potpis}, ${datum}` : `— ${potpis}, ${datum}`;
+}
+
+/**
+ * „Kopiraj kao referencu."
+ *
+ * `navigator.clipboard` zna da ne postoji (stariji pregledač, strana bez
+ * HTTPS-a) i zna da bude odbijen. U oba slučaja se javlja neuspeh umesto tihe
+ * potvrde: dugme koje kaže „kopirano" a nije je gore od dugmeta koje padne.
+ */
+function KopirajReferencu({ tekst, nemaTekst }: { tekst: string; nemaTekst: boolean }) {
+  const [stanje, setStanje] = useState<"mirno" | "ok" | "pao">("mirno");
+
+  useEffect(() => {
+    if (stanje === "mirno") return;
+    const t = setTimeout(() => setStanje("mirno"), 2_400);
+    return () => clearTimeout(t);
+  }, [stanje]);
+
+  return (
+    <div className="mt-2">
+      <p className="whitespace-pre-wrap rounded-lg border border-border bg-bg-inset px-2.5 py-2 text-[12.5px] text-fg-muted">
+        {tekst}
+      </p>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void navigator.clipboard
+              ?.writeText(tekst)
+              .then(() => setStanje("ok"))
+              .catch(() => setStanje("pao"));
+            if (!navigator.clipboard) setStanje("pao");
+          }}
+        >
+          {stanje === "ok" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          {stanje === "ok" ? "Kopirano" : "Kopiraj kao referencu"}
+        </Button>
+
+        {stanje === "pao" && (
+          <span role="alert" className="text-[11.5px] text-danger">
+            Nije kopirano — označi tekst iznad i kopiraj ručno.
+          </span>
+        )}
+      </div>
+
+      <p className="mt-1.5 text-[11px] text-fg-faint">
+        {nemaTekst
+          ? "Dozvola postoji, ali čovek nije dopisao rečenicu — nema šta da se citira."
+          : "Potpis je mejl iz baze. Pre objave potvrdi ime sa čovekom."}
+      </p>
+    </div>
+  );
+}
 
 export const BEDZ_STATUSA: Record<
   FeedbackRow["status"],

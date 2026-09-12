@@ -140,7 +140,7 @@ export default function Page() {
 
       <Odeljak broj={5} naslov="Šta biva kad pristup prestane">
         <p>
-          Kad istekne plaćen period (ili beta), nalog{" "}
+          Kad istekne plaćen period (ili komp pristup), nalog{" "}
           <strong>
             još <span className="num">30</span> dana ostaje u režimu samo za čitanje
           </strong>

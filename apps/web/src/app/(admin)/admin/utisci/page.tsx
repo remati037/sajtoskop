@@ -18,11 +18,18 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { MessageSquareHeart } from "lucide-react";
-import { pitanjeZaKljuc } from "@sajtoskop/shared";
+import { MessageSquareHeart, Search } from "lucide-react";
+import { pitanjeZaKljuc, type AdminFali } from "@sajtoskop/shared";
 import { requireAdminPage } from "@/lib/admin";
 import { citajPregled, trajanje } from "@/lib/admin-pregled";
-import { citajOznake, citajUtisak, citajUtiske, PO_STRANI } from "@/lib/admin-utisci";
+import {
+  citajFali,
+  citajOznake,
+  citajUtisak,
+  citajUtiske,
+  PO_STRANI,
+  type ListaUtisaka,
+} from "@/lib/admin-utisci";
 import { SLOJ_UTISKA, STATUS_UTISKA } from "@/lib/admin-utisci-schema";
 import { cn } from "@/lib/cn";
 import { potpisanUrlSlike } from "@/lib/slika";
@@ -37,10 +44,19 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Utisci" };
 
-/** Ispod ovoliko odgovora medijana cene nije dokaz nego signal (F11 §10). */
-const UZORAK_ZA_MEDIJANU = 12;
+/** Ispod ovoliko odgovora NPS nije dokaz nego signal (F11 §10). */
+const UZORAK_ZA_NPS = 12;
 
 type Params = Record<string, string | string[] | undefined>;
+
+/** Ono što `citajUtiske()` vrati kad nema šta da vrati — bez lažnog upita. */
+const PRAZNA_LISTA = {
+  redovi: [],
+  ukupno: 0,
+  strana: 1,
+  strana_max: 1,
+  nemaKorisnika: false,
+} satisfies ListaUtisaka;
 
 const tekst = (v: string | string[] | undefined): string =>
   (Array.isArray(v) ? v[0] : v)?.trim() ?? "";
@@ -68,16 +84,26 @@ export default async function Page({ searchParams }: { searchParams: Promise<Par
 
   const sp = await searchParams;
 
-  const [pregled, lista, oznake] = await Promise.all([
+  // [S29] `fali` je pogled, ne filter: umesto pojedinačnih redova ide zbirna
+  // lista iz `admin_fali()`, jer je kod tog pitanja zanimljivo šta se PONAVLJA,
+  // a ne ko je to napisao u utorak.
+  const pogledFali = tekst(sp.sloj) === "fali";
+
+  const [pregled, lista, oznake, fali] = await Promise.all([
     citajPregled(),
-    citajUtiske({
-      status: tekst(sp.status),
-      sloj: tekst(sp.sloj),
-      ocena: tekst(sp.ocena),
-      korisnik: tekst(sp.korisnik).slice(0, 254),
-      strana: Math.max(1, Number.parseInt(tekst(sp.strana), 10) || 1),
-    }),
+    // U `fali` pogledu se lista pojedinačnih utisaka ne crta, pa se ni ne čita:
+    // upit čiji rezultat niko ne prikaže je upit koji se plaća bez razloga.
+    pogledFali
+      ? Promise.resolve(PRAZNA_LISTA)
+      : citajUtiske({
+          status: tekst(sp.status),
+          sloj: tekst(sp.sloj),
+          ocena: tekst(sp.ocena),
+          korisnik: tekst(sp.korisnik).slice(0, 254),
+          strana: Math.max(1, Number.parseInt(tekst(sp.strana), 10) || 1),
+        }),
     citajOznake(),
+    pogledFali ? citajFali(tekst(sp.ruta)) : Promise.resolve([]),
   ]);
 
   const izabran = Number.parseInt(tekst(sp.utisak), 10);
@@ -92,13 +118,13 @@ export default async function Page({ searchParams }: { searchParams: Promise<Par
       ? Math.round((u.pitanja.odgovoreno / u.pitanja.prikazano) * 100)
       : null;
 
-  const rsd = new Intl.NumberFormat("sr-Latn-RS");
+  const nps = u.nps;
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
         naslov="Utisci"
-        opis="Sve što je stiglo iz bete — dugme, pitanja, kampanje i incidenti u istoj listi. Status, oznake i beleška se menjaju u panelu desno."
+        opis="Sve što je stiglo — dugme, pitanja, kampanje i incidenti u istoj listi. Status, oznake i beleška se menjaju u panelu desno."
       />
 
       {/* ── RED BROJKI (§6.6) ─────────────────────────────── */}
@@ -113,18 +139,23 @@ export default async function Page({ searchParams }: { searchParams: Promise<Par
             odgovorenost !== null && odgovorenost < 40 ? "cilj iz §10 je ≥ 40 %" : undefined
           }
         />
+        {/* [S29] Medijana cene je otišla sa pitanjem o ceni — proizvod se
+            naplaćuje, pa opseg u RSD više nije procena nego pogrešna brojka.
+            Skor računa `admin_nps()`; ovde se ne prepisuje. */}
         <Brojka
-          naslov="Medijana cene"
-          vrednost={pregled.medijana === null ? "—" : `${rsd.format(pregled.medijana)} RSD`}
+          naslov="NPS"
+          vrednost={nps.n === 0 ? "—" : String(nps.score)}
           podnaslov={
-            pregled.medijana === null
-              ? "nijedan odgovor na pitanje o ceni"
-              : `iz ${pregled.medijanaUzorak} odgovora, mesečno`
+            nps.n === 0
+              ? "nijedan odgovor na pitanje o preporuci"
+              : `${nps.promoteri} promotera · ${nps.pasivni} pasivnih · ${nps.detraktori} detraktora`
           }
           napomena={
-            pregled.medijana !== null && pregled.medijanaUzorak < UZORAK_ZA_MEDIJANU
-              ? "signal, ne dokaz"
-              : undefined
+            nps.n === 0
+              ? undefined
+              : nps.n < UZORAK_ZA_NPS
+                ? `iz ${nps.n} odgovora — signal, ne dokaz`
+                : `iz ${nps.n} odgovora · ${nps.poslednjih_30_dana} u 30 dana`
           }
         />
         <Brojka
@@ -204,6 +235,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Par
             { vrednost: "duplikat", label: STATUS_UTISKA.duplikat },
           ]}
         />
+        {/* [S29] „Fali" i „Citat" stoje u istoj traci kao slojevi, iako nisu
+            slojevi nego pogledi. Svoja traka bi značila dva mesta za jednu
+            odluku — a čovek koji traži „šta ljudima fali" bira jednu stvar. */}
         <TrakaFiltera
           kljuc="sloj"
           podrazumevano=""
@@ -214,6 +248,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Par
             { vrednost: "incident", label: SLOJ_UTISKA.incident },
             { vrednost: "dugme", label: SLOJ_UTISKA.dugme },
             { vrednost: "podsetnik", label: SLOJ_UTISKA.podsetnik },
+            { vrednost: "fali", label: "Fali" },
+            { vrednost: "citat", label: "Citat" },
           ]}
         />
         <TrakaFiltera
@@ -239,7 +275,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Par
       {/* ── LISTA + PANEL ─────────────────────────────────── */}
       <div className={cn("grid gap-5", detalj && "lg:grid-cols-[minmax(0,1fr)_24rem]")}>
         <div className="min-w-0">
-          {lista.redovi.length === 0 ? (
+          {pogledFali ? (
+            <ListaFali redovi={fali} sp={sp} ruta={tekst(sp.ruta)} />
+          ) : lista.redovi.length === 0 ? (
             <PraznoStanje
               ikona={<MessageSquareHeart />}
               naslov={lista.nemaKorisnika ? "Nema pogodaka." : "Nijedan utisak još nije stigao."}
@@ -363,6 +401,94 @@ export default async function Page({ searchParams }: { searchParams: Promise<Par
       <p className="mt-6 text-xs text-fg-muted">
         Stranica po <span className="num">{PO_STRANI}</span>. Instant mejl stiže samo za bug, ocenu
         1 i incident — sve ostalo je u digestu u <span className="num">21:00</span>.
+      </p>
+    </div>
+  );
+}
+
+// ── „Fali" — zbirna lista ────────────────────────────────────
+// Kod ovog pitanja je zanimljivo šta se PONAVLJA, a ne ko je to napisao u
+// utorak. Zato ovde nema kolone „ko" ni panela: grupisanje radi `admin_fali()`
+// u bazi, a ekran samo crta ono što je izbrojano.
+
+const RUTE_FALI: { vrednost: string; label: string }[] = [
+  { vrednost: "", label: "Svi ekrani" },
+  { vrednost: "/pretraga", label: "Pretraga" },
+  { vrednost: "/lista", label: "Moja lista" },
+  { vrednost: "/pipeline", label: "Pipeline" },
+];
+
+function ListaFali({
+  redovi,
+  sp,
+  ruta,
+}: {
+  redovi: AdminFali[];
+  sp: Params;
+  ruta: string;
+}) {
+  return (
+    <div className="min-w-0">
+      {/* Filter po ekranu je u adresi, kao i svi ostali — otvoren pogled se
+          može poslati sebi u poruku i vratiti dugmetom „nazad". */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        {RUTE_FALI.map((r) => (
+          <Link
+            key={r.vrednost || "sve"}
+            href={adresa(sp, { ruta: r.vrednost, utisak: "" })}
+            scroll={false}
+            className={cn(
+              "inline-flex h-8 items-center rounded-lg border border-border-strong bg-bg-elev px-3 text-xs font-medium text-fg-muted transition-colors hover:border-fg-muted hover:text-fg",
+              ruta === r.vrednost && "border-border-accent bg-accent-wash text-accent-text",
+            )}
+          >
+            {r.label}
+          </Link>
+        ))}
+      </div>
+
+      {redovi.length === 0 ? (
+        <PraznoStanje
+          ikona={<Search />}
+          naslov="Niko još nije napisao šta mu fali."
+          opis="Pitanje se pojavljuje ispod praznog stanja — na pretrazi bez pogodaka, na praznoj listi i na praznom pipeline-u."
+        />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border bg-bg-elev shadow-sm">
+          <div className="scroll-x">
+            <table className="w-full min-w-[32rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border bg-bg-subtle/70 text-left text-[11px] uppercase tracking-wider text-fg-muted">
+                  <th className="py-2.5 pl-4 font-medium">Šta fali</th>
+                  <th className="w-20 py-2.5 font-medium">Koliko</th>
+                  <th className="w-28 py-2.5 font-medium">Ekran</th>
+                  <th className="w-28 py-2.5 pr-4 font-medium">Poslednji put</th>
+                </tr>
+              </thead>
+              <tbody>
+                {redovi.map((r) => (
+                  <tr
+                    key={`${r.message}-${r.route ?? ""}`}
+                    className="border-b border-border/70 align-top transition-colors last:border-0 hover:bg-bg-subtle/60"
+                  >
+                    {/* Tekst korisnika ide kao TEKST, nikad kao HTML. */}
+                    <td className="py-2.5 pl-4 text-[13px] text-fg">{r.message}</td>
+                    <td className="num py-2.5 text-[13px] text-fg">{r.count}</td>
+                    <td className="num py-2.5 text-[12px] text-fg-muted">{r.route ?? "—"}</td>
+                    <td className="py-2.5 pr-4 text-[12px] text-fg-muted">
+                      {formatDatumKratko(r.poslednji_put)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-3 text-xs text-fg-muted">
+        Grupisano po tekstu, bez razlike u velikim slovima i razmacima. Isti zahtev napisan
+        triput je jedan red sa brojem <span className="num">3</span>.
       </p>
     </div>
   );

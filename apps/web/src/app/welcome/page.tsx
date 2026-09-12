@@ -160,6 +160,25 @@ export default async function Page({
           </a>{" "}
           — imaj pri ruci broj računa iz mejla.
         </p>
+
+        {/* [S29 §5.3 D] Ova strana je izvan `(app)` okvira: nema ni provider ni
+            plutajuće dugme, pa ni panel koji bi otvorila. Zato link vodi u
+            aplikaciju, a razlog putuje kroz adresu — `UtisakDugme` ga pročita,
+            otvori panel sa tipom `bug` i obriše parametar iz adrese.
+
+            Ulogovanom, jer neulogovani u aplikaciju ionako ne ulazi; njemu
+            ostaje mejl iznad. */}
+        {ulogovan && (
+          <p className="mt-2 text-xs text-fg-muted">
+            <Link
+              href="/pretraga?bug=welcome"
+              className="font-medium underline underline-offset-4"
+            >
+              Prijavi grešku
+            </Link>{" "}
+            ako se nešto drugo desilo — stiže mi sa svim što je bilo na ekranu.
+          </p>
+        )}
       </main>
 
       <Futer />

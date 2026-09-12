@@ -45,6 +45,8 @@ export type {
   ExportClaimReason,
   ExportClaimResult,
   FeedbackCtx,
+  AdminFali,
+  AdminNps,
   FeedbackGrantResult,
   FeedbackKind,
   FeedbackPromptRow,
@@ -83,7 +85,6 @@ export type {
 
 // ── utisci: katalog pitanja i motor pravila (F11) ──────────
 export type {
-  CenaOpseg,
   Oblik,
   OdgovorIshod,
   Opcija,
@@ -92,15 +93,12 @@ export type {
   Uslovi,
 } from "./feedback-katalog";
 export {
-  CENA_OPSEZI,
   KATALOG,
-  KRAJ_BETE,
-  medijanaCene,
   opisOdgovora,
   PITANJE_KLJUCEVI,
   pitanjeZaKljuc,
-  PRAG_CENE_RSD,
   proveriOdgovor,
+  ROK_PITANJA,
   vaziPitanje,
 } from "./feedback-katalog";
 

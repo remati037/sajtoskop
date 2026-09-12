@@ -37,6 +37,7 @@ sledeću sesiju.
 | S21 | Cenovnik sa paketima, stanje pretplate, portal, linkovi | `LANSIRANJE.md` | — | 1 dan | ☑ |
 | S22 | Pravni tekstovi i futer | `LANSIRANJE.md`, `F8-landing.md` §3 | — | 0,5 dana | ☑ |
 | — | *Izmena posle S22: dva domena, onboarding kao faza, O1* | `LANSIRANJE.md` §1.7, §1.8 | — | — | ☑ |
+| S29 | Feedback: NPS, „Fali", citat, prijava greške | zahtev sesije (PRD §5 nedostaje) | `0027` | 1 dan | ◐ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -3685,3 +3686,133 @@ pnpm build                 → čisto
 | — | `docs/tok-i-onboarding.md` | **Dokument u repozitorijum.** Bez njega ostatak S28 ne može da se radi bez izmišljanja kopija. |
 | — | migracija `0026` | Primeniti na Supabase pre deploya (nov nalog do tada dobija 2 kredita u `credits_balance`, što ga NE pušta unutra). |
 | — | ručni prolaz | Brisanje naloga iz Clerk-a sa živom test pretplatom → pretplata `canceled` PRE nego što profil nestane (screenshot Stripe eventa ovde). Onboarding prolazi i `api_budget` izlaz nemaju šta da testiraju dok čarobnjaka nema. |
+
+---
+
+## S29 — Feedback: NPS, „Fali", citat, prijava greške ◐ (kopi čeka §5.3)
+
+**Isporučeno 12. septembra 2026.** Commit: „S29: feedback". Migracija: **0027**
+(`feedback_nps`).
+
+### ‼️ Šta je i ovde nedostajalo
+
+Isti fajl kao u S28: **`docs/tok-i-onboarding.md` i dalje ne postoji.** Zahtev sesije traži
+§5 CEO kao kontekst, §5.2 koja nadjačava F11 tamo gde se razlikuju, i §5.3 A–D — pri čemu
+§5.3 A izričito kaže **„doslovno"**.
+
+Za razliku od S28, ovde to nije zaustavilo isporuku: **mehanika je u samom zahtevu sesije**
+(ključevi, oblici, uslovi, rokovi, potpisi funkcija, ponašanje motora), a nedostaje samo
+tekst pitanja. Zato je sve osim kopija urađeno, a **kopije koje sam ja napisao su popisane
+niže** — to su prva mesta koja se prepisuju kad dokument stigne.
+
+**Preduslov K4 nije bio ispunjen.** `kartica-prospekta.tsx` ne postoji (otvorena stavka iz
+S28), pa jedno od pet mesta za „Prijavi grešku" nije montirano — v. „Ostaje".
+
+### Šta JE urađeno
+
+- **`packages/shared/src/feedback-katalog.ts`**
+  - `cena` **obrisana** — pitanje, `CENA_OPSEZI`, `PRAG_CENE_RSD`, `CenaOpseg` i
+    `medijanaCene()`. Grep je potvrdio da ih niko drugi ne koristi osim `admin-pregled.ts`,
+    `utisci-izvestaj.ts` i testa; sva tri su prepravljena.
+  - `KRAJ_BETE` → **`ROK_PITANJA = "2027-12-31"`**, i `KRAJ_INCIDENTA` je u njega spojen —
+    sad sva pitanja nose isti rok, i test to čuva.
+  - **`nps-7`** (§5.3 A): kampanjska kartica, 11 opcija 0–10, `bezNagrade`, uslov
+    `danaOdRegistracije >= 7 && otkljucano >= 1`. Prvi odgovor ide pod ključ **`ocena`**, ne
+    `odgovor` — zato je na `Pitanje` dodato polje `kljucOdgovora`.
+  - **`fali`** (§5.3 C): mikro, `tekstPrvi`, `ponovi: 24 h`, bez uslova; šema prima `tekst` i
+    opciono `query` (niša iz combobox-a).
+  - **Treći korak na `prvi-potpisan`** (§5.3 B): `citat` = `da-ime` / `da-bez` / `ne`, uz
+    `kadDrugi: "da"` i dopisan `dopuna` placeholder. Šema **odbija `citat` uz preporuku koja
+    nije `da`** — to je citat koji ne smem da objavim.
+  - `poruka-kvalitet` okidač **nije menjan**: već je bio „prva kopirana poruka bilo koje
+    vrste" (`poruke-panel.tsx`), što je tačno ono što zahtev traži.
+- **`feedback-motor.ts`** — treće odbacivanje je **90 dana** (bilo 3650). Test proverava i da
+  se pitanje posle 90 dana **vrati**, jer je to cela poenta izmene.
+- **`apps/web/src/lib/feedback.ts`**
+  - `trebaPodsetnik(profil, mesecniKrediti, otkljucano)` + nov `trebaPodsetnikSada()` koji
+    broji otključane **tek pošto jeftine kapije prođu** — dakle jednom u životu naloga, ne na
+    svakoj navigaciji (F11 §3.3).
+  - `nagradaDostupna()` odbija `pristup.stanje === "proba"`.
+- **Migracija `0027_feedback_nps.sql`** (idempotentna, `check:sql` je pušta dvaput):
+  - `admin_nps()` — skor, n, promoteri/pasivni/detraktori, poslednjih 30 dana. **`score` je
+    `NULL` kad odgovora nema**, ne 0: nula je stvarna ocena i na praznoj bazi bi lagala.
+    Zapis sa `ocena` koja nije broj se preskače, ne ruši izveštaj.
+  - `admin_fali(p_route)` — grupisano po `lower(btrim(...))`, tekst se čita iz
+    `answers->>'tekst'` pa iz `message`.
+  - `zabelezi_utisak` dobija **`p_ctx_extra`** i iz njega uzima SAMO `placeId`, `jobId`,
+    `korak`; `stanje` čita iz zaključanog profila, a status i poruku greške iz `job_queue`.
+  - `admin_overview` — `cena_odgovori` zamenjen sa `nps`, **pozvanim iz `admin_nps()`**.
+- **UI**
+  - `utisak-kartica.tsx` — treći korak; skala 0–10 u **gridu** (6 kolona na telefonu →
+    0–5 / 6–10, 11 kolona od `sm`), a ne `flex-wrap` koji prelama gde stigne.
+  - `utisci-provider.tsx` — `otvoriBug(ctx)` / `zahtevBuga` / `preuzetBug`; nov
+    `prijavi-gresku.tsx` i `fali-mikro.tsx`.
+  - `utisak-dugme.tsx` — bez „· beta"; panel se otvara iz „Prijavi grešku" sa tipom **Bug** i
+    kontekstom, i razume `?bug=<korak>` iz adrese (za strane van `(app)` okvira).
+  - Prazna stanja: `/pretraga` (filteri), combobox niša, `/lista` i `/pipeline` (posle 7 dana).
+- **Admin** — NPS umesto medijane na `/admin` i `/admin/utisci`; filteri **Fali** i **Citat**;
+  blok **„Kontekst"** u panelu; **„Kopiraj kao referencu"**.
+- **Cron digest** — dve linije na vrhu: NPS i „Fali: N novih".
+- **Testovi** — `packages/shared/test/feedback-katalog.ts` i `feedback-motor.ts` (izdvojeni iz
+  `smoke.ts`), `apps/web/test/feedback-ruta.ts`, plus S29 blok u `validate-migrations.ts`.
+
+### Šta se razišlo sa zahtevom
+
+1. **`test/feedback-ruta.ts` tvrdi „ignoriše se", ne „odbija se".** Zahtev kaže „telo sa
+   `plan` se ignoriše" — i tako i jeste: `utisakBodySchema` je `z.object`, pa nepoznata polja
+   **skida** umesto da vrati `400`. Prvo sam napisao test koji očekuje odbijanje; pao je, i
+   ispravan je bio kod. Odbijanje bi značilo izgubljen utisak zbog polja koje ništa ne menja.
+   (Za `answers` važi obrnuto — `strictObject`, jer je tamo nepoznat ključ kvar, ne šum.)
+2. **`ctx.jobId` se proverava kroz knjigu, ne kroz `job_queue.user_id`.** Te kolone nema i to
+   nije previd: `scan` posao je zajednički, ključ mu je `dedupe_key`. Vlasništvo se dokazuje
+   redom `ref_id = 'scan:<id>'` u `credit_ledger` — isto pravilo po kom radi `zivPlacenPosao()`.
+   Tuđ `jobId` u telu zato upiše samo broj, bez statusa i bez poruke greške.
+3. **`korak` ipak stiže iz tela**, kao zatvoren enum od šest vrednosti (`korakEnum`). To je
+   jedino u celom kontekstu što server ne može da zna sam — `/welcome` i `pretplata-blok` se
+   po ruti ne razlikuju dovoljno. Sve što opisuje nalog ili posao i dalje dolazi iz baze.
+4. **`UtisciProvider.prijavi(...)` se zove `prijaviDogadjaj(...)`** — zatečeno ime iz F11.1,
+   nije menjano da se ne bi diralo sedam postojećih poziva.
+5. **Jedna „Fali" traka po ekranu.** `UtisakMikro` se crta kad je pitanje aktivno, pa bi dva
+   montirana mesta na `/pretraga` dala dve iste trake. Mesto je zato **izbor**, a ne dva
+   nezavisna uslova (v. komentar u `pretraga-ekran.tsx`).
+6. **`fali` na `/pretraga` ide samo za prazno zbog FILTERA.** Prazno zato što Google nije našao
+   ništa i dalje dobija `prazan-rezultat` („Šta si tražio?") — dva prazna stanja, dva pitanja.
+7. **`admin_fali` vraća kolonu `message`, a čita `answers->>'tekst'`.** Ime kolone je iz
+   zahteva; izvor je tamo gde tekst `fali` odgovora stvarno završi (prvi korak, ne dopuna).
+8. **Nedeljni izveštaj je takođe prepravljen**, iako ga zahtev ne pominje: blok „MEDIJANA CENE"
+   bi posle brisanja pitanja zauvek pisao „nijedan odgovor". Na njegovom mestu je NPS.
+
+### Kopije koje su MOJE, ne iz §5.3 — prepisati kad dokument stigne
+
+| Gde | Tekst |
+|---|---|
+| `nps-7.naslov` | „Koliko je verovatno da bi Sajtoskop preporučio kolegi?" |
+| `nps-7.uvod` / `sufiks` / `napomena` | „Jedno pitanje, jedan klik." · „0 = nikako · 10 = sigurno" · „Iskrena ocena mi je vrednija od lepe…" |
+| `nps-7.dopuna` | „Šta bi morao da uradi za devetku?" |
+| `fali.dopuna` | „npr. filter po recenzijama" (naslov **„Šta ti ovde fali?" je iz zahteva sesije**) |
+| `prvi-potpisan.treciKorak.naslov` i labele | „Smem li to da citiram?" · „Da, sa imenom" / „Da, bez imena" / „Radije ne" |
+| `prvi-potpisan.dopuna` | „Šta bi rekao kolegi o Sajtoskopu?" |
+| panel „Prijavi grešku" | „Šta nije radilo?" i rečenica ispod ocena |
+| `/welcome` | „Prijavi grešku … stiže mi sa svim što je bilo na ekranu." |
+| `api/unlock` 402 | „Nemaš dovoljno kredita. Pogledaj stanje i dopuni ga na `/krediti`." (staro je pominjalo betu i 30 kredita) |
+
+### Provereno
+
+```
+pnpm typecheck             → čisto (shared, web, worker, cli)
+pnpm check:sql             → Sve prošlo (0027 u oba prolaza; admin_nps na praznoj tabeli n=0)
+pnpm test                  → sve prošlo (shared: 4 fajla; web: 12 fajlova)
+pnpm --filter web lint     → čisto (0 grešaka, 0 upozorenja)
+pnpm build                 → čisto
+pnpm check:secrets         → čisto
+grep „beta" u vidljivom tekstu → 0
+```
+
+### Ostaje na meni
+
+| # | Gde | Šta |
+|---|---|---|
+| — | `docs/tok-i-onboarding.md` | **Dokument u repozitorijum.** Bez njega ostaju i ostatak S28 i tabela kopija iznad. |
+| — | **K4 / `kartica-prospekta.tsx`** | Ne postoji (S28). Zbog toga „Prijavi grešku" nije montiran na kartici u stanju greške — ostala četiri mesta jesu. Kad kartica stigne: `<PrijaviGresku ctx={{ korak: "kartica", placeId }} />`. |
+| — | migracija `0027` | Primeniti na Supabase pre deploya. Do tada `/admin` puca na `utisci.nps` (`admin_overview` još vraća `cena_odgovori`). |
+| — | ručni prolaz | Cela sekcija **7e** u `docs/PROVERA-VIZUELNA.md`, uz tri snimka ekrana (NPS na 390 px, panel „Kontekst", admin NPS). |

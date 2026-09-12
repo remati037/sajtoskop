@@ -21,7 +21,7 @@ import { planFor } from "@sajtoskop/shared";
 import { currentUser } from "@clerk/nextjs/server";
 import { jeAdminIzProfila } from "@/lib/admin";
 import { requireSession } from "@/lib/auth";
-import { trebaPodsetnik } from "@/lib/feedback";
+import { trebaPodsetnikSada } from "@/lib/feedback";
 import { citajProfil, ensureProfile, zabeleziDolazak } from "@/lib/profile";
 import { aktivacijaZa, citajPretplatuZaEkran } from "@/lib/pretplata";
 import { citajPretplatu, pristupZaProfil, PUTANJA_ZAKLJUCANO } from "@/lib/pristup";
@@ -114,9 +114,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       krediti={ukupnoKredita}
       mesecniKrediti={plan.monthlyCredits}
       greska={greska}
-      // F10 §4.4: podsetnik posle tri dana. Izvedeno iz profila koji je već
-      // pročitan — nijedan dodatan upit po učitavanju strane.
-      traziUtisak={trebaPodsetnik(profile, plan.monthlyCredits)}
+      // F10 §4.4: podsetnik posle tri dana, [S29] uz bar jedan otključan
+      // prospekt. Jeftine kapije se i dalje računaju iz profila koji je već
+      // pročitan; upit nad `unlocks` ide samo za nalog koji bi podsetnik inače
+      // dobio, dakle jednom u životu naloga (F11 §3.3).
+      traziUtisak={await trebaPodsetnikSada(profile, plan.monthlyCredits)}
       // F11 §3: stanje motora pitanja. Od Faze 3 (3.6) `null` — provider ga
       // povlači klijentski posle prvog prikaza.
       stanjeUtisaka={null}

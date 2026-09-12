@@ -40,6 +40,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { AktivirajOdmah, type AktivacijaProbe } from "@/components/aktiviraj-odmah";
 import { PortalDugme } from "@/components/portal-dugme";
+import { PrijaviGresku } from "@/components/prijavi-gresku";
 
 const CIKLUS_REC = { month: "mesečno", year: "godišnje" } as const;
 
@@ -153,6 +154,10 @@ export function PretplataBlok({
               </p>
               {imaStripeKupca && <PortalDugme className="shrink-0">Ažuriraj karticu</PortalDugme>}
             </div>
+            {/* [S29 §5.3 D] Kartica ume da padne i kad je sve u redu sa njom.
+                Prijava odavde nosi stanje naloga koje server sam pročita — ne
+                ono što bi ekran o njemu tvrdio (pravilo 8). */}
+            <PrijaviGresku ctx={{ korak: "pretplata" }} className="mt-2" />
           </Alert>
         </div>
       )}

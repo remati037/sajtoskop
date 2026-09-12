@@ -8,7 +8,7 @@
 // ── zašto motor, a ne `if` u komponenti ──────────────────────
 // Pitanja su raspoređena po pet ekrana i tri stanja posla. Bez jednog mesta koje
 // odlučuje, dva pitanja se pojave u istoj minuti — a korisnik ne vidi dva
-// pitanja, vidi anketu, i zatvara sve što liči na nju do kraja bete.
+// pitanja, vidi anketu, i zatvara sve što liči na nju zauvek.
 
 import { vaziPitanje, type Pitanje, type Uslovi } from "./feedback-katalog";
 
@@ -28,9 +28,17 @@ export const MOTOR = {
   /** Dva odbacivanja zaredom → ćutanje. Čovek je rekao ne, dvaput. */
   ODBACIVANJA_DO_CUTANJA: 2,
   CUTANJE_DANA: 14,
-  /** Treće odbacivanje → ćutanje do kraja bete. Ostaje samo dugme. */
+  /**
+   * Treće odbacivanje → ćutanje 90 dana. Ostaje samo dugme.
+   *
+   * Bilo je 3650 dana, tj. „do kraja bete" pretvoreno u deset godina. To je
+   * imalo smisla dok je proizvod imao rok; sada nema. Čovek koji je tri puta
+   * rekao ne je rekao ne OVOM proizvodu u OVOM stanju — kvartal kasnije je to
+   * drugi proizvod, i pitanje sme da se postavi još jednom. Dotad ćuti sve
+   * osim dugmeta, koje je ionako njegov izbor.
+   */
   ODBACIVANJA_DO_KRAJA: 3,
-  CUTANJE_DO_KRAJA_DANA: 3650,
+  CUTANJE_DO_KRAJA_DANA: 90,
 } as const;
 
 export type StatusPitanja = "prikazano" | "odgovoreno" | "odbaceno";
@@ -182,7 +190,7 @@ export function posleOdgovora(sada: number = Date.now()): {
 }
 
 /**
- * Odbacivanje: streak raste, pa na dva ćutanje 14 dana, na tri do kraja bete.
+ * Odbacivanje: streak raste, pa na dva ćutanje 14 dana, na tri 90 dana.
  *
  * Streak se NE nulira kad korisnik istog dana pošalje utisak dugmetom (§9) —
  * dugme nije odgovor na pitanje. Zato ovde nema ulaza osim streaka.

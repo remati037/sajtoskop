@@ -161,7 +161,7 @@ export default function Page() {
             za nezadovoljstvo kvalitetom prospekata koji su uredno isporučeni; ako ti se lista
             ne čini korisnom, javi se pre nego što potrošiš kredite;
           </li>
-          <li>za beta naloge i kredite dobijene bez plaćanja — tu ničega nema da se vrati.</li>
+          <li>za komp naloge i kredite dobijene bez plaćanja — tu ničega nema da se vrati.</li>
         </Lista>
         <p>
           Ako alat nije radio ili je isporučio pogrešan podatak zbog naše greške, kredit vraćamo

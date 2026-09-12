@@ -37,8 +37,8 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Pregled" };
 
-/** Ispod ovoliko odgovora medijana cene nije dokaz nego signal (F11). */
-const UZORAK_ZA_MEDIJANU = 12;
+/** Ispod ovoliko odgovora NPS nije dokaz nego signal (F11 §10). */
+const UZORAK_ZA_NPS = 12;
 
 export default async function Page() {
   // Prva linija svake strane pod `/admin` (pravilo 13). Layout se ne računa.
@@ -49,8 +49,6 @@ export default async function Page() {
   const budzetCrven = budzetKriticno(p.budzet);
   const posloviCrveni = poslovKriticno(p.poslovi);
   const procenatBudzeta = Math.round(udeoBudzeta(p.budzet) * 100);
-
-  const rsd = new Intl.NumberFormat("sr-Latn-RS");
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -176,15 +174,18 @@ export default async function Page() {
             }
             napomena={`${p.utisci.pitanja.odgovoreno} od ${p.utisci.pitanja.prikazano} pitanja`}
           />
+          {/* [S29] Medijana cene je otišla sa pitanjem o ceni — proizvod se
+              naplaćuje, pa je opseg u RSD prestao da bude procena. Na njeno
+              mesto ide NPS iz `admin_nps()`. */}
           <Red
-            naziv="Medijana cene"
-            vrednost={p.medijana === null ? "—" : `${rsd.format(p.medijana)} RSD`}
+            naziv="NPS"
+            vrednost={p.utisci.nps.n === 0 ? "—" : String(p.utisci.nps.score)}
             napomena={
-              p.medijana === null
+              p.utisci.nps.n === 0
                 ? "nijedan odgovor"
-                : p.medijanaUzorak < UZORAK_ZA_MEDIJANU
-                  ? `iz ${p.medijanaUzorak} — signal, ne dokaz`
-                  : `iz ${p.medijanaUzorak} odgovora`
+                : p.utisci.nps.n < UZORAK_ZA_NPS
+                  ? `iz ${p.utisci.nps.n} — signal, ne dokaz`
+                  : `iz ${p.utisci.nps.n} odgovora`
             }
           />
         </Kartica>

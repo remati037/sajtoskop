@@ -55,6 +55,8 @@ import { LeadTabela } from "./lead-tabela";
 import { SkeniranjeModal, type SkeniranjePredlog } from "./skeniranje-modal";
 import { UtisakKartica } from "./utisak-kartica";
 import { UtisakMikro } from "./utisak-mikro";
+import { FaliMikro } from "./fali-mikro";
+import { PrijaviGresku } from "./prijavi-gresku";
 import { usePristup } from "./pristup-provider";
 import { useUtisci } from "./utisci-provider";
 import { cn } from "@/lib/cn";
@@ -195,6 +197,13 @@ export function PretragaEkran({
   const [dubina, setDubina] = useState<Dubina>(PODRAZUMEVANA_DUBINA);
   const [data, setData] = useState<SearchResponse | null>(null);
   const [greska, setGreska] = useState<string | null>(null);
+  /**
+   * [S29 §5.3 C] Niša koju je čovek tražio u comboboxu, a nemam je.
+   *
+   * Postoji da bi `fali` traka imala ŠTA da nosi u `answers.query`. `null` je
+   * i stanje „nije se desilo" i jedini uslov za prikaz trake na tom mestu.
+   */
+  const [faliUpit, setFaliUpit] = useState<string | null>(null);
   const [ucitava, setUcitava] = useState(false);
 
   // Registar keša i balans stižu sa servera i osvežavaju se posle svakog posla.
@@ -315,6 +324,14 @@ export function PretragaEkran({
   // [Faza 4, 4.6] Neuspeh otključavanja se prikazuje UZ tabelu — poruka na vrhu
   // strane stoji daleko od reda koji je korisnik kliknuo (nalaz 7.1.2).
   const [greskaOtkljuc, setGreskaOtkljuc] = useState<string | null>(null);
+  /**
+   * [S29 §5.3 D] Prospekt na kom je otključavanje palo.
+   *
+   * Postoji da bi „Prijavi grešku" uz tost nosio `placeId`. Sve ostalo o toj
+   * grešci — plan, krediti, stanje pristupa — čita server; ovde se pamti samo
+   * na ČEMU je pala.
+   */
+  const [paoOtkljuc, setPaoOtkljuc] = useState<string | null>(null);
 
   /**
    * Koliko je prospekata otključano OTKAD je strana učitana.
@@ -800,6 +817,7 @@ export function PretragaEkran({
     setOtkljucavam(placeId);
     setGreska(null);
     setGreskaOtkljuc(null);
+    setPaoOtkljuc(null);
     setOtkljucano(null);
 
     try {
@@ -815,6 +833,7 @@ export function PretragaEkran({
         if (res.status === 402) pristup?.prijaviBezKredita();
 
         setGreskaOtkljuc("greska" in json ? json.greska : "Otključavanje nije uspelo.");
+        setPaoOtkljuc(placeId);
         return;
       }
 
@@ -918,7 +937,9 @@ export function PretragaEkran({
 
     const t = setTimeout(() => {
       utisci.prijaviDogadjaj("zasto-ne-vracas");
-      utisci.prijaviDogadjaj("cena");
+      // [S29] Pitanje o ceni je obrisano; na njegovom mestu je NPS, sa istim
+      // okidačem (dolazak na /pretragu) i svojim uslovom iz kataloga.
+      utisci.prijaviDogadjaj("nps-7");
     }, KAMPANJA_MS);
 
     return () => clearTimeout(t);
@@ -926,10 +947,10 @@ export function PretragaEkran({
 
   return (
     <div className="space-y-6">
-      {/* Kampanjska kartica ide na vrh ekrana, iznad forme (F11 §2.3): pitanje o
-          ceni se postavlja jednom u životu naloga i ne sme da se traži skrolom.
-          Traka „nisi bio 10 dana" stoji tu iz istog razloga. */}
-      <UtisakKartica kljuc="cena" />
+      {/* Kampanjska kartica ide na vrh ekrana, iznad forme (F11 §2.3): NPS se
+          postavlja jednom u životu naloga i ne sme da se traži skrolom. Traka
+          „nisi bio 10 dana" stoji tu iz istog razloga. */}
+      <UtisakKartica kljuc="nps-7" />
       <UtisakMikro kljuc="zasto-ne-vracas" />
 
       <Card className="overflow-visible p-5">
@@ -953,6 +974,11 @@ export function PretragaEkran({
             groups={niches}
             value={niche}
             onChange={promeniNisu}
+            // [S29 §5.3 C] Niša koju čovek traži a nemam je najjeftiniji mogući
+            // ulaz u taksonomiju: on je već otkucao tačno ono što mu fali.
+            // Grad namerno nema ovo — spisak gradova je zatvoren i potpun, pa bi
+            // „nema pogodaka" tamo značio samo grešku u kucanju.
+            naPrazno={setFaliUpit}
           />
           <Button
             type="submit"
@@ -979,11 +1005,31 @@ export function PretragaEkran({
         <TrakaCene cena={cena} krediti={krediti} dubina={dubina} />
       </Card>
 
+      {/* [S29] „Fali" traka postoji na ekranu NAJVIŠE JEDNOM.
+          `UtisakMikro` se crta kad je pitanje aktivno, pa bi dva montirana
+          mesta dala dve iste trake u istom trenutku. Zato je mesto izbor, a ne
+          dva nezavisna uslova: ako je combobox vratio nulu, traka stoji uz
+          formu (tu je i upit nastao); inače stoji ispod praznog rezultata. */}
+      {faliUpit !== null && <FaliMikro query={faliUpit} />}
+
       {/* Incident stoji uz poruku o padu, ne na dnu ekrana: pitanje je ovde
           usluga, a ne molba (F11 §2.2). */}
       <UtisakMikro kljuc="posao-pao" />
 
-      {greska && <Alert variant="danger">{greska}</Alert>}
+      {greska && (
+        <Alert variant="danger">
+          {greska}
+          {/* `jobId` postoji samo kad je pao POSAO; kod 402/403/500 na pretrazi
+              ga nema, i to je tačno — server tada nema posao da opiše. */}
+          <PrijaviGresku
+            ctx={{
+              korak: paoPosao === null ? "pretraga" : "skeniranje",
+              ...(paoPosao === null ? {} : { jobId: String(paoPosao) }),
+            }}
+            className="ml-2"
+          />
+        </Alert>
+      )}
 
       {obavestenje && <Alert variant="success">{obavestenje}</Alert>}
 
@@ -1059,9 +1105,17 @@ export function PretragaEkran({
                 }
               />
 
-              {/* Odgovor je spisak niša i gradova koje ljudi traže a ja ih
-                  nemam — direktan ulaz u taksonomiju (F11 §2.1). */}
-              <UtisakMikro kljuc="prazan-rezultat" />
+              {/* Dva prazna stanja, dva različita pitanja (S29 §5.3 C).
+                  „Google nema nijednu firmu" je pitanje o TAKSONOMIJI — šta je
+                  čovek tražio, direktan ulaz u spisak niša (F11 §2.1). Prazno
+                  zbog filtera je pitanje o PROIZVODU: baza ima šta da pokaže, a
+                  filteri ne umeju da to pronađu. „Šta si tražio?" bi tu bilo
+                  pogrešno pitanje — odgovor već stoji u filterima iznad. */}
+              {data.emptyScan ? (
+                <UtisakMikro kljuc="prazan-rezultat" />
+              ) : (
+                faliUpit === null && <FaliMikro />
+              )}
             </div>
           ) : data.total === 0 ? null : (
             <>
@@ -1094,7 +1148,17 @@ export function PretragaEkran({
                   sedne i ne pomera je više nego jednom. */}
               <UtisakMikro kljuc="prva-lista" />
 
-              {greskaOtkljuc && <Alert variant="danger">{greskaOtkljuc}</Alert>}
+              {greskaOtkljuc && (
+                <Alert variant="danger">
+                  {greskaOtkljuc}
+                  {/* Prijava kreće ODAVDE, sa prospektom koji je pao. Panel je
+                      isti onaj iza plutajućeg dugmeta — v. `prijavi-gresku.tsx`. */}
+                  <PrijaviGresku
+                    ctx={{ korak: "unlock", ...(paoOtkljuc ? { placeId: paoOtkljuc } : {}) }}
+                    className="ml-2"
+                  />
+                </Alert>
+              )}
 
               <LeadTabela
                 leads={data.results}

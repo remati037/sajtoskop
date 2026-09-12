@@ -25,7 +25,7 @@ export default async function Page() {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
-        naslov="Beta dnevnik"
+        naslov="Novo u Sajtoskopu"
         opis='Stavke koje korisnik vidi na kontrolnoj tabli. Oznaka „iz tvog utiska" se pojavljuje sama — kad je stavka vezana za korisnikovu prijavu kroz „poveži sa stavkom" u utiscima.'
       />
 

@@ -519,6 +519,36 @@ export type FeedbackCtx = {
    * i uz incident — server ga na svemu ostalom odbacuje, ne prima pa filtrira.
    */
   errors?: KlijentskaGreska[];
+
+  // ── S29 §5.3 D: kontekst prijave greške ──────────────────
+  // Iz pregledača stižu SAMO `placeId`, `jobId` i `korak`. Sve ostalo ispod
+  // gradi `zabelezi_utisak` iz baze (migracija 0027) — plan i rok iz profila,
+  // status i poruku greške iz `job_queue`. Telo koje ih pošalje ne menja
+  // nijedan upisan bajt (pravilo 8).
+
+  /** Prospekt uz koji je greška prijavljena. */
+  placeId?: string;
+  /** Posao uz koji je greška prijavljena. Postoji i kad `greska` ne postoji. */
+  jobId?: number;
+  /** Odakle je „Prijavi grešku" kliknuto — zatvoren spisak iz `korakEnum`. */
+  korak?: string;
+  /** Stanje naloga u trenutku prijave, iz profila. */
+  stanje?: {
+    plan: string;
+    plan_expires_at: string | null;
+    komp_expires_at: string | null;
+    credits_topup: number;
+  };
+  /**
+   * Ishod posla iz `job_queue`. Postoji samo kad je posao nađen i kad ga je
+   * TAJ korisnik platio (red u knjizi sa `ref_id = 'scan:<id>'`).
+   */
+  greska?: {
+    status: string;
+    tip: string;
+    attempts: number;
+    poruka: string;
+  };
 };
 
 /**
@@ -613,6 +643,36 @@ export type FeedbackGrantResult = {
   ok: boolean;
   reason: string;
   delta: number;
+};
+
+/**
+ * `admin_nps()` iz 0027 (S29 §5.3 A).
+ *
+ * `score` je `null` kad odgovora nema — nula je stvarna ocena, a prazna baza
+ * nije loša ocena. `n` je ono po čemu se to razlikuje.
+ */
+export type AdminNps = {
+  score: number | null;
+  n: number;
+  promoteri: number;
+  pasivni: number;
+  detraktori: number;
+  poslednjih_30_dana: number;
+};
+
+/**
+ * Jedan red iz `admin_fali(p_route)` iz 0027 (S29 §5.3 C).
+ *
+ * Grupisano po `lower(trim(...))` teksta: „Filter po recenzijama" i „filter po
+ * recenzijama " su jedan zahtev i stoje u jednom redu sa brojem 2.
+ *
+ * `message` je ono što je korisnik otkucao — ekran ga renderuje kao TEKST.
+ */
+export type AdminFali = {
+  message: string;
+  count: number;
+  route: string | null;
+  poslednji_put: string;
 };
 
 // ── F12: admin konzola (0012) ──────────────────────────────
@@ -792,8 +852,24 @@ export type AdminOverview = {
       nereseno: number;
       nereseno_najstarije_sec: number;
     };
-    /** Sirovi odgovori; medijanu računa `medijanaCene()` — jedini izvor istine. */
-    cena_odgovori: string[];
+    /**
+     * [S29] NPS iz odgovora na `nps-7`, izračunat u `admin_nps()` i odatle
+     * pozvan — nikad prepisan u drugoj funkciji.
+     *
+     * `score` je `null` kad odgovora nema: nula je stvarna ocena (koliko
+     * promotera toliko detraktora), pa bi je ekran na praznoj bazi pokazao kao
+     * lošu ocenu. `n` je ono po čemu se to razlikuje.
+     *
+     * Zamenilo je `cena_odgovori` — pitanje o ceni je obrisano iz kataloga.
+     */
+    nps: {
+      score: number | null;
+      n: number;
+      promoteri: number;
+      pasivni: number;
+      detraktori: number;
+      poslednjih_30_dana: number;
+    };
   };
   baza: {
     biznisa: number;

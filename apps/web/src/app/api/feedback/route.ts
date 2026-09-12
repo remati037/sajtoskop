@@ -84,8 +84,18 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const { rating, source, route, viewport, kind, prompt_key, answers, errors, screenshot_path } =
-    parsed.data;
+  const {
+    rating,
+    source,
+    route,
+    viewport,
+    kind,
+    prompt_key,
+    answers,
+    errors,
+    screenshot_path,
+    ctx_kljuc,
+  } = parsed.data;
 
   // Putanja slike je jedino polje koje putuje kroz pregledač između dve rute, pa
   // je i jedino koje klijent može da zameni tuđim (v. `mojaPutanja`).
@@ -148,6 +158,10 @@ export async function POST(req: Request): Promise<Response> {
       // donosi `zabeleziUtisak`, na jednom mestu za obe rute (F11 odluka 10).
       errors: errors ?? null,
       screenshotPath: screenshot_path ?? null,
+      // [S29 §5.3 D] Iz tela stižu SAMO identifikatori. Status posla, poruku
+      // greške i stanje naloga čita `zabelezi_utisak` iz baze — zato ova ruta
+      // i ne zna šta su, a telo koje ih pošalje ništa ne menja (pravilo 8).
+      ctxKljuc: ctx_kljuc ?? null,
     });
 
     if (ishod.ishod === "no_user") {

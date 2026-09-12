@@ -15,7 +15,6 @@ import "server-only";
 import {
   GLOBAL_DAILY_API_CAP,
   GLOBAL_MONTHLY_API_CAP,
-  medijanaCene,
   type AdminOverview,
 } from "@sajtoskop/shared";
 import { adminSupabase } from "./supabase";
@@ -26,12 +25,16 @@ export const PRAG_BUDZETA = 0.8;
 /** Posao koji je toliko čekao znači da worker verovatno ne radi. */
 export const PRAG_CEKANJA_SEC = 30 * 60;
 
-export type Pregled = AdminOverview & {
-  /** Medijana iz `medijanaCene()` — sredine opsega su u katalogu, ne ovde. */
-  medijana: number | null;
-  /** Koliko je odgovora ušlo u medijanu. Ispod 12 ona nije dokaz nego signal. */
-  medijanaUzorak: number;
-};
+/**
+ * [S29] Pregled više ne računa ništa nad utiscima.
+ *
+ * Do S29 je ovde stajala medijana cene — jedina brojka na ekranu koju SQL nije
+ * umeo da izračuna, jer su sredine opsega živele u katalogu. NPS takvog
+ * problema nema (ocena je broj, podela je definicija), pa ga računa
+ * `admin_nps()` i `admin_overview` ga samo prosleđuje. Jedan izvor istine,
+ * nula prepisanog računa u TS-u.
+ */
+export type Pregled = AdminOverview;
 
 export async function citajPregled(): Promise<Pregled> {
   const { data, error } = await adminSupabase().rpc("admin_overview", {
@@ -44,9 +47,7 @@ export async function citajPregled(): Promise<Pregled> {
   const p = data as AdminOverview | null;
   if (!p) throw new Error("admin_overview nije vratio rezultat.");
 
-  const odgovori = p.utisci.cena_odgovori ?? [];
-
-  return { ...p, medijana: medijanaCene(odgovori), medijanaUzorak: odgovori.length };
+  return p;
 }
 
 /** Udeo iskorišćenog budžeta, po danu i po mesecu — veći od ta dva odlučuje. */

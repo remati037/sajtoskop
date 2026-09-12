@@ -42,7 +42,8 @@ export const RAZLOG_KREDITA: Record<CreditReason, string> = {
   credit_pack: "Kupljen paket",
   onboarding: "Dobrodošlica",
   // S20 (0024). Istorijski redovi — od S25 ovaj razlog niko ne piše.
-  beta_grant: "Beta paket",
+  // [S29] Label više ne govori o beti; sami redovi u knjizi ostaju kakvi jesu.
+  beta_grant: "Raniji besplatni paket",
   // S25 (0025). Komp paket je nasledio ulogu beta paketa; proba i istek su
   // Stripe životni ciklus — izvod mora da kaže odakle su krediti došli i kuda
   // su otišli.

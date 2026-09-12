@@ -496,6 +496,76 @@
 
 ---
 
+## 7e. Utisci: NPS, „Fali", citat i prijava greške (S29)
+
+Snimci ekrana koje ova sesija traži su označeni **📸**. Sve ostalo je klik-prolaz.
+
+### NPS kartica
+
+- [ ] Nalog star ≥ 7 dana (pomeri `profiles.created_at` u bazi) sa **bar jednim otključanim**
+      prospektom → na `/pretraga`, posle 60 s od učitavanja, iskoči kartica
+      „Koliko je verovatno da bi Sajtoskop preporučio kolegi?".
+- [ ] 📸 **Skala na 390 px**: brojevi idu **0–5 u prvom redu, 6–10 u drugom**, sve ćelije
+      jednake širine. Na `sm` naviše svih 11 stoji u jednom redu.
+- [ ] Odgovor **9** → polje za rečenicu, **bez čipa „+1 kredit"** (NPS se ne plaća).
+- [ ] Baza: `feedback` red sa `prompt_key = 'nps-7'`, `answers.ocena = 9` **kao broj**,
+      `reward_credits = 0`.
+- [ ] Nalog bez ijednog otključanog prospekta kartice **ne vidi**.
+- [ ] Obe teme.
+
+### „Šta ti ovde fali"
+
+- [ ] `/pretraga` → pretraži pa uključi filtere dok tabela ne ostane prazna → ispod praznog
+      stanja traka **„Šta ti ovde fali?"** sa poljem za tekst (ne sa dugmadima).
+- [ ] Isti ekran, ali prazno zato što **Google nije našao ništa** → traka je
+      **„Šta si tražio?"**, ne „Šta ti ovde fali?". Dve prazne liste, dva pitanja.
+- [ ] Combobox **Niša** → otkucaj nišu koje nema (npr. „kotlarnica") → posle ~1 s traka se
+      pojavljuje uz formu, i odgovor nosi `answers.query`.
+- [ ] `/lista` i `/pipeline` prazni, nalog **stariji od 7 dana** → traka stoji ispod praznog
+      stanja. Nalog mlađi od 7 dana je **ne vidi**.
+- [ ] Na ekranu nikad **dve** „Fali" trake odjednom.
+
+### Prijava greške sa mesta gde nastaje
+
+- [ ] Otključavanje koje padne (402/403/500) → uz crvenu poruku stoji **„Prijavi grešku"**.
+      Klik otvara panel iza plutajućeg dugmeta, sa naslovom **„Šta nije radilo?"** i
+      pretpostavljenim tipom **Bug**.
+- [ ] Isto na: pala pretraga, palo skeniranje, `pretplata-blok` u stanju `past_due`.
+- [ ] `/welcome` → „Prijavi grešku" vodi na `/pretraga?bug=welcome`; panel se otvori sam, a
+      **parametar nestane iz adrese** (osvežavanje ga ne otvara ponovo).
+- [ ] 📸 **Admin panel, blok „Kontekst"**: `/admin/utisci` → otvori tu prijavu → blok nosi
+      „Odakle", link na prospekt, `#<jobId>` sa statusom posla i stanje naloga.
+- [ ] Tuđ `jobId` poslat ručno → u panelu stoji samo broj, **bez statusa i bez poruke greške**.
+
+### Citat
+
+- [ ] Prvi prospekt u koloni **Potpisan** → kartica → **tri koraka**: koliko je pomoglo →
+      „Bi li ga preporučio kolegi?" → **„Smem li to da citiram?"**.
+- [ ] Odgovor **Možda** ili **Ne** na drugom koraku → trećeg koraka **nema**.
+- [ ] `citat = da-ime` + rečenica → `/admin/utisci` → filter **„Citat"** → prijava je u listi →
+      panel → blok „Citat" → **„Kopiraj kao referencu"** stavi u clipboard
+      `„<rečenica>” — <mejl>, <datum>`.
+
+### Admin
+
+- [ ] 📸 **`/admin/utisci`, red brojki**: druga kartica je **NPS**, ne „Medijana cene".
+      Na praznoj bazi piše `—` i „nijedan odgovor na pitanje o preporuci" (ne `0`).
+- [ ] `/admin` pregled → kartica „Utisci" → red **NPS** sa istom brojkom.
+- [ ] Filter **„Fali"** → zbirna lista sa kolonama Šta fali / Koliko / Ekran / Poslednji put;
+      isti tekst napisan triput je **jedan red sa brojem 3**.
+- [ ] Filteri po ekranu (Svi / Pretraga / Moja lista / Pipeline) menjaju adresu i vraćaju se
+      dugmetom „nazad".
+- [ ] Obe teme, i 390 px (tabele imaju svoj `overflow-x`).
+
+### „Beta" više ne postoji u vidljivom tekstu
+
+- [ ] `/dashboard` → sekcija se zove **„Novo u Sajtoskopu"**, ne „Beta dnevnik".
+- [ ] `/admin/dnevnik`, `admin-utisak-panel`, bočna traka konzole — isto ime.
+- [ ] Panel utiska: zaglavlje je samo naziv ekrana, **bez „· beta"**.
+- [ ] `grep -rni beta apps/web/src` vraća samo komentare, imena kolona i šifre radnji.
+
+---
+
 ## 8. Tema i pristupačnost (Faza 4, 4.8 · Faza 5)
 
 - [ ] Prekidač teme: **Tab** ulazi u celu grupu, **strelicama ← →** menja temu; klik radi isto.
@@ -539,3 +609,5 @@
     plana stoji katanac (izmena 26.8.); `/krediti` → obe kase odvojeno i portal (S21)
 13. Pravne strane i futer: `/uslovi`, `/privatnost`, `/povracaj` u obe teme, futer na `/`,
     `/cenovnik` i `/welcome`, linkovi uz dugme za registraciju (S22)
+14. Utisci: NPS kartica na 390 px (0–5 / 6–10), prazan filter → „Šta ti ovde fali?",
+    pala akcija → „Prijavi grešku" → panel sa kontekstom, `/admin/utisci` → NPS i „Fali" (S29)

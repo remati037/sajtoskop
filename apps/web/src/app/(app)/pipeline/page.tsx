@@ -18,6 +18,7 @@ import { PipelineUvoz } from "@/components/pipeline-uvoz";
 import { VezaGreska } from "@/components/veza-greska";
 import { Button } from "@/components/ui/button";
 import { PraznoStanje, ZaglavljeStranice } from "@/components/ui/stranica";
+import { FaliMikro } from "@/components/fali-mikro";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,7 @@ export default async function Page() {
       {!profile ? (
         <VezaGreska sta="Pipeline" />
       ) : kartice.length === 0 ? (
+        <>
         <PraznoStanje
           ikona={<KanbanSquare />}
           naslov="Pipeline je prazan."
@@ -77,6 +79,12 @@ export default async function Page() {
             <Link href="/pretraga">Idi na pretragu</Link>
           </Button>
         </PraznoStanje>
+
+          {/* [S29 §5.3 C] Prazno posle nedelju dana više nije „nisam stigao"
+              nego „nešto ne valja". Prag je u komponenti, jer je svojstvo ovog
+              mesta, a ne pravilo motora. */}
+          <FaliMikro posleDana={7} className="mx-auto mt-4 w-full max-w-lg" />
+        </>
       ) : (
         <PipelineTabla kartice={kartice} cityLabels={cityLabels} nicheLabels={nicheLabels} />
       )}

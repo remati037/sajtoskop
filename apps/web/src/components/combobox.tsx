@@ -23,9 +23,21 @@ type Props = {
   groups: ComboGroup[];
   value: string | null;
   onChange: (value: string) => void;
+  /**
+   * [S29] Pretraga u dropdownu nije našla nijedan pogodak.
+   *
+   * Zove se sa otkucanim tekstom, i to je jedina informacija koja se odavde
+   * izvlači. Sama komponenta ne zna ništa o utiscima i ne sme da zna — spisak
+   * gradova i niša je i dalje njen jedini posao. Ko god da je prosledi, dobija
+   * ono što je čovek tražio a ja to nemam.
+   *
+   * Ne zove se dok je polje prazno: prazan upit nije „nema pogodaka" nego
+   * „nisam još ništa otkucao".
+   */
+  naPrazno?: (query: string) => void;
 };
 
-export function Combobox({ label, placeholder, groups, value, onChange }: Props) {
+export function Combobox({ label, placeholder, groups, value, onChange, naPrazno }: Props) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -50,6 +62,17 @@ export function Combobox({ label, placeholder, groups, value, onChange }: Props)
   const flat = useMemo(() => filtered.flatMap((g) => g.options), [filtered]);
 
   useEffect(() => setActive(0), [query, open]);
+
+  // [S29] Javi da pretraga nije našla ništa — ali tek kad čovek prestane da
+  // kuca. Bez odlaganja bi „bravar" prijavio i „b", „br", „bra" i „brav", pa bi
+  // spisak traženih niša bio spisak prefiksa.
+  useEffect(() => {
+    const upit = query.trim();
+    if (!naPrazno || !open || !upit || flat.length > 0) return;
+
+    const t = setTimeout(() => naPrazno(upit), 900);
+    return () => clearTimeout(t);
+  }, [naPrazno, open, query, flat.length]);
 
   useEffect(() => {
     if (!open) return;

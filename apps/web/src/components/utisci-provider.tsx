@@ -45,6 +45,20 @@ import type { DopunaOdgovor, UtisakOdgovor } from "@/lib/feedback-schema";
 /** Sesija je po tabu — i to je namerno (F11 §9: dva taba, jedan cooldown). */
 const SESIJA_KLJUC = "sajtoskop-utisak-sesija";
 
+/**
+ * Kontekst uz prijavu greške (S29 §5.3 D).
+ *
+ * SAMO identifikatori. Status posla, poruku greške i stanje naloga čita server
+ * (migracija 0027) — ekran ih ne šalje jer ekran nije izvor istine o njima
+ * (pravilo 8). `korak` je jedino što server ne može da zna sam, i zato je
+ * zatvoren spisak (`korakEnum` u `feedback-schema.ts`).
+ */
+export type KontekstGreske = {
+  placeId?: string;
+  jobId?: string;
+  korak?: string;
+};
+
 export type UtisciApi = {
   /** Ključ pitanja koje je trenutno na ekranu, ili `null`. */
   aktivno: string | null;
@@ -82,6 +96,25 @@ export type UtisciApi = {
    * ponovo proverava šemom iz kataloga (pravilo 16).
    */
   dopuniOdgovor: (id: number, answers: Record<string, unknown>) => Promise<void>;
+  /**
+   * [S29 §5.3 D] „Prijavi grešku" — otvara panel iza plutajućeg dugmeta sa
+   * pretpostavljenim tipom `bug` i zapamćenim kontekstom.
+   *
+   * Zašto kroz provider, a ne prop kroz pet nivoa: dugme živi u okviru
+   * aplikacije, a mesta sa kojih se greška prijavljuje su raštrkana po
+   * karticama, modalima i tostovima. Prosleđivanje `otvoriBug` kroz svako od
+   * njih bi značilo isti prop na deset mesta — i devet mesta koja ga zaborave.
+   */
+  otvoriBug: (ctx?: KontekstGreske) => void;
+  /**
+   * Zahtev koji je `otvoriBug` ostavio, ili `null`. Čita ga SAMO `UtisakDugme`.
+   *
+   * `nonce` postoji zato što dva klika na isti kontekst daju jednak objekat, a
+   * panel koji se zatvorio mora da se otvori i drugi put.
+   */
+  zahtevBuga: { ctx: KontekstGreske; nonce: number } | null;
+  /** Panel je preuzeo zahtev — briše se da se ne bi otvorio ponovo. */
+  preuzetBug: () => void;
   /** Klik na `✕`. */
   odbaci: (kljuc: string) => void;
   /** Traka je odradila svoje i sklanja se. Ne dira nijedan brojač. */
@@ -350,6 +383,17 @@ export function UtisciProvider({
 
   const zatvori = useCallback(() => setAktivno(null), []);
 
+  // ── S29: prijava greške sa mesta gde je nastala ────────────
+  const [zahtevBuga, setZahtevBuga] = useState<{ ctx: KontekstGreske; nonce: number } | null>(
+    null,
+  );
+
+  const otvoriBug = useCallback((ctx: KontekstGreske = {}) => {
+    setZahtevBuga({ ctx, nonce: Date.now() });
+  }, []);
+
+  const preuzetBug = useCallback(() => setZahtevBuga(null), []);
+
   const api = useMemo<UtisciApi>(
     () => ({
       aktivno,
@@ -359,10 +403,26 @@ export function UtisciProvider({
       posalji,
       dopuni,
       dopuniOdgovor,
+      otvoriBug,
+      zahtevBuga,
+      preuzetBug,
       odbaci,
       zatvori,
     }),
-    [aktivno, serverUslovi, prijaviDogadjaj, postaviMir, posalji, dopuni, dopuniOdgovor, odbaci, zatvori],
+    [
+      aktivno,
+      serverUslovi,
+      prijaviDogadjaj,
+      postaviMir,
+      posalji,
+      dopuni,
+      dopuniOdgovor,
+      otvoriBug,
+      zahtevBuga,
+      preuzetBug,
+      odbaci,
+      zatvori,
+    ],
   );
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
