@@ -37,7 +37,7 @@ sledeću sesiju.
 | S21 | Cenovnik sa paketima, stanje pretplate, portal, linkovi | `LANSIRANJE.md` | — | 1 dan | ☑ |
 | S22 | Pravni tekstovi i futer | `LANSIRANJE.md`, `F8-landing.md` §3 | — | 0,5 dana | ☑ |
 | — | *Izmena posle S22: dva domena, onboarding kao faza, O1* | `LANSIRANJE.md` §1.7, §1.8 | — | — | ☑ |
-| S29 | Feedback: NPS, „Fali", citat, prijava greške | zahtev sesije (PRD §5 nedostaje) | `0027` | 1 dan | ◐ |
+| S29 | Feedback: NPS, „Fali", citat, prijava greške | `tok-i-onboarding.md` §5 | `0027` | 1 dan | ☑ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -3689,24 +3689,24 @@ pnpm build                 → čisto
 
 ---
 
-## S29 — Feedback: NPS, „Fali", citat, prijava greške ◐ (kopi čeka §5.3)
+## S29 — Feedback: NPS, „Fali", citat, prijava greške ☑ (osim K4 tačke)
 
-**Isporučeno 12. septembra 2026.** Commit: „S29: feedback". Migracija: **0027**
-(`feedback_nps`).
+**Isporučeno 12. septembra 2026, usklađeno sa PRD-om 13. septembra.** Commit: „S29: feedback"
++ „S29: uskladi feedback sa tok-i-onboarding §5.3". Migracija: **0027** (`feedback_nps`).
 
-### ‼️ Šta je i ovde nedostajalo
+### Kako je tekla
 
-Isti fajl kao u S28: **`docs/tok-i-onboarding.md` i dalje ne postoji.** Zahtev sesije traži
-§5 CEO kao kontekst, §5.2 koja nadjačava F11 tamo gde se razlikuju, i §5.3 A–D — pri čemu
-§5.3 A izričito kaže **„doslovno"**.
+Prvi prolaz je urađen **bez `docs/tok-i-onboarding.md`** — fajla tada nije bilo u
+repozitorijumu (isti blokada kao u S28). Mehanika je cela bila u zahtevu sesije, pa je
+isporučena, a svaki string koji sam napisao sam bio je popisan kao „prepisati kad dokument
+stigne".
 
-Za razliku od S28, ovde to nije zaustavilo isporuku: **mehanika je u samom zahtevu sesije**
-(ključevi, oblici, uslovi, rokovi, potpisi funkcija, ponašanje motora), a nedostaje samo
-tekst pitanja. Zato je sve osim kopija urađeno, a **kopije koje sam ja napisao su popisane
-niže** — to su prva mesta koja se prepisuju kad dokument stigne.
+**Dokument je stigao istog dana** i drugi prolaz ga je primenio doslovno. Ništa iz prvog
+prolaza nije bačeno; menjali su se tekstovi i jedna odluka o tome gde `ctx` nastaje (v.
+„Šta je §5.3 promenila").
 
-**Preduslov K4 nije bio ispunjen.** `kartica-prospekta.tsx` ne postoji (otvorena stavka iz
-S28), pa jedno od pet mesta za „Prijavi grešku" nije montirano — v. „Ostaje".
+**Preduslov K4 i dalje nije ispunjen.** `kartica-prospekta.tsx` ne postoji (otvorena stavka
+iz S28), pa jedno od šest mesta za „Prijavi grešku" nije montirano — v. „Ostaje".
 
 ### Šta JE urađeno
 
@@ -3782,19 +3782,44 @@ S28), pa jedno od pet mesta za „Prijavi grešku" nije montirano — v. „Osta
 8. **Nedeljni izveštaj je takođe prepravljen**, iako ga zahtev ne pominje: blok „MEDIJANA CENE"
    bi posle brisanja pitanja zauvek pisao „nijedan odgovor". Na njegovom mestu je NPS.
 
-### Kopije koje su MOJE, ne iz §5.3 — prepisati kad dokument stigne
+### Šta je §5.3 promenila u drugom prolazu
 
-| Gde | Tekst |
-|---|---|
-| `nps-7.naslov` | „Koliko je verovatno da bi Sajtoskop preporučio kolegi?" |
-| `nps-7.uvod` / `sufiks` / `napomena` | „Jedno pitanje, jedan klik." · „0 = nikako · 10 = sigurno" · „Iskrena ocena mi je vrednija od lepe…" |
-| `nps-7.dopuna` | „Šta bi morao da uradi za devetku?" |
-| `fali.dopuna` | „npr. filter po recenzijama" (naslov **„Šta ti ovde fali?" je iz zahteva sesije**) |
-| `prvi-potpisan.treciKorak.naslov` i labele | „Smem li to da citiram?" · „Da, sa imenom" / „Da, bez imena" / „Radije ne" |
-| `prvi-potpisan.dopuna` | „Šta bi rekao kolegi o Sajtoskopu?" |
-| panel „Prijavi grešku" | „Šta nije radilo?" i rečenica ispod ocena |
-| `/welcome` | „Prijavi grešku … stiže mi sa svim što je bilo na ekranu." |
-| `api/unlock` 402 | „Nemaš dovoljno kredita. Pogledaj stanje i dopuni ga na `/krediti`." (staro je pominjalo betu i 30 kredita) |
+Svi tekstovi su sada **doslovno iz dokumenta**, i test ih čuva (`feedback-katalog.ts`
+proverava naslov, uvod, sufiks i placeholder znak po znak — da se ne bi tiho razišli).
+
+| Gde | Bilo (moje) | Sad (§5.3) |
+|---|---|---|
+| `nps-7.prioritet` | 40 | **42** |
+| `nps-7.uvod` | „Jedno pitanje, jedan klik." | **„Nedelju dana si u alatu."** |
+| `nps-7.napomena` | dopisana rečenica o iskrenosti | **nema je** — §5.3 A je ne traži |
+| `nps-7.dopuna` | „Šta bi morao da uradi za devetku?" | **„Šta je presudilo?"** |
+| `fali.dopuna` | „npr. filter po broju recenzija" | **„Niša, grad, podatak, dugme…"** |
+| `fali` uz combobox | isti naslov kao svuda | **„Ne vidiš svoju nišu? Napiši je."** |
+| `treciKorak.naslov` | „Smem li to da citiram?" | **„Smem li da citiram tvoj rezultat na sajtu, sa imenom?"** |
+| `treciKorak` labela `ne` | „Radije ne" | **„Ne"** |
+| `prvi-potpisan.dopuna` | „Šta bi rekao kolegi o Sajtoskopu?" | **„Koja firma, koliko si naplatio? (ostaje između nas ako kažeš ne)"** |
+
+**Tri strukturne izmene, ne samo kopi:**
+
+1. **`query` je preseljen iz `answers` u `ctx`.** §5.3 C kaže `ctx.query` doslovno, i to je
+   ispravno: `answers` je ODGOVOR i po njemu `admin_fali()` grupiše, a upit je okolnost pod
+   kojom je pitanje postavljeno — isto mesto na kom stoje `route`, `plan` i `viewport`.
+   `prijaviDogadjaj()` je zbog toga dobio treći argument (`ctx`), odvojen od `dodatak`-a.
+2. **`ctx.korak` je `onboarding_steps`, ne mesto klika.** Prvi prolaz je imao `korakEnum`
+   sa šest vrednosti („kartica", „unlock", …) koji je stizao iz tela. §5.3 D kaže
+   `korak: onboarding_steps` — dakle podatak IZ PROFILA. `korakEnum` je obrisan, i to je
+   **bolje po pravilo 8**: jedno polje manje iz pregledača. Gde je kliknuto se ionako vidi
+   iz `route`.
+3. **Status posla se više ne upisuje u `ctx` nego se čita PRI PRIKAZU.** §5.3 D traži da
+   admin panel pokaže „status i `error` iz `job_queue`" i „poslednji `enrich_full` posao po
+   `payload->>'placeId'`". To je i tačnije: status se posle prijave menja (retry, žetva,
+   povraćaj), pa bi zamrznut status u jsonb-u već sutradan lagao. Migracija 0027 je time
+   **kraća za ceo blok** (nema više provere vlasništva posla kroz knjigu — admin sme da vidi
+   svaki posao), a `citajUtisak()` je dobio `posloviZaPrijavu()`.
+
+Novo polje `ctx.greska` (poruka koju je korisnik **video**) stiže iz pregledača i to je
+svesno: server ne može da zna koji je tost bio na ekranu. Nije tvrdnja o nalogu nego opis
+ekrana — telo koje je slaže ne dobija ništa, a `stanje` i `korak` telo i dalje ne nudi.
 
 ### Provereno
 
@@ -3812,7 +3837,6 @@ grep „beta" u vidljivom tekstu → 0
 
 | # | Gde | Šta |
 |---|---|---|
-| — | `docs/tok-i-onboarding.md` | **Dokument u repozitorijum.** Bez njega ostaju i ostatak S28 i tabela kopija iznad. |
-| — | **K4 / `kartica-prospekta.tsx`** | Ne postoji (S28). Zbog toga „Prijavi grešku" nije montiran na kartici u stanju greške — ostala četiri mesta jesu. Kad kartica stigne: `<PrijaviGresku ctx={{ korak: "kartica", placeId }} />`. |
+| — | **K4 / `kartica-prospekta.tsx`** | Ne postoji (S28, sada odblokirano — §7 i §8/K4). Zbog toga „Prijavi grešku" nije montiran na kartici u stanju greške (§7.5); ostalih pet mesta jeste. Kad kartica stigne: `<PrijaviGresku ctx={{ placeId, greska }} />`. |
 | — | migracija `0027` | Primeniti na Supabase pre deploya. Do tada `/admin` puca na `utisci.nps` (`admin_overview` još vraća `cena_odgovori`). |
 | — | ručni prolaz | Cela sekcija **7e** u `docs/PROVERA-VIZUELNA.md`, uz tri snimka ekrana (NPS na 390 px, panel „Kontekst", admin NPS). |

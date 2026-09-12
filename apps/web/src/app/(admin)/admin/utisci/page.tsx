@@ -384,6 +384,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Par
             slikaUrl={detalj.slikaUrl}
             dnevnik={detalj.dnevnik}
             ukupnoOdKorisnika={detalj.ukupnoOdKorisnika}
+            poslovi={detalj.poslovi}
             predlozi={oznake}
             nazad={adresa(sp, { utisak: "" })}
           />

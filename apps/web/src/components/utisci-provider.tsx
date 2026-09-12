@@ -46,17 +46,21 @@ import type { DopunaOdgovor, UtisakOdgovor } from "@/lib/feedback-schema";
 const SESIJA_KLJUC = "sajtoskop-utisak-sesija";
 
 /**
- * Kontekst uz prijavu greške (S29 §5.3 D).
+ * Ono što uz utisak putuje u `ctx`, a stiže sa EKRANA (S29 §5.3 C i D).
  *
- * SAMO identifikatori. Status posla, poruku greške i stanje naloga čita server
- * (migracija 0027) — ekran ih ne šalje jer ekran nije izvor istine o njima
- * (pravilo 8). `korak` je jedino što server ne može da zna sam, i zato je
- * zatvoren spisak (`korakEnum` u `feedback-schema.ts`).
+ * Opis onoga što je čovek gledao, i ništa o nalogu: `stanje` (`pristup.stanje`)
+ * i `korak` (`onboarding_steps`) dopisuje ruta, iz profila — pregledač ih ne
+ * nudi i ne bi promenio ni da ih pošalje (pravilo 8).
  */
 export type KontekstGreske = {
+  /** Prospekt koji je bio na ekranu. */
   placeId?: string;
+  /** Posao koji je čovek gledao. Status mu admin čita iz `job_queue`. */
   jobId?: string;
-  korak?: string;
+  /** Poruka greške koju je korisnik VIDEO — bez nje prijava opisuje prazno. */
+  greska?: string;
+  /** Tekst iz combobox-a niše kad pretraga vrati nulu (§5.3 C). */
+  query?: string;
 };
 
 export type UtisciApi = {
@@ -73,9 +77,16 @@ export type UtisciApi = {
    * Okidač je pukao („lista je popunjena", „posao je pao"). Motor odlučuje hoće
    * li se pitanje pojaviti — najčešći ishod je da neće, i to je u redu.
    *
-   * `dodatak` ulazi u `answers` uz odgovor (npr. `{ jobId }`).
+   * `dodatak` ulazi u `answers` uz odgovor (npr. `{ jobId }`), a `ctx` u
+   * `feedback.ctx` (npr. `{ query }` iz combobox-a, §5.3 C). Dve različite
+   * stvari: `answers` je ODGOVOR i po njemu se grupiše, `ctx` je okolnost pod
+   * kojom je pitanje postavljeno — kao `route`, `plan` i `viewport`.
    */
-  prijaviDogadjaj: (kljuc: string, dodatak?: Record<string, unknown>) => void;
+  prijaviDogadjaj: (
+    kljuc: string,
+    dodatak?: Record<string, unknown>,
+    ctx?: KontekstGreske,
+  ) => void;
   /**
    * Miran ekran = nema posla u toku, nema otvorenog modala ni panela.
    *
@@ -209,6 +220,8 @@ export function UtisciProvider({
   const uToku = useRef(false);
   const aktivnoRef = useRef<string | null>(null);
   const dodatak = useRef<Record<string, unknown>>({});
+  /** `ctx` koji je okidač poneo — ide u `ctx_kljuc` uz prvi odgovor. */
+  const kontekst = useRef<KontekstGreske>({});
 
   /**
    * Ono što se dogodilo POSLE poslednjeg učitavanja.
@@ -247,7 +260,7 @@ export function UtisciProvider({
   }, []);
 
   const prijaviDogadjaj = useCallback(
-    (kljuc: string, dodatniOdgovor?: Record<string, unknown>) => {
+    (kljuc: string, dodatniOdgovor?: Record<string, unknown>, ctx?: KontekstGreske) => {
       // [Faza 3, 3.6] Dok server stanje ne stigne, odluke se ne donose — pitanje
       // na osnovu praznog stanja bi bilo ponovljeno ili preko cooldown-a.
       if (!ucitanoSaServera) return;
@@ -290,6 +303,7 @@ export function UtisciProvider({
           );
           upisiSesiju();
           dodatak.current = dodatniOdgovor ?? {};
+          kontekst.current = ctx ?? {};
           setAktivno(kljuc);
         } catch {
           // Bez veze sa serverom nema ni pitanja. Sledeći događaj pokušava opet.
@@ -321,6 +335,11 @@ export function UtisciProvider({
           route: putanja,
           // Jedini podatak o uređaju koji server ne zna sam.
           viewport: `${window.innerWidth}×${window.innerHeight}`,
+          // Okolnost pod kojom je pitanje postavljeno (§5.3 C). Ruta joj
+          // dopisuje `korak` i `stanje` iz profila — ovde ih nema.
+          ...(Object.keys(kontekst.current).length > 0
+            ? { ctx_kljuc: kontekst.current }
+            : {}),
           ...(prijava ? { errors: procitajDnevnik() } : {}),
         }),
       });

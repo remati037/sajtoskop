@@ -122,19 +122,20 @@ export function UtisakDugme({
 
   // ── „Prijavi grešku" sa strane VAN okvira aplikacije ───────
   // `/welcome` i ostale strane izvan `(app)` nemaju ni provider ni ovo dugme,
-  // pa nemaju ni panel koji bi otvorile. Zato tamo link vodi ovamo, a razlog
-  // putuje kroz adresu: `?bug=welcome`.
+  // pa nemaju ni panel koji bi otvorile. Zato tamo link vodi ovamo, a poruka
+  // koju je čovek video putuje kroz adresu: `?bug=<poruka>`.
   //
   // Čita se iz `window.location`, ne kroz `useSearchParams()`: ovo je jednokratna
   // radnja na montiranju, a `useSearchParams()` bi tražio Suspense granicu oko
   // dugmeta koje stoji u okviru SVAKE strane.
   //
   // Parametar se odmah briše iz adrese (`replaceState`, bez navigacije), da
-  // osvežavanje strane ne bi otvaralo panel iznova.
+  // osvežavanje strane ne bi otvaralo panel iznova. `stanje` i `korak` uz
+  // prijavu svejedno dopisuje server, iz profila — adresa ih ne nosi.
   useEffect(() => {
     const par = new URLSearchParams(window.location.search);
-    const korak = par.get("bug");
-    if (!korak) return;
+    const poruka = par.get("bug");
+    if (poruka === null) return;
 
     par.delete("bug");
     const upit = par.toString();
@@ -145,7 +146,7 @@ export function UtisakDugme({
     );
 
     rucno.current = true;
-    setBug({ korak });
+    setBug(poruka ? { greska: poruka.slice(0, 300) } : {});
     setPanel(true);
   }, []);
 

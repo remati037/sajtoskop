@@ -52,46 +52,38 @@ export const greskaSchema = z.strictObject({
 export const dnevnikSchema = z.array(greskaSchema).max(5);
 
 /**
- * Odakle je „Prijavi grešku" kliknuto (S29 §5.3 D).
+ * Ono što uz utisak stiže IZ PREGLEDAČA i ulazi u `ctx` (S29 §5.3 C i D).
  *
- * Zatvoren spisak, ne slobodan string, i to iz istog razloga iz kog `prompt_key`
- * mora da postoji u katalogu (pravilo 16): `ctx` je jsonb, a jsonb bez šeme je
- * kanta. Ovo je ujedno i JEDINO polje konteksta koje server ne može da zna sam
- * — sve ostalo (`stanje` naloga, status i greška posla) čita iz baze.
- */
-export const korakEnum = z.enum([
-  /** Kartica prospekta u stanju greške. */
-  "kartica",
-  /** Modal skeniranja koji je pao. */
-  "skeniranje",
-  /** Tost posle 402/403/500 na otključavanju. */
-  "unlock",
-  /** Tost posle 402/403/500 na pretrazi. */
-  "pretraga",
-  /** Prva strana posle registracije. */
-  "welcome",
-  /** Blok pretplate u stanju `past_due`. */
-  "pretplata",
-]);
-
-/**
- * Ključ konteksta uz prijavu greške.
+ * §5.3 D traži `ctx = { placeId, jobId, route, korak, stanje, greska }`, i kaže
+ * da se popunjava „sa servera, ne iz klijenta". Tri od šest polja server zaista
+ * zna sam i klijent ih ni ne nudi:
  *
- * IDENTIFIKATORI I NIŠTA VIŠE. Server iz `placeId` i `jobId` sam čita ono što
- * ih opisuje — status posla, poruku greške, plan i rok naloga — pa telo koje
- * tvrdi `stanje: 'aktivan'` ne menja nijedan upisan bajt (pravilo 8).
+ *   - `route`  — već postoji kao kolona, iz `route` polja tela
+ *   - `korak`  — `profiles.onboarding_steps`, iz zaključanog profila
+ *   - `stanje` — `pristup.stanje`, izračunato `stanjePristupa()`-om na serveru
+ *
+ * Ostalo server ne može da zna ni u principu: koji prospekt je bio na ekranu,
+ * koji posao je čovek gledao, koju je poruku greške video i šta je otkucao u
+ * combobox. To su OPISI EKRANA, ne tvrdnje o nalogu — telo koje ih slaže ne
+ * dobija ništa čime bi se okoristilo, a telo koje bi slagalo `plan` ili
+ * `stanje` bi (zato ih ovde i nema — pravilo 8).
  *
  * `jobId` je string, ne broj: stiže iz adrese i iz `data-` atributa, a jedina
  * provera koja ovde treba je da je to cifra i da nije roman.
  */
 export const ctxKljucSchema = z.strictObject({
+  /** Prospekt koji je bio na ekranu (`§5.3 D`, i ulaz za admin link). */
   placeId: z.string().trim().min(1).max(128).optional(),
+  /** Posao koji je čovek gledao. Admin mu status čita iz `job_queue`. */
   jobId: z
     .string()
     .trim()
     .regex(/^\d{1,15}$/, { error: "ID posla je broj." })
     .optional(),
-  korak: korakEnum.optional(),
+  /** Poruka greške KOJU JE KORISNIK VIDEO — bez nje prijava opisuje prazno. */
+  greska: z.string().trim().max(300).optional(),
+  /** Tekst iz combobox-a niše kad pretraga vrati nulu (§5.3 C: `ctx.query`). */
+  query: z.string().trim().max(120).optional(),
 });
 
 /**

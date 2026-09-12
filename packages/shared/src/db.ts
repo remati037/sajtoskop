@@ -520,35 +520,23 @@ export type FeedbackCtx = {
    */
   errors?: KlijentskaGreska[];
 
-  // ── S29 §5.3 D: kontekst prijave greške ──────────────────
-  // Iz pregledača stižu SAMO `placeId`, `jobId` i `korak`. Sve ostalo ispod
-  // gradi `zabelezi_utisak` iz baze (migracija 0027) — plan i rok iz profila,
-  // status i poruku greške iz `job_queue`. Telo koje ih pošalje ne menja
-  // nijedan upisan bajt (pravilo 8).
+  // ── S29 §5.3 C i D: kontekst prijave i praznog stanja ────
+  // Šest ključeva, sklopljenih u `POST /api/feedback` i propuštenih kroz
+  // zatvoren spisak u `zabelezi_utisak` (0027). Prva četiri opisuju EKRAN i
+  // stižu iz pregledača; poslednja dva server čita sam i telo ih ne nudi.
 
-  /** Prospekt uz koji je greška prijavljena. */
+  /** Prospekt koji je bio na ekranu. Admin iz njega pravi link i nalazi posao. */
   placeId?: string;
-  /** Posao uz koji je greška prijavljena. Postoji i kad `greska` ne postoji. */
-  jobId?: number;
-  /** Odakle je „Prijavi grešku" kliknuto — zatvoren spisak iz `korakEnum`. */
-  korak?: string;
-  /** Stanje naloga u trenutku prijave, iz profila. */
-  stanje?: {
-    plan: string;
-    plan_expires_at: string | null;
-    komp_expires_at: string | null;
-    credits_topup: number;
-  };
-  /**
-   * Ishod posla iz `job_queue`. Postoji samo kad je posao nađen i kad ga je
-   * TAJ korisnik platio (red u knjizi sa `ref_id = 'scan:<id>'`).
-   */
-  greska?: {
-    status: string;
-    tip: string;
-    attempts: number;
-    poruka: string;
-  };
+  /** Posao koji je čovek gledao. STATUS se ne pamti ovde — v. `PosaoUzPrijavu`. */
+  jobId?: string;
+  /** Poruka greške koju je korisnik stvarno video, odsečena na 300 znakova. */
+  greska?: string;
+  /** Šta je otkucao u combobox niše kad pretraga vrati nulu (§5.3 C). */
+  query?: string;
+  /** `profiles.onboarding_steps` u trenutku prijave — dokle je čovek stigao. */
+  korak?: Record<string, string>;
+  /** `pristup.stanje` u trenutku prijave (`aktivan`, `proba`, `grace`, …). */
+  stanje?: string;
 };
 
 /**

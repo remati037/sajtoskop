@@ -26,10 +26,22 @@ import { UtisakMikro } from "./utisak-mikro";
 
 export function FaliMikro({
   /**
-   * Šta je korisnik tražio kad je rezultat bio prazan. Ulazi u `answers.query`
-   * i time u admin listu — spisak niša koje ljudi traže a ja ih nemam.
+   * Šta je korisnik tražio kad je rezultat bio prazan.
+   *
+   * Ulazi u **`ctx.query`**, ne u `answers` (§5.3 C, doslovno): `answers` je
+   * odgovor i po njemu `admin_fali()` grupiše, a upit je okolnost pod kojom je
+   * pitanje postavljeno — isto mesto na kom stoje `route`, `plan` i `viewport`.
    */
   query,
+  /**
+   * Naslov koji zamenjuje onaj iz kataloga — SAMO prikaz.
+   *
+   * Uz combobox niše §5.3 C traži „Ne vidiš svoju nišu? Napiši je.", jer je tu
+   * pitanje poziv, a ne konstatacija. Pravilo 16 time nije dodirnuto: ključ,
+   * šema i validacija su i dalje isključivo u katalogu — menja se rečenica, ne
+   * pitanje.
+   */
+  naslov,
   /**
    * Pitanje se javlja tek posle ovoliko dana od registracije. `0` znači odmah.
    *
@@ -40,6 +52,7 @@ export function FaliMikro({
   className,
 }: {
   query?: string;
+  naslov?: string;
   posleDana?: number;
   className?: string;
 }) {
@@ -50,11 +63,16 @@ export function FaliMikro({
 
   useEffect(() => {
     if (!prijavi || !dovoljnoStar) return;
-    // Upit se prosleđuje kao dodatak uz odgovor; motor ga ne gleda, a šema iz
-    // kataloga ga propušta samo uz tekst (pravilo 16).
-    prijavi("fali", query ? { query } : undefined);
+    // Treći argument je `ctx`, ne `answers` — v. gore. Motor ga ne gleda.
+    prijavi("fali", undefined, query ? { query } : undefined);
   }, [prijavi, dovoljnoStar, query]);
 
   if (!dovoljnoStar) return null;
-  return <UtisakMikro kljuc="fali" {...(className ? { className } : {})} />;
+  return (
+    <UtisakMikro
+      kljuc="fali"
+      {...(naslov ? { naslov } : {})}
+      {...(className ? { className } : {})}
+    />
+  );
 }

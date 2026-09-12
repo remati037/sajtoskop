@@ -2223,6 +2223,57 @@ async function main(): Promise<void> {
     "zapis sa praznim tekstom ne pravi red u listi",
   );
 
+  // ── 0027: ctx uz prijavu (§5.3 C i D) ────────────────────
+  // `p_ctx_extra` je poslednja kapija pred `ctx` jsonb: šest dozvoljenih
+  // ključeva, i nijedan koji bi prepisao ono što je pročitano iz profila.
+  console.log("\nS29: ctx uz prijavu");
+
+  type Upis = { ishod: string; red: { ctx: Record<string, unknown> } };
+
+  const upisi = async (extra: string | null) =>
+    one<Upis>(
+      `select ishod, red from zabelezi_utisak(
+         'f11', 3, 'dugme', '/pretraga', 'Pretraga', 'ua', '390x844',
+         null, null, null, null, null, null, 50, 10, $1::jsonb)`,
+      [extra],
+    );
+
+  const sviKljucevi = await upisi(
+    JSON.stringify({
+      placeId: "ChIJ_abc",
+      jobId: "412",
+      greska: "Otključavanje nije uspelo.",
+      query: "bravar",
+      korak: { pretraga: "2026-09-01T10:00:00Z" },
+      stanje: "grace",
+    }),
+  );
+  check(sviKljucevi?.ishod === "upisan", "utisak sa kontekstom se upisuje");
+  check(sviKljucevi?.red.ctx.placeId === "ChIJ_abc", "placeId ulazi u ctx");
+  check(sviKljucevi?.red.ctx.greska === "Otključavanje nije uspelo.", "poruka koju je video ulazi u ctx");
+  check(sviKljucevi?.red.ctx.query === "bravar", "upit iz combobox-a ulazi u ctx");
+  check(sviKljucevi?.red.ctx.stanje === "grace", "stanje pristupa (iz rute) ulazi u ctx");
+  check(
+    typeof sviKljucevi?.red.ctx.korak === "object" && sviKljucevi.red.ctx.korak !== null,
+    "koraci onboardinga ulaze u ctx kao objekat",
+  );
+
+  // Ono zbog čega whitelist uopšte postoji: telo ne sme da prepiše ono što je
+  // pročitano iz zaključanog profila (pravilo 8).
+  const podmetnut = await upisi(
+    JSON.stringify({ plan: "pro", credits: 9999, unlocks: 500, placeId: "ChIJ_ok" }),
+  );
+  check(podmetnut?.red.ctx.placeId === "ChIJ_ok", "dozvoljen ključ i dalje prolazi");
+  check(podmetnut?.red.ctx.plan !== "pro", `plan iz tela NE prepisuje profil (${podmetnut?.red.ctx.plan})`);
+  check(podmetnut?.red.ctx.credits !== 9999, "credits iz tela ne prepisuje profil");
+  check(podmetnut?.red.ctx.unlocks !== 500, "unlocks iz tela ne prepisuje profil");
+
+  const bezKonteksta = await upisi(null);
+  check(
+    bezKonteksta?.ishod === "upisan" && bezKonteksta.red.ctx.placeId === undefined,
+    "utisak bez konteksta se upisuje isto kao pre",
+  );
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",

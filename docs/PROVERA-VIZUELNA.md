@@ -520,7 +520,8 @@ Snimci ekrana koje ova sesija traži su označeni **📸**. Sve ostalo je klik-p
 - [ ] Isti ekran, ali prazno zato što **Google nije našao ništa** → traka je
       **„Šta si tražio?"**, ne „Šta ti ovde fali?". Dve prazne liste, dva pitanja.
 - [ ] Combobox **Niša** → otkucaj nišu koje nema (npr. „kotlarnica") → posle ~1 s traka se
-      pojavljuje uz formu, i odgovor nosi `answers.query`.
+      pojavljuje uz formu, sa naslovom **„Ne vidiš svoju nišu? Napiši je."**, a zapis nosi
+      **`ctx.query`** (ne `answers.query`).
 - [ ] `/lista` i `/pipeline` prazni, nalog **stariji od 7 dana** → traka stoji ispod praznog
       stanja. Nalog mlađi od 7 dana je **ne vidi**.
 - [ ] Na ekranu nikad **dve** „Fali" trake odjednom.
@@ -531,16 +532,20 @@ Snimci ekrana koje ova sesija traži su označeni **📸**. Sve ostalo je klik-p
       Klik otvara panel iza plutajućeg dugmeta, sa naslovom **„Šta nije radilo?"** i
       pretpostavljenim tipom **Bug**.
 - [ ] Isto na: pala pretraga, palo skeniranje, `pretplata-blok` u stanju `past_due`.
-- [ ] `/welcome` → „Prijavi grešku" vodi na `/pretraga?bug=welcome`; panel se otvori sam, a
+- [ ] `/welcome` → „Prijavi grešku" vodi na `/pretraga?bug=<poruka>`; panel se otvori sam, a
       **parametar nestane iz adrese** (osvežavanje ga ne otvara ponovo).
 - [ ] 📸 **Admin panel, blok „Kontekst"**: `/admin/utisci` → otvori tu prijavu → blok nosi
-      „Odakle", link na prospekt, `#<jobId>` sa statusom posla i stanje naloga.
-- [ ] Tuđ `jobId` poslat ručno → u panelu stoji samo broj, **bez statusa i bez poruke greške**.
+      stanje pristupa, link na prospekt, poruku koju je čovek **video**, dokle je stigao u
+      onboardingu, i posao sa **trenutnim** statusom iz `job_queue`.
+- [ ] Status posla se čita pri prikazu, ne pamti: pusti posao da pređe iz `failed` u `done`
+      (ili obrnuto) pa osveži panel — brojka se **menja**.
+- [ ] Prijava sa `placeId` a bez `jobId` → panel svejedno nađe **poslednji `enrich_full`**
+      za taj prospekt, sa oznakom „poslednji za ovaj prospekt".
 
 ### Citat
 
 - [ ] Prvi prospekt u koloni **Potpisan** → kartica → **tri koraka**: koliko je pomoglo →
-      „Bi li ga preporučio kolegi?" → **„Smem li to da citiram?"**.
+      „Bi li ga preporučio kolegi?" → **„Smem li da citiram tvoj rezultat na sajtu, sa imenom?"**.
 - [ ] Odgovor **Možda** ili **Ne** na drugom koraku → trećeg koraka **nema**.
 - [ ] `citat = da-ime` + rečenica → `/admin/utisci` → filter **„Citat"** → prijava je u listi →
       panel → blok „Citat" → **„Kopiraj kao referencu"** stavi u clipboard

@@ -1010,7 +1010,9 @@ export function PretragaEkran({
           mesta dala dve iste trake u istom trenutku. Zato je mesto izbor, a ne
           dva nezavisna uslova: ako je combobox vratio nulu, traka stoji uz
           formu (tu je i upit nastao); inače stoji ispod praznog rezultata. */}
-      {faliUpit !== null && <FaliMikro query={faliUpit} />}
+      {faliUpit !== null && (
+        <FaliMikro query={faliUpit} naslov="Ne vidiš svoju nišu? Napiši je." />
+      )}
 
       {/* Incident stoji uz poruku o padu, ne na dnu ekrana: pitanje je ovde
           usluga, a ne molba (F11 §2.2). */}
@@ -1020,10 +1022,11 @@ export function PretragaEkran({
         <Alert variant="danger">
           {greska}
           {/* `jobId` postoji samo kad je pao POSAO; kod 402/403/500 na pretrazi
-              ga nema, i to je tačno — server tada nema posao da opiše. */}
+              ga nema, i to je tačno — tada nema posla ni da se opiše. Poruka
+              koju je čovek video ide uvek: ona je jedini opis iz njegovog ugla. */}
           <PrijaviGresku
             ctx={{
-              korak: paoPosao === null ? "pretraga" : "skeniranje",
+              greska,
               ...(paoPosao === null ? {} : { jobId: String(paoPosao) }),
             }}
             className="ml-2"
@@ -1151,10 +1154,14 @@ export function PretragaEkran({
               {greskaOtkljuc && (
                 <Alert variant="danger">
                   {greskaOtkljuc}
-                  {/* Prijava kreće ODAVDE, sa prospektom koji je pao. Panel je
+                  {/* Prijava kreće ODAVDE, sa prospektom koji je pao i sa
+                      porukom koju je čovek upravo pročitao (§5.3 D). Panel je
                       isti onaj iza plutajućeg dugmeta — v. `prijavi-gresku.tsx`. */}
                   <PrijaviGresku
-                    ctx={{ korak: "unlock", ...(paoOtkljuc ? { placeId: paoOtkljuc } : {}) }}
+                    ctx={{
+                      greska: greskaOtkljuc,
+                      ...(paoOtkljuc ? { placeId: paoOtkljuc } : {}),
+                    }}
                     className="ml-2"
                   />
                 </Alert>

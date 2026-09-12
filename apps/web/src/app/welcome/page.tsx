@@ -171,7 +171,7 @@ export default async function Page({
         {ulogovan && (
           <p className="mt-2 text-xs text-fg-muted">
             <Link
-              href="/pretraga?bug=welcome"
+              href={`/pretraga?bug=${encodeURIComponent("Plan se ne pojavljuje posle plaćanja.")}`}
               className="font-medium underline underline-offset-4"
             >
               Prijavi grešku

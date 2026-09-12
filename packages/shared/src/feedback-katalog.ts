@@ -242,8 +242,10 @@ const semaNps = z.strictObject({
  * uslova nad nalogom. Okida ga ekran koji NEMA šta da pokaže, pa je tekst jedini
  * mogući odgovor: klik tu ne bi nosio nijednu informaciju.
  *
- * `query` je ono što je korisnik tražio kad je pretraga vratila nulu (combobox
- * niša). Nije obavezno — prazno stanje `/liste` i `/pipeline` ga nemaju.
+ * Ono što je korisnik otkucao u combobox niše NE ide ovde nego u `ctx.query`
+ * (§5.3 C, doslovno). Razlika nije kozmetička: `answers` je ODGOVOR na pitanje i
+ * grupiše se po njemu u `admin_fali()`, a upit je okolnost pod kojom je pitanje
+ * postavljeno — isto mesto na kom stoje `route`, `plan` i `viewport`.
  */
 const semaFali = z.strictObject({
   tekst: z
@@ -251,7 +253,6 @@ const semaFali = z.strictObject({
     .trim()
     .min(2, { error: "Napiši bar dve reči." })
     .max(200, { error: "Do 200 karaktera." }),
-  query: z.string().trim().max(120).optional(),
 });
 
 const semaZastoNeVracas = z.strictObject({
@@ -376,16 +377,19 @@ export const KATALOG: readonly Pitanje[] = [
     // dopuna ispod je ono što se citira. Otvara se samo posle „Da", jer je
     // svaki drugi odgovor već rekao da citata nema.
     treciKorak: {
-      naslov: "Smem li to da citiram?",
+      naslov: "Smem li da citiram tvoj rezultat na sajtu, sa imenom?",
       kljucOdgovora: "citat",
       kadDrugi: "da",
       opcije: [
         { vrednost: "da-ime", label: "Da, sa imenom" },
         { vrednost: "da-bez", label: "Da, bez imena" },
-        { vrednost: "ne", label: "Radije ne" },
+        { vrednost: "ne", label: "Ne" },
       ],
     },
-    dopuna: { placeholder: "Šta bi rekao kolegi o Sajtoskopu?", obavezna: false },
+    dopuna: {
+      placeholder: "Koja firma, koliko si naplatio? (ostaje između nas ako kažeš ne)",
+      obavezna: false,
+    },
     sema: semaPrviPotpisan,
   },
   {
@@ -396,18 +400,17 @@ export const KATALOG: readonly Pitanje[] = [
     kljuc: "nps-7",
     sloj: "kampanja",
     oblik: "kartica",
-    prioritet: 40,
-    uvod: "Jedno pitanje, jedan klik.",
+    prioritet: 42,
+    uvod: "Nedelju dana si u alatu.",
     naslov: "Koliko je verovatno da bi Sajtoskop preporučio kolegi?",
     kljucOdgovora: "ocena",
     do: ROK_PITANJA,
     sufiks: "0 = nikako · 10 = sigurno",
-    napomena: "Iskrena ocena mi je vrednija od lepe. Ovo ne menja tvoj pristup ni cenu.",
     opcije: Array.from({ length: 11 }, (_, i) => ({
       vrednost: String(i),
       label: String(i),
     })),
-    dopuna: { placeholder: "Šta bi morao da uradi za devetku?", obavezna: false },
+    dopuna: { placeholder: "Šta je presudilo?", obavezna: false },
     // Isti razlog kao nekad kod cene (odluka 8): plaćena ocena je pokvarena
     // ocena, a rečenica uz nju je deo istog odgovora.
     bezNagrade: true,
@@ -429,7 +432,7 @@ export const KATALOG: readonly Pitanje[] = [
     opcije: [],
     tekstPrvi: true,
     ponovi: { naSati: 24 },
-    dopuna: { placeholder: "npr. filter po broju recenzija", obavezna: false },
+    dopuna: { placeholder: "Niša, grad, podatak, dugme…", obavezna: false },
     sema: semaFali,
   },
   {
@@ -567,10 +570,6 @@ export function opisOdgovora(pitanje: Pitanje, answers: Record<string, unknown>)
 
   const tekst = answers.tekst;
   if (typeof tekst === "string" && tekst.trim()) delovi.push(tekst.trim());
-
-  // Šta je čovek tražio kad je pretraga vratila nulu (`fali` iz combobox-a).
-  const upit = answers.query;
-  if (typeof upit === "string" && upit.trim()) delovi.push(`tražio: ${upit.trim()}`);
 
   const jobId = answers.jobId;
   if (typeof jobId === "number") delovi.push(`posao #${jobId}`);

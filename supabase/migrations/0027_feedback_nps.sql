@@ -6,10 +6,10 @@
 --
 --   1. `admin_nps()`  — skor iz odgovora na `nps-7`, bez ijednog novog reda
 --   2. `admin_fali()` — šta ljudi pišu na prazna stanja, grupisano po tekstu
---   3. `zabelezi_utisak` dobija `p_ctx_extra` — kontekst prijave greške ide u
---      `ctx`, a jedino što stiže iz pregledača su IDENTIFIKATORI (`placeId`,
---      `jobId`, `korak`). Status i greška posla se čitaju iz `job_queue`, plan
---      i krediti iz profila — nikad iz tela (pravilo 8).
+--   3. `zabelezi_utisak` dobija `p_ctx_extra` — kontekst prijave greške i
+--      praznog stanja (§5.3 C i D) ide u `ctx`, kroz zatvoren spisak od šest
+--      ključeva. `plan`, `credits` i `unlocks` se i dalje čitaju iz zaključanog
+--      profila i telo ne može da ih prepiše (pravilo 8).
 --
 -- `admin_overview` se dopunjuje jer joj je `cena_odgovori` ostao bez pitanja:
 -- `cena` je obrisana iz kataloga u istoj sesiji, pa bi ključ zauvek vraćao
@@ -150,20 +150,22 @@ drop function if exists zabelezi_utisak(
  * Nastanak utiska sa dnevnim plafonom u ISTOJ transakciji (0018), prošireno
  * kontekstom prijave greške (S29 §5.3 D).
  *
- * ── šta sme da stigne iz pregledača ─────────────────────────
- * `p_ctx_extra` nosi ISKLJUČIVO identifikatore i mesto klika: `placeId`,
- * `jobId`, `korak`. Sve što opisuje NALOG ili ISHOD posla se čita ovde:
+ * ── šta `p_ctx_extra` sme da nosi ───────────────────────────
+ * Zatvoren spisak od šest ključeva, i ništa van njega:
  *
- *   - `plan`, `credits`, `unlocks` — iz zaključanog profila, kao i do sada
- *   - `stanje` — plan + rok iz profila, izvedeno ovde
- *   - `job_status`, `job_error` — iz `job_queue`, po `jobId`
+ *   placeId · jobId · greska · query   — opis EKRANA, sklopljen u ruti
+ *   korak · stanje                     — iz profila i `stanjePristupa()`, u ruti
  *
- * Zato ruta i ne prima ništa od toga: telo koje tvrdi `stanje: 'aktivan'` i
- * `greska: 'ok'` ne menja nijedan upisan bajt (pravilo 8).
+ * Ruta je ta koja razdvaja dva izvora (v. `ctxSaServera()`); ovde je poslednja
+ * kapija: nepoznat ključ se ODBACUJE, pa `ctx` ne može da postane jsonb kanta
+ * ni kad neko pozove funkciju mimo aplikacije. `plan`, `credits` i `unlocks` se
+ * i dalje čitaju iz zaključanog profila i NE mogu da se prepišu odavde.
  *
- * Nepoznati ključevi iz `p_ctx_extra` se ODBACUJU. Bez toga je `ctx` jsonb
- * kanta u koju klijent upisuje šta hoće — isti razlog iz kog `answers` prolazi
- * kroz Zod šemu iz kataloga (pravilo 16).
+ * Status i poruka greške posla se ovde NE čitaju. `job_queue` nema `user_id`
+ * (scan posao je zajednički, ključ mu je `dedupe_key`), pa bi provera
+ * vlasništva ovde bila treće mesto koje zna kako se ono dokazuje. Taj `select`
+ * radi ADMIN pri prikazu — §5.3 D doslovno: „jobId → status i `error` iz
+ * `job_queue`", uz „samo čitanje, već dostupno adminu".
  */
 create or replace function zabelezi_utisak(
   p_user          text,
@@ -193,13 +195,10 @@ declare
   v_unlocks integer;
   v_dosad   integer;
   v_ctx     jsonb;
+  v_dodatak jsonb := '{}'::jsonb;
+  v_kljuc   text;
   v_id      bigint;
   v_row     feedback%rowtype;
-  v_place   text;
-  v_job     bigint;
-  v_korak   text;
-  v_posao   job_queue%rowtype;
-  v_njegov  boolean;
 begin
   select * into v_profil from profiles where id = p_user for update;
 
@@ -233,69 +232,19 @@ begin
     v_ctx := v_ctx || jsonb_build_object('errors', p_errors);
   end if;
 
-  -- ── S29: kontekst prijave greške ──────────────────────────
+  -- ── S29: kontekst prijave greške i praznog stanja ─────────
+  -- Prepisuje se ključ po ključ, a ne `||` nad celim objektom: `||` bi pustio
+  -- i `plan` i `credits` iz tela da pregaze ono što je pročitano iz profila.
   if p_ctx_extra is not null and jsonb_typeof(p_ctx_extra) = 'object' then
-    v_place := nullif(btrim(left(coalesce(p_ctx_extra ->> 'placeId', ''), 128)), '');
-    v_korak := nullif(btrim(left(coalesce(p_ctx_extra ->> 'korak', ''), 64)), '');
-
-    -- Nečitljiv `jobId` je isto što i nikakav: prijava greške ne sme da padne
-    -- zato što je u telu stigla reč umesto broja.
-    begin
-      v_job := nullif(btrim(coalesce(p_ctx_extra ->> 'jobId', '')), '')::bigint;
-    exception when others then
-      v_job := null;
-    end;
-
-    if v_place is not null then
-      v_ctx := v_ctx || jsonb_build_object('placeId', v_place);
-    end if;
-    if v_korak is not null then
-      v_ctx := v_ctx || jsonb_build_object('korak', v_korak);
-    end if;
-
-    -- Stanje naloga: plan i rok iz profila, nikad iz tela.
-    v_ctx := v_ctx || jsonb_build_object(
-      'stanje', jsonb_build_object(
-        'plan',            v_profil.plan,
-        'plan_expires_at', v_profil.plan_expires_at,
-        'komp_expires_at', v_profil.komp_expires_at,
-        'credits_topup',   v_profil.credits_topup
-      )
-    );
-
-    -- Ishod posla iz `job_queue`, i to samo ako je čovek TAJ posao platio.
-    --
-    -- `job_queue` nema `user_id` i to nije previd: `scan` posao je zajednički,
-    -- ključ mu je `dedupe_key` (grad + niša + dubina), a vlasništvo se dokazuje
-    -- redom u knjizi (`ref_id = 'scan:<id>'`) — isto pravilo po kom
-    -- `zivPlacenPosao()` odlučuje čiji je posao živ. Bez ove provere bi tuđ
-    -- `jobId` u telu otkrio i status i poruku greške.
-    if v_job is not null then
-      select exists (
-        select 1 from credit_ledger cl
-         where cl.user_id = p_user and cl.ref_id = 'scan:' || v_job::text
-      ) into v_njegov;
-
-      if v_njegov then
-        select * into v_posao from job_queue where id = v_job;
+    foreach v_kljuc in array array['placeId', 'jobId', 'greska', 'query', 'korak', 'stanje']
+    loop
+      if p_ctx_extra ? v_kljuc
+         and jsonb_typeof(p_ctx_extra -> v_kljuc) <> 'null' then
+        v_dodatak := v_dodatak || jsonb_build_object(v_kljuc, p_ctx_extra -> v_kljuc);
       end if;
+    end loop;
 
-      if v_njegov and found then
-        v_ctx := v_ctx || jsonb_build_object(
-          'jobId',  v_job,
-          'greska', jsonb_build_object(
-            'status',   v_posao.status,
-            'tip',      v_posao.type,
-            'attempts', v_posao.attempts,
-            'poruka',   left(coalesce(v_posao.last_error, ''), 500)
-          )
-        );
-      else
-        -- Posao postoji u prijavi, ali ga nema u redu ili ga čovek nije platio.
-        -- Broj se pamti; ono što bi ga opisalo se ne izmišlja.
-        v_ctx := v_ctx || jsonb_build_object('jobId', v_job);
-      end if;
-    end if;
+    v_ctx := v_ctx || v_dodatak;
   end if;
 
   insert into feedback (

@@ -78,6 +78,11 @@ check(nps !== null, "nps-7 postoji u katalogu");
 
 if (nps) {
   check(nps.opcije.length === 11, "skala ima 11 opcija (0–10)");
+  check(nps.prioritet === 42, "prioritet 42 (§5.3 A)");
+  check(nps.uvod === "Nedelju dana si u alatu.", "uvod doslovno iz §5.3 A");
+  check(nps.sufiks === "0 = nikako · 10 = sigurno", "sufiks doslovno iz §5.3 A");
+  check(nps.dopuna?.placeholder === "Šta je presudilo?", "placeholder doslovno iz §5.3 A");
+  check(nps.napomena === undefined, "§5.3 A ne traži napomenu — nema je ni u katalogu");
   check(
     nps.opcije.every((o, i) => o.vrednost === String(i) && o.label === String(i)),
     "opcije idu 0…10 redom",
@@ -156,22 +161,24 @@ if (fali) {
   check(fali.ponovi?.naSati === 24, "ponavlja se najviše jednom na 24 h");
   check(fali.oblik === "mikro", "mikro-traka ispod praznog stanja");
 
+  check(
+    fali.dopuna?.placeholder === "Niša, grad, podatak, dugme…",
+    "placeholder doslovno iz §5.3 C",
+  );
+
   check(!proveriOdgovor("fali", {}).ok, "odgovor bez teksta pada");
   check(!proveriOdgovor("fali", { tekst: "a" }).ok, "prekratak tekst pada");
   check(proveriOdgovor("fali", { tekst: "filter po recenzijama" }).ok, "tekst prolazi");
+
+  // §5.3 C traži `ctx.query`, ne `answers.query`: `answers` je ODGOVOR i po
+  // njemu `admin_fali()` grupiše, a upit je okolnost — kao `route` i `plan`.
   check(
-    proveriOdgovor("fali", { tekst: "nema te niše", query: "bravar Loznica" }).ok,
-    "tekst uz upit iz combobox-a prolazi",
+    !proveriOdgovor("fali", { tekst: "nema te niše", query: "bravar Loznica" }).ok,
+    "upit u `answers` pada — njegovo mesto je `ctx.query`",
   );
   check(
     !proveriOdgovor("fali", { tekst: "nema te niše", route: "/pretraga" }).ok,
     "ruta u odgovoru pada — nju čita server, ne klijent",
-  );
-
-  const saUpitom = proveriOdgovor("fali", { tekst: "nema niše", query: "bravar" });
-  check(
-    saUpitom.ok && opisOdgovora(fali, saUpitom.answers).includes("tražio: bravar"),
-    "opis nosi i ono što je čovek tražio",
   );
 }
 
@@ -180,6 +187,20 @@ if (fali) {
 console.log("\nkatalog: citat");
 const potpisan = pitanjeZaKljuc("prvi-potpisan");
 check(potpisan?.treciKorak?.kljucOdgovora === "citat", "treći korak upisuje `citat`");
+check(
+  potpisan?.treciKorak?.naslov === "Smem li da citiram tvoj rezultat na sajtu, sa imenom?",
+  "naslov trećeg koraka doslovno iz §5.3 B",
+);
+check(
+  potpisan?.treciKorak?.opcije.map((o) => o.label).join(" · ") ===
+    "Da, sa imenom · Da, bez imena · Ne",
+  "labele doslovno iz §5.3 B",
+);
+check(
+  potpisan?.dopuna?.placeholder ===
+    "Koja firma, koliko si naplatio? (ostaje između nas ako kažeš ne)",
+  "placeholder doslovno iz §5.3 B",
+);
 check(potpisan?.treciKorak?.kadDrugi === "da", "treći korak se otvara samo posle „Da”");
 check(
   potpisan?.treciKorak?.opcije.map((o) => o.vrednost).join(",") === "da-ime,da-bez,ne",

@@ -37,7 +37,7 @@ registerHooks({
   },
 });
 
-const { utisakBodySchema, ctxKljucSchema, korakEnum } = await import("../src/lib/feedback-schema");
+const { utisakBodySchema, ctxKljucSchema } = await import("../src/lib/feedback-schema");
 const { proveriOdgovor } = await import("@sajtoskop/shared");
 
 let fail = 0;
@@ -98,42 +98,55 @@ check(
   "ono što prođe ne nosi nijedno polje o nalogu",
 );
 
-// ── 2. ctx_kljuc: samo identifikatori ──────────────────────
+// ── 2. ctx_kljuc: opis ekrana, ništa o nalogu ──────────────
+//
+// §5.3 D traži `ctx = { placeId, jobId, route, korak, stanje, greska }`. Tri
+// polja server zna sam i klijent ih ne nudi: `route` (već je kolona), `korak`
+// (`profiles.onboarding_steps`) i `stanje` (`pristup.stanje`). Ostalo je opis
+// EKRANA i server ga ne može znati ni u principu.
 
-console.log("\nctx_kljuc: samo identifikatori");
+console.log("\nctx_kljuc: opis ekrana, ništa o nalogu");
 
 check(
-  ctxKljucSchema.safeParse({ placeId: "ChIJ_abc", jobId: "412", korak: "kartica" }).success,
-  "placeId + jobId + korak prolaze",
+  ctxKljucSchema.safeParse({
+    placeId: "ChIJ_abc",
+    jobId: "412",
+    greska: "Skeniranje nije uspelo.",
+    query: "bravar",
+  }).success,
+  "placeId + jobId + greska + query prolaze",
 );
 check(ctxKljucSchema.safeParse({}).success, "prazan kontekst prolazi — prijava bez njega postoji");
 
-for (const polje of ["stanje", "plan", "greska", "status", "job_status", "credits"]) {
+// Ovo su polja koja RUTA dopisuje sa servera. Ako bi ih šema primila iz tela,
+// klijent bi mogao da ih pošalje pre nego što ih server prepiše — i da laže o
+// stanju naloga u prijavi koju ja čitam kao dokaz (pravilo 8).
+for (const polje of ["stanje", "korak", "plan", "credits", "unlocks", "route"]) {
   check(
-    !ctxKljucSchema.safeParse({ korak: "kartica", [polje]: "bilo šta" }).success,
-    `\`ctx_kljuc.${polje}\` pada — čita se sa servera, ne iz tela`,
+    !ctxKljucSchema.safeParse({ placeId: "ChIJ_abc", [polje]: "bilo šta" }).success,
+    `\`ctx_kljuc.${polje}\` pada — dopisuje ga server, ne telo`,
   );
 }
 
-check(!ctxKljucSchema.safeParse({ jobId: 412 }).success, "jobId kao broj pada — očekuje se cifra u stringu");
+check(
+  !ctxKljucSchema.safeParse({ jobId: 412 }).success,
+  "jobId kao broj pada — očekuje se cifra u stringu",
+);
 check(!ctxKljucSchema.safeParse({ jobId: "a12" }).success, "jobId koji nije broj pada");
 check(!ctxKljucSchema.safeParse({ jobId: "" }).success, "prazan jobId pada");
 check(
-  !ctxKljucSchema.safeParse({ korak: "izmisljen" }).success,
-  "nepoznat korak pada — spisak je zatvoren, kao i katalog pitanja",
+  !ctxKljucSchema.safeParse({ greska: "x".repeat(301) }).success,
+  "poruka greške preko 300 znakova pada — `ctx` nije mesto za stek trejs",
 );
 check(
-  korakEnum.options.length === 6 &&
-    ["kartica", "skeniranje", "unlock", "pretraga", "welcome", "pretplata"].every((k) =>
-      (korakEnum.options as readonly string[]).includes(k),
-    ),
-  `šest mesta sa kojih se greška prijavljuje (${korakEnum.options.join(" · ")})`,
+  !ctxKljucSchema.safeParse({ query: "x".repeat(121) }).success,
+  "upit preko 120 znakova pada",
 );
 
 // Kontekst putuje uz POST, jer se `ctx` gradi u trenutku upisa reda.
 const saKontekstom = utisakBodySchema.safeParse({
   ...OSNOVA,
-  ctx_kljuc: { placeId: "ChIJ_abc", korak: "unlock" },
+  ctx_kljuc: { placeId: "ChIJ_abc", greska: "Otključavanje nije uspelo." },
 });
 check(saKontekstom.success, "telo sa `ctx_kljuc` prolazi");
 check(
@@ -158,6 +171,10 @@ check(!proveriOdgovor("nps-7", { ocena: 11 }).ok, "ruta bi odbila ocenu van skal
 check(
   !proveriOdgovor("fali", { tekst: "nema niše", route: "/pretraga" }).ok,
   "ruta bi odbila `route` u odgovoru — nju čita server",
+);
+check(
+  !proveriOdgovor("fali", { tekst: "nema niše", query: "bravar" }).ok,
+  "upit ne ulazi u `answers` — njegovo mesto je `ctx.query` (§5.3 C)",
 );
 
 // `bug` i `incident` postoje samo u katalogu: telo bez `prompt_key` ne sme da

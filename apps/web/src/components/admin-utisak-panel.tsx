@@ -36,6 +36,7 @@ import {
   type ChangelogRow,
   type FeedbackRow,
 } from "@sajtoskop/shared";
+import type { PosaoUzPrijavu } from "@/lib/admin-utisci";
 import {
   MAX_BELESKA,
   MAX_OZNAKA,
@@ -59,6 +60,8 @@ export type PanelProps = {
   slikaUrl: string | null;
   dnevnik: Pick<ChangelogRow, "id" | "title" | "kind" | "shipped_at" | "from_feedback">[];
   ukupnoOdKorisnika: number;
+  /** [S29 §5.3 D] Poslovi uz prijavu, pročitani pri prikazu — v. `citajUtisak`. */
+  poslovi: PosaoUzPrijavu[];
   /** Oznake koje već postoje u tabeli — predlog, ne enum. */
   predlozi: string[];
   /** Adresa liste sa zadržanim filterima, za `✕`. */
@@ -66,7 +69,7 @@ export type PanelProps = {
 };
 
 export function PanelUtiska(props: PanelProps) {
-  const { red, slikaUrl, dnevnik, ukupnoOdKorisnika, predlozi, nazad } = props;
+  const { red, slikaUrl, dnevnik, ukupnoOdKorisnika, poslovi, predlozi, nazad } = props;
 
   const router = useRouter();
   const [ceka, prenesi] = useTransition();
@@ -100,6 +103,13 @@ export function PanelUtiska(props: PanelProps) {
   const citat = red.answers.citat;
   const tipCitata =
     typeof citat === "string" && citat in CITAT ? (citat as keyof typeof CITAT) : null;
+
+  // [S29] Blok „Kontekst" postoji samo kad ima šta da pokaže — prazan okvir sa
+  // naslovom je šum na ekranu koji se otvara da bi se nešto brzo videlo.
+  const koraci = Object.keys(red.ctx.korak ?? {});
+  const imaKontekst =
+    Boolean(red.ctx.placeId || red.ctx.jobId || red.ctx.greska || red.ctx.query || red.ctx.stanje) ||
+    koraci.length > 0;
 
   async function posalji(kljuc: string, putanja: string, init: RequestInit) {
     setRadi(kljuc);
@@ -260,21 +270,18 @@ export function PanelUtiska(props: PanelProps) {
         </div>
       )}
 
-      {/* ── kontekst prijave greške (S29 §5.3 D) ──────────── */}
-      {/* Sve ovo je server upisao u `ctx` u trenutku prijave: iz pregledača su
-          stigli samo identifikatori, a status posla i stanje naloga su
-          pročitani iz baze (0027). Zato se ovde ne zove nijedna ruta — ono što
-          je bilo istina u trenutku prijave je zapis, ne trenutno stanje. */}
-      {(red.ctx.placeId || red.ctx.jobId || red.ctx.korak || red.ctx.greska) && (
+      {/* ── kontekst prijave (S29 §5.3 D) ─────────────────── */}
+      {/* `ctx` pamti IDENTIFIKATORE i ono što je čovek video; status posla se
+          čita pri prikazu (`poslovi`), jer se posle prijave menja — retry,
+          žetva, povraćaj. Zamrznut status u jsonb-u bi već sutradan lagao. */}
+      {imaKontekst && (
         <div className="mt-4">
           <NaslovSekcije>Kontekst</NaslovSekcije>
           <dl className="mt-1.5 divide-y divide-border border-y border-border text-[13px]">
-            {red.ctx.korak && <Red naziv="Odakle">{KORAK[red.ctx.korak] ?? red.ctx.korak}</Red>}
+            {red.ctx.stanje && <Red naziv="Pristup">{red.ctx.stanje}</Red>}
 
             {red.ctx.placeId && (
               <Red naziv="Prospekt">
-                {/* Vodi na pretragu sa tim prospektom — panel je mesto sa kog
-                    se prijava proverava, ne samo čita. */}
                 <Link
                   href={`/pretraga?place=${encodeURIComponent(red.ctx.placeId)}`}
                   className="num inline-flex items-center gap-1 underline-offset-4 hover:underline"
@@ -285,47 +292,59 @@ export function PanelUtiska(props: PanelProps) {
               </Red>
             )}
 
-            {red.ctx.jobId !== undefined && (
-              <Red naziv="Posao">
-                <span className="num">#{red.ctx.jobId}</span>
-                {red.ctx.greska ? (
-                  <>
-                    {" · "}
-                    <span className={red.ctx.greska.status === "failed" ? "text-danger" : ""}>
-                      {red.ctx.greska.status}
-                    </span>
-                    <span className="ml-1.5 num text-fg-faint">
-                      {red.ctx.greska.tip} · {red.ctx.greska.attempts}×
-                    </span>
-                  </>
-                ) : (
-                  // Posao nije nađen u redu, ili ga ovaj nalog nije platio.
-                  // Broj se pamti; ono što bi ga opisalo se ne izmišlja.
-                  <span className="ml-1.5 text-fg-faint">bez zapisa u redu poslova</span>
-                )}
-              </Red>
-            )}
+            {red.ctx.query && <Red naziv="Tražio">{red.ctx.query}</Red>}
 
-            {red.ctx.stanje && (
-              <Red naziv="Pristup">
-                {red.ctx.stanje.plan}
-                {red.ctx.stanje.plan_expires_at && (
-                  <span className="ml-1.5 num text-fg-faint">
-                    do {formatDatumKratko(red.ctx.stanje.plan_expires_at)}
-                  </span>
-                )}
-                {red.ctx.stanje.credits_topup > 0 && (
-                  <span className="ml-1.5 num text-fg-faint">
-                    +{red.ctx.stanje.credits_topup} dopuna
-                  </span>
-                )}
+            {koraci.length > 0 && (
+              <Red naziv="Onboarding">
+                {koraci.map((k) => KORAK[k] ?? k).join(" · ")}
+                <span className="ml-1.5 num text-fg-faint">{koraci.length}/4</span>
               </Red>
             )}
           </dl>
 
-          {red.ctx.greska?.poruka && (
-            <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-border bg-bg-inset px-2.5 py-2 num text-[11.5px] text-fg-muted">
-              {red.ctx.greska.poruka}
+          {/* Poruka koju je čovek VIDEO — jedina rečenica u prijavi koja kaže
+              šta se desilo iz njegovog ugla. */}
+          {red.ctx.greska && (
+            <p className="mt-1.5 whitespace-pre-wrap rounded-lg border border-border bg-bg-inset px-2.5 py-2 text-[12.5px] text-fg-muted">
+              {red.ctx.greska}
+            </p>
+          )}
+
+          {poslovi.length > 0 && (
+            <ul className="mt-2 space-y-1.5">
+              {poslovi.map((p) => (
+                <li
+                  key={p.id}
+                  className="rounded-lg border border-border bg-bg-subtle/50 px-2.5 py-2"
+                >
+                  <p className="flex flex-wrap items-baseline gap-x-2 text-[12.5px]">
+                    <span className="num font-medium">#{p.id}</span>
+                    <span className="num text-fg-muted">{p.type}</span>
+                    <span className={p.status === "failed" ? "text-danger" : "text-fg-muted"}>
+                      {p.status}
+                    </span>
+                    <span className="num text-[11px] text-fg-faint">
+                      {p.attempts}× · {formatDatumKratko(p.created_at)}
+                    </span>
+                    {p.izvor === "prospekt" && (
+                      <span className="text-[11px] text-fg-faint">poslednji za ovaj prospekt</span>
+                    )}
+                  </p>
+                  {p.last_error && (
+                    <p className="mt-1 whitespace-pre-wrap num text-[11.5px] text-fg-muted">
+                      {p.last_error}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Posao je imenovan u prijavi, ali ga u redu poslova više nema —
+              očišćen je ili obrisan. Bolje reći nego ćutati. */}
+          {red.ctx.jobId && poslovi.length === 0 && (
+            <p className="mt-2 text-[11.5px] text-fg-faint">
+              Posao <span className="num">#{red.ctx.jobId}</span> više nije u redu poslova.
             </p>
           )}
         </div>
@@ -616,20 +635,23 @@ export function PanelUtiska(props: PanelProps) {
 
 const OCENA: Record<1 | 2 | 3, string> = { 1: "Loše (1/3)", 2: "Ok (2/3)", 3: "Odlično (3/3)" };
 
-/** Odakle je „Prijavi grešku" kliknuto — isti spisak kao `korakEnum` u šemi. */
+/**
+ * Koraci onboardinga iz `ctx.korak` (`profiles.onboarding_steps`, 0026).
+ *
+ * Ista četiri ključa koja prima `onboarding_mark_step()`. Nepoznat ključ se
+ * ispisuje kakav jeste — zapis iz starije verzije ne sme da nestane sa ekrana.
+ */
 const KORAK: Record<string, string> = {
-  kartica: "Kartica prospekta",
-  skeniranje: "Skeniranje",
-  unlock: "Otključavanje",
-  pretraga: "Pretraga",
-  welcome: "Prva strana",
-  pretplata: "Pretplata",
+  pretraga: "pretraga",
+  otkljucavanje: "otključavanje",
+  poruka: "poruka",
+  pipeline: "pipeline",
 };
 
 /** Treći korak na `prvi-potpisan` (S29 §5.3 B). */
 const CITAT: Record<string, string> = {
-  "da-ime": "Sme da se citira, sa imenom.",
-  "da-bez": "Sme da se citira, bez imena.",
+  "da-ime": "Pristao je da se citira, sa imenom.",
+  "da-bez": "Pristao je da se citira, bez imena.",
   ne: "Ne želi da se citira.",
 };
 

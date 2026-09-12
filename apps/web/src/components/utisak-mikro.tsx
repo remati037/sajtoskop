@@ -34,7 +34,23 @@ const HVALA_SA_KREDITOM = "Poslato. Hvala — dodao sam ti 1 kredit.";
 
 type Korak = "pitanje" | "cipovi" | "dopuna" | "hvala" | "greska";
 
-export function UtisakMikro({ kljuc, className }: { kljuc: string; className?: string }) {
+export function UtisakMikro({
+  kljuc,
+  naslov,
+  className,
+}: {
+  kljuc: string;
+  /**
+   * Zamena za naslov iz kataloga — SAMO prikaz (S29 §5.3 C).
+   *
+   * Isto pitanje ume da traži drugu rečenicu na drugom mestu: uz combobox niše
+   * „Ne vidiš svoju nišu? Napiši je." je poziv, a „Šta ti ovde fali?" bi bila
+   * konstatacija. Ključ, šema i validacija ostaju isključivo u katalogu —
+   * pravilo 16 se odnosi na POSTOJANJE pitanja, ne na to kako glasi na ekranu.
+   */
+  naslov?: string;
+  className?: string;
+}) {
   const utisci = useUtisci();
   const pitanje = pitanjeZaKljuc(kljuc);
 
@@ -191,7 +207,9 @@ export function UtisakMikro({ kljuc, className }: { kljuc: string; className?: s
       >
         {korak === "pitanje" && (
           <>
-            <p className="min-w-0 flex-1 text-[13px] font-medium text-fg">{pitanje.naslov}</p>
+            <p className="min-w-0 flex-1 text-[13px] font-medium text-fg">
+              {naslov ?? pitanje.naslov}
+            </p>
 
             {pitanje.tekstPrvi ? (
               <form
@@ -208,7 +226,7 @@ export function UtisakMikro({ kljuc, className }: { kljuc: string; className?: s
                   disabled={ceka}
                   onChange={(e) => setTekst(e.target.value)}
                   placeholder={pitanje.dopuna?.placeholder ?? ""}
-                  aria-label={pitanje.naslov}
+                  aria-label={naslov ?? pitanje.naslov}
                   className="h-8 min-w-0 flex-1 rounded-lg border border-border-strong bg-bg-elev px-2.5 text-[13px] text-fg outline-none transition-colors placeholder:text-fg-faint focus:border-border-accent"
                 />
                 <Button type="submit" variant="outline" size="sm" disabled={ceka || tekst.trim().length < 2}>

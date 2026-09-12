@@ -216,6 +216,27 @@ export type DetaljUtiska = {
   dnevnik: StavkaDnevnika[];
   /** Koliko je utisaka isti čovek poslao ukupno — kontekst uz jednu prijavu. */
   ukupnoOdKorisnika: number;
+  /**
+   * [S29 §5.3 D] Poslovi na koje se prijava odnosi, pročitani PRI PRIKAZU.
+   *
+   * Namerno nisu u `ctx`: status posla se menja i posle prijave (retry, žetva,
+   * povraćaj), pa je zamrznut status u jsonb-u brojka koja laže već sutradan.
+   * `ctx` pamti IDENTIFIKATOR, a ovaj `select` daje ono što je sada istina.
+   */
+  poslovi: PosaoUzPrijavu[];
+};
+
+/** Jedan posao uz prijavu — onaj iz `ctx.jobId` i/ili poslednji za taj prospekt. */
+export type PosaoUzPrijavu = {
+  id: number;
+  type: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  finished_at: string | null;
+  /** `ctx` ga je imenovao, ili je nađen po `payload->>'placeId'`. */
+  izvor: "ctx" | "prospekt";
 };
 
 /**
@@ -268,7 +289,67 @@ export async function citajUtisak(
     slikaUrl,
     dnevnik: dnevnik.data ?? [],
     ukupnoOdKorisnika: ukupno.count ?? 0,
+    poslovi: await posloviZaPrijavu(red.ctx),
   };
+}
+
+/** Kolone posla koje panel prikazuje. `payload` se NE čita — u njemu je i upit. */
+const POLJA_POSLA = "id, type, status, attempts, last_error, created_at, finished_at";
+
+/**
+ * Poslovi uz jednu prijavu (§5.3 D), najviše dva upita i samo kad ima šta.
+ *
+ * Dva puta do posla, jer prijava dolazi sa dva različita mesta:
+ *
+ *   1. `ctx.jobId` — čovek je prijavio palo SKENIRANJE i broj posla je znao
+ *   2. `ctx.placeId` — čovek je prijavio grešku na KARTICI, i tu broj ne zna;
+ *      §5.3 D traži „poslednji `enrich_full` posao" po `payload->>'placeId'`
+ *
+ * Ovo je admin put: `feedback` ima RLS `using (false)` (pravilo 10) i do ovde
+ * se stiže samo kroz `requireAdminPage()`. Zato ovde NEMA provere vlasništva
+ * posla — admin sme da vidi svaki, i to je cela razlika u odnosu na to da je
+ * status upisan u `ctx` pri prijavi.
+ *
+ * Pad bilo kog od dva upita znači blok „Kontekst" bez tog reda, ne pala strana:
+ * prijava se čita i kad `job_queue` ćuti.
+ */
+async function posloviZaPrijavu(ctx: FeedbackRow["ctx"]): Promise<PosaoUzPrijavu[]> {
+  const db = adminSupabase();
+  const nadjeni: PosaoUzPrijavu[] = [];
+
+  const jobId = typeof ctx.jobId === "number" ? ctx.jobId : Number(ctx.jobId ?? Number.NaN);
+  if (Number.isInteger(jobId) && jobId > 0) {
+    const { data, error } = await db
+      .from("job_queue")
+      .select(POLJA_POSLA)
+      .eq("id", jobId)
+      .maybeSingle<Omit<PosaoUzPrijavu, "izvor">>();
+
+    if (error) console.error("[admin] posao uz prijavu:", error.message);
+    else if (data) nadjeni.push({ ...data, izvor: "ctx" });
+  }
+
+  if (ctx.placeId) {
+    const { data, error } = await db
+      .from("job_queue")
+      .select(POLJA_POSLA)
+      .eq("type", "enrich_full")
+      .eq("payload->>placeId", ctx.placeId)
+      .order("id", { ascending: false })
+      .limit(1)
+      .returns<Omit<PosaoUzPrijavu, "izvor">[]>();
+
+    if (error) console.error("[admin] enrich posao za prospekt:", error.message);
+    else {
+      const posao = (data ?? [])[0];
+      // Isti posao već stoji gore kad je prijava nosila i broj i prospekt.
+      if (posao && !nadjeni.some((p) => p.id === posao.id)) {
+        nadjeni.push({ ...posao, izvor: "prospekt" });
+      }
+    }
+  }
+
+  return nadjeni;
 }
 
 // ── oznake ───────────────────────────────────────────────────

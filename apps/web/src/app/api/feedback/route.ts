@@ -30,6 +30,7 @@ import { utisakBodySchema, type UtisakOdgovor } from "@/lib/feedback-schema";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError } from "@/lib/search-types";
 import { mojaPutanja } from "@/lib/slika";
+import { citajPristup } from "@/lib/pristup";
 import { zabeleziOdgovor } from "@/lib/utisci";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,39 @@ const IZVOR_ZA_SLOJ: Record<Pitanje["sloj"], FeedbackSource> = {
 // izazove instant mejl ni da zagadi metriku bugova.
 const IZVOR_BEZ_PITANJA: readonly FeedbackSource[] = ["dugme", "podsetnik"];
 const TIP_BEZ_PITANJA: readonly string[] = ["ideja", "pohvala", "drugo"];
+
+/**
+ * Dopuni kontekst sa ekrana onim što o nalogu zna SAMO server (§5.3 D).
+ *
+ * `korak` je `profiles.onboarding_steps` — dokle je čovek stigao kad je greška
+ * nastala; `stanje` je `pristup.stanje`, izračunato istom funkcijom koja gata
+ * ceo proizvod (`stanjePristupa()`), a ne prepisano u SQL-u. Jedan izvor istine
+ * ostaje jedan.
+ *
+ * Oba čitanja idu kroz `citajPristup()`, koji je `cache()`-ovan po zahtevu — pa
+ * prijava greške ne košta nijedan dodatan upit u odnosu na ostatak rute.
+ *
+ * Nijedan pad ovde ne sme da obori prijavu: utisak bez `stanja` je i dalje
+ * utisak, a utisak koji nije upisan je izgubljen podatak.
+ */
+async function ctxSaServera(
+  saEkrana: { placeId?: string; jobId?: string; greska?: string; query?: string } | undefined,
+): Promise<Record<string, unknown> | null> {
+  let saServera: Record<string, unknown> = {};
+
+  try {
+    const { profile, pristup } = await citajPristup();
+    saServera = {
+      ...(pristup ? { stanje: pristup.stanje } : {}),
+      ...(profile?.onboarding_steps ? { korak: profile.onboarding_steps } : {}),
+    };
+  } catch (err) {
+    console.error("[api/feedback] kontekst sa servera:", err);
+  }
+
+  const spojeno = { ...(saEkrana ?? {}), ...saServera };
+  return Object.keys(spojeno).length > 0 ? spojeno : null;
+}
 
 export async function POST(req: Request): Promise<Response> {
   // IP tempo pre svega (Faza 1, 1.2) — ista brana kao na /api/unlock.
@@ -158,10 +192,16 @@ export async function POST(req: Request): Promise<Response> {
       // donosi `zabeleziUtisak`, na jednom mestu za obe rute (F11 odluka 10).
       errors: errors ?? null,
       screenshotPath: screenshot_path ?? null,
-      // [S29 §5.3 D] Iz tela stižu SAMO identifikatori. Status posla, poruku
-      // greške i stanje naloga čita `zabelezi_utisak` iz baze — zato ova ruta
-      // i ne zna šta su, a telo koje ih pošalje ništa ne menja (pravilo 8).
-      ctxKljuc: ctx_kljuc ?? null,
+      // [S29 §5.3 C i D] `ctx` se sklapa OVDE, iz dva izvora.
+      //
+      // Iz tela dolazi samo ono što opisuje EKRAN i što server ne može da zna:
+      // koji prospekt je bio otvoren, koji posao je čovek gledao, koju je
+      // poruku greške video i šta je otkucao u combobox.
+      //
+      // `korak` i `stanje` dopisuje `ctxSaServera()` — iz profila i iz
+      // `stanjePristupa()`. Telo ih ne nudi i ne bi promenilo ni da ih pošalje
+      // (pravilo 8, §5.3 D: „popunjen sa servera, ne iz klijenta").
+      ctxKljuc: await ctxSaServera(ctx_kljuc),
     });
 
     if (ishod.ishod === "no_user") {
