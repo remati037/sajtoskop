@@ -32,6 +32,7 @@ import {
   sledecaDodelaKredita,
   smeDaKupiPaket,
   TRIAL_DAYS,
+  uzrokGrace,
   type Pristup,
 } from "@sajtoskop/shared";
 import { formatDatum, imePlana, redniDan } from "@/lib/ui-tekst";
@@ -84,6 +85,8 @@ export function PretplataBlok({
   // koje bi ga odvelo u `403` — dobija ono koje ga vodi na planove.
   const smePaket = smeDaKupiPaket(pristup);
   const naplataPala = pretplata?.status === "past_due";
+  // [S30, §2.3] Isti izvor uzroka kao baner u okviru aplikacije.
+  const uzrok = uzrokGrace(pristup, pretplata);
 
   return (
     <section className="rounded-2xl border border-border bg-bg-elev shadow-sm">
@@ -145,22 +148,42 @@ export function PretplataBlok({
         <div className="px-5 pb-5 sm:px-6 sm:pb-6">
           <Alert variant="warning">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p>
-                <span className="font-medium">Naplata nije prošla. Ažuriraj karticu.</span>{" "}
-                <span className="text-fg-muted">
-                  Stripe pokušava ponovo narednih dana. Dok period ne istekne radi sve; posle toga
-                  pristup prelazi u režim čitanja.
-                </span>
-              </p>
+              {pristup?.stanje === "grace" ? (
+                // [S30, §2.2] Dan 8: period je prošao, nalog čita.
+                <p>
+                  <span className="font-medium">Naplata nije prošla.</span>{" "}
+                  <span className="text-fg-muted">
+                    {pristup.punDo && (
+                      <>
+                        Kartica je odbijena <span className="num">{formatDatum(pristup.punDo)}</span>.{" "}
+                      </>
+                    )}
+                    Ažuriraj karticu i plan se nastavlja
+                    {pristup.citanjeDo ? (
+                      <>
+                        ; do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da
+                        čitaš svoje prospekte.
+                      </>
+                    ) : (
+                      "."
+                    )}
+                  </span>
+                </p>
+              ) : (
+                <p>
+                  <span className="font-medium">Naplata nije prošla. Ažuriraj karticu.</span>{" "}
+                  <span className="text-fg-muted">
+                    Stripe pokušava ponovo narednih dana. Dok period ne istekne radi sve; posle toga
+                    pristup prelazi u režim čitanja.
+                  </span>
+                </p>
+              )}
               {imaStripeKupca && <PortalDugme className="shrink-0">Ažuriraj karticu</PortalDugme>}
             </div>
             {/* [S29 §5.3 D] Kartica ume da padne i kad je sve u redu sa njom.
                 Stanje naloga uz prijavu dopisuje server (`pristup.stanje`) — ne
                 ovaj ekran (pravilo 8). Odavde ide samo ono što je čovek video. */}
-            <PrijaviGresku
-              ctx={{ greska: "Naplata nije prošla. Ažuriraj karticu." }}
-              className="mt-2"
-            />
+            <PrijaviGresku ctx={{ greska: "Naplata nije prošla." }} className="mt-2" />
           </Alert>
         </div>
       )}
@@ -168,21 +191,47 @@ export function PretplataBlok({
       {pristup?.stanje === "grace" && !naplataPala && (
         <div className="px-5 pb-5 sm:px-6 sm:pb-6">
           <Alert variant="warning">
-            <span className="font-medium">
-              {/* [S28, O3] Nov nalog u grace-u nema plaćen rok — v. `pristup.ts`. */}
-              {pristup.punDo === null ? (
-                "Besplatni krediti su potrošeni."
-              ) : (
-                <>
-                  Pristup ti je istekao <span className="num">{formatDatum(pristup.punDo)}</span>.
-                </>
-              )}
-            </span>{" "}
-            <span className="text-fg-muted">
-              Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da otvaraš
-              svoje prospekte, vodiš pipeline i izvezeš oba CSV-a. Skeniranje i otključavanje ne
-              rade dok ne uzmeš plan — krediti koje vidiš ispod te čekaju.
-            </span>
+            {uzrok === "besplatni" ? (
+              // [S30, §1.12] Posle oba kredita dobrodošlice.
+              <>
+                <span className="font-medium">Besplatni krediti su potrošeni.</span>{" "}
+                <span className="text-fg-muted">
+                  {pristup.citanjeDo && (
+                    <>
+                      Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da
+                      otvaraš svoj prospekt, poruku i pipeline.{" "}
+                    </>
+                  )}
+                  Za nove liste i otključavanja treba plan — {TRIAL_DAYS} dana probe, kartica se
+                  naplaćuje {redniDan(TRIAL_DAYS + 1)} dana.
+                </span>
+              </>
+            ) : (
+              // [S30, §2.3] „Sve ostalo" — izlaz je plan, ne paket.
+              <>
+                <span className="font-medium">
+                  Pristup ti je istekao
+                  {pristup.punDo ? (
+                    <>
+                      {" "}
+                      <span className="num">{formatDatum(pristup.punDo)}</span>.
+                    </>
+                  ) : (
+                    "."
+                  )}
+                </span>{" "}
+                <span className="text-fg-muted">
+                  {pristup.citanjeDo && (
+                    <>
+                      Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da
+                      otvaraš svoje prospekte, vodiš pipeline i izvezeš oba CSV-a.{" "}
+                    </>
+                  )}
+                  Skeniranje i otključavanje ne rade dok ne uzmeš plan — krediti koje vidiš ispod
+                  te čekaju.
+                </span>
+              </>
+            )}
           </Alert>
         </div>
       )}

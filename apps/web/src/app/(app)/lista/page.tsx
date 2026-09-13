@@ -7,8 +7,12 @@ import Link from "next/link";
 import { ListChecks } from "lucide-react";
 import { CITIES, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
+import { ziviEnrichPoslovi } from "@/lib/jobs";
+import { analizaStigla, jeBezSajta } from "@/lib/kartica";
+import { zahtevajOnboarding } from "@/lib/onboarding";
+import { getPipeline } from "@/lib/pipeline";
+import type { PipelineKartica } from "@/lib/pipeline-tipovi";
 import { zahtevajCitanje } from "@/lib/pristup";
-import { getMojaLista } from "@/lib/moja-lista";
 import { MojaListaEkran } from "@/components/moja-lista-ekran";
 import { VezaGreska } from "@/components/veza-greska";
 import { Button } from "@/components/ui/button";
@@ -19,9 +23,28 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Moja lista" };
 
+/**
+ * [S30, §7.4] Živ posao analize za otključane bez analize — kartica koja je
+ * napuštena usred analize crta „u toku" i posle povratka na listu. Pad upita
+ * svodi se na „nema posla", pa kartica ponudi ponovni pokušaj.
+ */
+async function posloviAnalize(
+  userId: string,
+  kartice: PipelineKartica[],
+): Promise<Record<string, number>> {
+  const bez = kartice.filter((k) => !jeBezSajta(k) && !analizaStigla(k)).map((k) => k.placeId);
+  if (bez.length === 0) return {};
+  try {
+    return Object.fromEntries(await ziviEnrichPoslovi(userId, bez));
+  } catch (err) {
+    console.error("[lista] poslovi analize:", err instanceof Error ? err.message : err);
+    return {};
+  }
+}
+
 export default async function Page() {
   // Prva linija svake zaštićene stranice — ni middleware ni layout ovo ne rade.
-  await requireSession();
+  const userId = await requireSession();
 
   // Pokvarena veza sa bazom ne sme da obori stranu — `profile` je tada `null`,
   // pa se ionako prikazuje `VezaGreska`, a ne prazna tabela. Zato prazan niz
@@ -34,8 +57,11 @@ export default async function Page() {
   // Ide u isti `Promise.all` i vraća profil koji je ionako trebao ovoj strani —
   // dakle kapija ne košta nijedan dodatan upit nad `profiles`. `redirect()` iz
   // nje se kroz `Promise.all` uredno propagira.
+  //
+  // [S30] `getPipeline`, ne `getMojaLista`: kartica nosi i mesto u pipeline-u
+  // (§7.2). To je isti skup prospekata plus jedan upit nad `lead_status`.
   const [leads, { profile, pristup }] = await Promise.all([
-    getMojaLista().catch((err: unknown) => {
+    getPipeline().catch((err: unknown) => {
       console.error("[lista] čitanje otključanih prospekata:", err);
       return [];
     }),
@@ -44,7 +70,17 @@ export default async function Page() {
   // Dnevni cap izvoza po planu iz kapije: stanje `dopuna` ima Starter limite,
   // a `profiles.plan` bi dao limite plana koji je istekao (§1.3). Isto računa i
   // `/api/export`, pa se broj uz dugme i broj koji server primeni ne razilaze.
+  // [S30, §1.8] Treća linija: nov nalog sa pristupom ide u čarobnjak.
+  zahtevajOnboarding(profile, pristup);
+
   const plan = planFor(pristup?.planLimita ?? profile?.plan);
+  const enrichJobs = profile && leads.length > 0 ? await posloviAnalize(userId, leads) : {};
+
+  // [S30, §4.7] „Otključaj prvi prospekt" vodi na listu iz čarobnjaka, ako je ima.
+  const listaIzCarobnjaka =
+    profile?.onboarding_city && profile.onboarding_niche
+      ? `/pretraga?grad=${encodeURIComponent(profile.onboarding_city)}&nisa=${encodeURIComponent(profile.onboarding_niche)}&dubina=brzo`
+      : "/pretraga";
   const cityLabels = Object.fromEntries(CITIES.map((c) => [c.slug, c.label]));
 
   return (
@@ -63,11 +99,11 @@ export default async function Page() {
         <>
         <PraznoStanje
           ikona={<ListChecks />}
-          naslov="Još nemaš nijedan otključan prospekt."
-          opis="Otključavanje troši jedan kredit i otvara telefon, mejl, adresu sajta i pun Ugly Score. Kad otključaš prvi, ovde se pojavljuje tabela koju možeš da izvezeš u CSV i zalepiš u svoj Sheet."
+          naslov="Ovde stoji sve što otključaš"
+          opis="Otključan prospekt ostaje tvoj zauvek: telefon, mejl, snimci, problemi i poruka. Odavde ide i CSV za tvoj Sheet."
         >
           <Button asChild variant="primary">
-            <Link href="/pretraga">Idi na pretragu</Link>
+            <Link href={listaIzCarobnjaka}>Otključaj prvi prospekt</Link>
           </Button>
         </PraznoStanje>
 
@@ -82,6 +118,7 @@ export default async function Page() {
           cityLabels={cityLabels}
           exportPerDay={plan.exportPerDay}
           exportedToday={profile.export_count}
+          enrichJobs={enrichJobs}
         />
       )}
     </div>

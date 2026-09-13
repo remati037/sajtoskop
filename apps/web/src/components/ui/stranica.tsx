@@ -32,16 +32,26 @@ export function ZaglavljeStranice({
   );
 }
 
+/**
+ * Prazno stanje (§4.7): ikona, naslov, opis, JEDNO dugme, opciono fusnota.
+ *
+ * „Jedno dugme, uvek" — `children` je mesto za tačno jedno primarno dugme. Ono
+ * što prazno stanje dodatno pita (npr. „Šta ti ovde fali?") stoji ISPOD
+ * komponente, ne u njoj (§5.3 C).
+ */
 export function PraznoStanje({
   ikona,
   naslov,
   opis,
+  fusnota,
   children,
   className,
 }: {
   ikona?: React.ReactNode;
   naslov: string;
   opis?: React.ReactNode;
+  /** [S30, §4.7] Sitna rečenica ispod dugmeta — npr. „Podrazumevano: Šabac · PVC stolarija". */
+  fusnota?: React.ReactNode;
   children?: React.ReactNode;
   className?: string;
 }) {
@@ -60,6 +70,7 @@ export function PraznoStanje({
       <p className="text-base font-medium">{naslov}</p>
       {opis && <p className="mt-1.5 max-w-lg text-sm text-fg-muted">{opis}</p>}
       {children && <div className="mt-5 flex flex-wrap justify-center gap-2">{children}</div>}
+      {fusnota && <p className="mt-4 max-w-lg text-xs text-fg-muted">{fusnota}</p>}
     </div>
   );
 }

@@ -11,8 +11,10 @@
 // izlaska prolazi kroz `toPublicLead()`, a `userId` dolazi iz Clerk sesije.
 
 import "server-only";
-import { GOOGLE_TTL_DAYS } from "@sajtoskop/shared";
+import { GOOGLE_TTL_DAYS, type LeadStatusValue } from "@sajtoskop/shared";
 import { adminSupabase, userSupabase } from "./supabase";
+import { ziviEnrichPoslovi } from "./jobs";
+import { analizaStigla, jeBezSajta } from "./kartica";
 import { istekKesa } from "./search-cache";
 import { screenshotPathsOf, toPublicLead, type LeadAudit, type LeadBusiness } from "./public-lead";
 import { signScreenshots } from "./screenshots";
@@ -119,13 +121,41 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
     source,
   });
 
+  // [S30, §7.2] Mesto u pipeline-u za otključane na ovoj strani — mali izbor na
+  // kartici. Pad ne ruši pretragu: kartica bez statusa je `nekontaktiran`.
+  const statusi = await citajStatuse([...unlocked]).catch((err: unknown) => {
+    console.error("[search] statusi pipeline-a:", err instanceof Error ? err.message : err);
+    return {};
+  });
+
+  const results = pageRows.map(({ b, a }) => toPublicLead(b, a, unlocked.has(b.place_id), signed));
+
+  // [S30, §7.4] Posao analize za otključane bez analize — da kartica posle
+  // listanja strane ne pokaže grešku za posao koji i dalje radi. Upit ide samo
+  // kad takvih ima; pad ga svodi na „nema posla" (kartica nudi ponovni pokušaj).
+  const bezAnalize = results.filter(
+    (l): l is Extract<typeof l, { isUnlocked: true }> =>
+      l.isUnlocked && !jeBezSajta(l) && !analizaStigla(l),
+  );
+  const enrichJobs =
+    bezAnalize.length === 0
+      ? {}
+      : Object.fromEntries(
+          await ziviEnrichPoslovi(input.userId, bezAnalize.map((l) => l.placeId)).catch(
+            (err: unknown) => {
+              console.error("[search] poslovi analize:", err instanceof Error ? err.message : err);
+              return new Map<string, number>();
+            },
+          ),
+        );
+
   return {
     status: "cache",
     freshness,
     total,
     page: input.page,
     pageSize: PAGE_SIZE,
-    results: pageRows.map(({ b, a }) => toPublicLead(b, a, unlocked.has(b.place_id), signed)),
+    results,
     summary: {
       noSite: rows[0]!.no_site,
       social: rows[0]!.social,
@@ -133,7 +163,30 @@ export async function searchCachedLeads(input: SearchInput): Promise<SearchRespo
       ugly: rows[0]!.ugly,
       ok: rows[0]!.ok,
     },
+    statusi,
+    enrichJobs,
   };
+}
+
+/**
+ * [S30] `lead_status` za zadate prospekte, kroz RLS „own rows" — ista brava kao
+ * `unlocks` u `getUnlockedPlaceIds`. Najviše 30 id-jeva (jedna strana).
+ */
+async function citajStatuse(placeIds: string[]): Promise<Record<string, LeadStatusValue>> {
+  const out: Record<string, LeadStatusValue> = {};
+  if (placeIds.length === 0) return out;
+
+  for (const deo of inGrupe(placeIds)) {
+    const { data, error } = await userSupabase()
+      .from("lead_status")
+      .select("place_id, status")
+      .in("place_id", deo)
+      .returns<{ place_id: string; status: LeadStatusValue }[]>();
+
+    if (error) throw new Error(error.message);
+    for (const r of data ?? []) out[r.place_id] = r.status;
+  }
+  return out;
 }
 
 // ── oblik reda iz `search_listing` (migracija 0020) ────────

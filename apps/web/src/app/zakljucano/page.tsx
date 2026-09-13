@@ -1,5 +1,5 @@
 // apps/web/src/app/zakljucano/page.tsx
-// Gde stiže nalog kome je i grace period istekao (LANSIRANJE §1.5).
+// Gde stiže nalog kome je i grace period istekao (LANSIRANJE §1.5, tok-i-onboarding §2.4).
 //
 // Namerno stoji IZVAN grupe `(app)`: ta grupa je ono što je zaključano, pa bi
 // strana o zaključavanju unutar nje bila petlja preusmeravanja. Okvir je isti
@@ -9,13 +9,20 @@
 //    do prošlog meseca plaćao mora da pročita ŠTA se desilo, ŠTA je ostalo i
 //    ŠTA može da uradi. Prazan ekran na tom mestu je najbrži put do „ukrali ste
 //    mi podatke" — a nije obrisano ništa.
+//
+// ── [S30] dve grane ─────────────────────────────────────────
+//   · plaćen rok postoji (`punDo`) → pretplata ili komp je istekao, pa i grace;
+//   · plaćenog roka nikad nije bilo → nalog je potrošio kredite dobrodošlice i
+//     prošlo je 30 dana čitanja od registracije (O3): „Nalog čeka plan" (§1.12).
 
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, Lock } from "lucide-react";
+import { citanjeDoZa } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
 import { citajPristup } from "@/lib/pristup";
+import { adminSupabase } from "@/lib/supabase";
 import { formatDatum } from "@/lib/ui-tekst";
 import { LANDING_URL } from "@/lib/veze";
 import { Button } from "@/components/ui/button";
@@ -30,18 +37,43 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function Page() {
-  await requireSession();
+/**
+ * Kad je nalog potrošio poslednji kredit — poslednja stavka sa minusom u knjizi.
+ * `null` kad se ne pročita; rečenica tada ide bez tog datuma.
+ */
+async function poslednjaPotrosnja(userId: string): Promise<string | null> {
+  const { data, error } = await adminSupabase()
+    .from("credit_ledger")
+    .select("created_at")
+    .eq("user_id", userId)
+    .lt("delta", 0)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ created_at: string }>();
 
-  const { pristup } = await citajPristup();
+  if (error) {
+    console.error("[zakljucano] poslednja potrošnja:", error.message);
+    return null;
+  }
+  return data?.created_at ?? null;
+}
+
+export default async function Page() {
+  const userId = await requireSession();
+
+  const { pristup, profile } = await citajPristup();
 
   // Ko sme unutra, taj ovde nema šta da radi — uključujući i onoga ko je maločas
-  // kupio paket i time se vratio u `dopuna` stanje. Bez ovoga bi strana ostala
-  // slepa ulica posle kupovine.
+  // kupio plan. Bez ovoga bi strana ostala slepa ulica posle kupovine.
   //
   // `pristup === null` je nepoznato stanje (pokvarena veza sa bazom), i ono se
   // takođe pušta nazad: kvar veze ne sme da izgleda kao istekla pretplata.
   if (!pristup || pristup.cita) redirect("/pretraga");
+
+  const cekaPlan = pristup.punDo === null;
+  const potrosio = cekaPlan ? await poslednjaPotrosnja(userId) : null;
+  // O3: bez plaćenog roka čitanje traje 30 dana od registracije.
+  const rokCitanja = cekaPlan ? citanjeDoZa(profile?.created_at ?? null) : pristup.citanjeDo;
 
   return (
     <div className="relative min-h-screen">
@@ -63,38 +95,57 @@ export default async function Page() {
             <Lock className="h-5 w-5" aria-hidden />
           </span>
 
-          <h1 className="h2 mt-4">Pristup je istekao</h1>
-
-          <p className="mt-3 text-sm leading-relaxed text-fg-muted">
-            {pristup.punDo ? (
-              <>
-                Pun pristup ti je prestao <span className="num">{formatDatum(pristup.punDo)}</span>.
-                Posle toga si imao još mesec dana da otvaraš svoje prospekte i izvezeš ih —
-                {pristup.citanjeDo ? (
+          {cekaPlan ? (
+            // §1.12, „Posle 30 dana" — doslovno.
+            <>
+              <h1 className="h2 mt-4">Nalog čeka plan</h1>
+              <p className="mt-3 text-sm leading-relaxed text-fg-muted">
+                Besplatne kredite si potrošio
+                {potrosio && (
                   <>
                     {" "}
-                    taj rok je istekao{" "}
-                    <span className="num">{formatDatum(pristup.citanjeDo)}</span>.
+                    <span className="num">{formatDatum(potrosio)}</span>
+                  </>
+                )}
+                , a rok za čitanje je prošao
+                {rokCitanja && (
+                  <>
+                    {" "}
+                    <span className="num">{formatDatum(rokCitanja)}</span>
+                  </>
+                )}
+                . Ništa nije obrisano — sa planom se sve vraća.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="h2 mt-4">Pristup je istekao</h1>
+              <p className="mt-3 text-sm leading-relaxed text-fg-muted">
+                Pun pristup ti je prestao{" "}
+                <span className="num">{formatDatum(pristup.punDo as string)}</span>. Posle toga si
+                imao još mesec dana da otvaraš svoje prospekte i izvezeš ih —
+                {rokCitanja ? (
+                  <>
+                    {" "}
+                    taj rok je istekao <span className="num">{formatDatum(rokCitanja)}</span>.
                   </>
                 ) : (
                   " i taj rok je istekao."
                 )}
-              </>
-            ) : (
-              "Nalog nema ni aktivnu pretplatu, ni betu koja traje, ni kupljene kredite."
-            )}
-          </p>
+              </p>
 
-          <p className="mt-3 text-sm leading-relaxed text-fg-muted">
-            <strong className="font-semibold text-fg">Ništa nije obrisano.</strong> Otključani
-            prospekti, pipeline, beleške i poruke stoje tačno kako si ih ostavio i vraćaju se u
-            istom trenutku u kom nalog ponovo dobije pristup.
-          </p>
+              <p className="mt-3 text-sm leading-relaxed text-fg-muted">
+                <strong className="font-semibold text-fg">Ništa nije obrisano.</strong> Otključani
+                prospekti, pipeline, beleške i poruke stoje tačno kako si ih ostavio i vraćaju se u
+                istom trenutku u kom nalog ponovo dobije pristup.
+              </p>
+            </>
+          )}
 
-          {/* Jedan izlaz, ne dva. Do 26.8. je ovde stajalo i „Samo dokupi
-              kredite" — a od odluke tog dana paket traži aktivan plan ili betu
-              (`smeDaKupiPaket`), pa zaključan nalog tim putem ne može da prođe.
-              Dugme koje vodi u odbijenicu je gore nego dugme kog nema. */}
+          {/* Jedan izlaz, ne dva. Paket kredita se kupuje samo uz aktivan plan,
+              probu ili komp pristup (`smeDaKupiPaket`), pa zaključan nalog tim
+              putem ne može da prođe. Dugme koje vodi u odbijenicu je gore nego
+              dugme kog nema. */}
           <div className="mt-6">
             <Button asChild variant="primary">
               <Link href="/cenovnik">
@@ -104,10 +155,13 @@ export default async function Page() {
             </Button>
           </div>
 
-          <p className="mt-6 border-t border-border pt-4 text-xs leading-relaxed text-fg-muted">
-            Krediti koje si ranije dokupio nisu nestali — oni ne ističu i čekaju te. Paket kredita
-            se, međutim, kupuje samo uz aktivan plan ili betu, pa se pristup vraća planom.
-          </p>
+          {!cekaPlan && (
+            <p className="mt-6 border-t border-border pt-4 text-xs leading-relaxed text-fg-muted">
+              Krediti koje si ranije dokupio nisu nestali — oni ne ističu i čekaju te. Paket kredita
+              se, međutim, kupuje samo uz aktivan plan, probu ili komp pristup, pa se pristup vraća
+              planom.
+            </p>
+          )}
         </div>
       </main>
     </div>

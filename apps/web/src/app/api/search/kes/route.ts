@@ -30,8 +30,8 @@ export async function GET(): Promise<Response> {
   // ekrana pretrage, a pretraga je ono što `grace` nalog ne sme (§1.5). Podatka
   // o firmama ovde nema, ali bi lista koja radi ispod forme koja ne radi bila
   // samo zbunjujuća.
-  const { pristup } = await citajPristup();
-  const odbijen = odbijenica(pristup, "pretraga");
+  const { pristup, pretplata } = await citajPristup();
+  const odbijen = odbijenica(pristup, "pretraga", pretplata);
   if (odbijen) return odbijen;
 
   try {

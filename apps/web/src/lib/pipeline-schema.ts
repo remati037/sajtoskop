@@ -39,6 +39,13 @@ export const pipelineBodySchema = z
   .object({
     placeId,
     status: statusEnum.optional(),
+    /**
+     * [S30, §1.11] Kanal kojim je prospekt kontaktiran — stiže iz tosta
+     * „Kopirano. Označi kao kontaktiran?" na kartici (tab koji je kopiran).
+     * Prevlačenje u kanbanu ga ne šalje i zatečen kanal ostaje (`coalesce` u
+     * `set_lead_status`).
+     */
+    channel: z.union([kanalEnum, z.literal("poziv")]).optional(),
     // `.max` je gornja granica veličine tela, ne pravilo o sadržaju. Prazan
     // string je dozvoljen i znači „obriši belešku".
     note: z.string().max(4000, { error: "Beleška je predugačka." }).optional(),

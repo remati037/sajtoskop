@@ -27,7 +27,7 @@
 // skuplja putanje isključivo iz redova koje je prethodno proglasio otključanim.
 
 import "server-only";
-import type { BusinessRow, WebsiteAuditRow } from "@sajtoskop/shared";
+import { NICHES, type BusinessRow, type WebsiteAuditRow } from "@sajtoskop/shared";
 import type { LeadBase, LeadScreenshot, PublicLead } from "./search-types";
 
 // Ulazni oblici su namerno `Pick<>`, a ne ceo red iz baze: tip je istovremeno i
@@ -108,6 +108,19 @@ function screenshotOf(
   return { desktop, mobile };
 }
 
+/** Ime niše po slugu — jednom, ne pri svakom redu (§7.0). */
+const IME_NISE = new Map(NICHES.map((n) => [n.slug, n.label]));
+
+/**
+ * [S30, §7.0] Broj problema za zaključanu karticu: AI stavke ako je AI prošao,
+ * inače signali HTML provere. Samo dužina niza — sadržaj ne izlazi.
+ */
+function brojProblema(a: LeadAudit | null): number | null {
+  if (!a) return null;
+  if (Array.isArray(a.ai_issues)) return a.ai_issues.length;
+  return Array.isArray(a.signals) ? a.signals.length : null;
+}
+
 export function toPublicLead(
   b: LeadBusiness,
   a: LeadAudit | null,
@@ -127,6 +140,12 @@ export function toPublicLead(
     siteStatus: a?.site_status ?? null,
     uglyBand: a?.ugly_band ?? null,
     platform: a?.platform ?? null,
+    // [S30, §7.0 i §7.3] Javno i bezopasno: broj ocena, „ima mejl" (ne adresa),
+    // ime niše i BROJ problema (ne njihov tekst).
+    ratingCount: b.user_ratings_total ?? null,
+    hasEmail: (a?.emails?.length ?? 0) > 0,
+    nicheLabel: b.niche_slug ? (IME_NISE.get(b.niche_slug) ?? "") : "",
+    issueCount: brojProblema(a),
   };
 
   if (!isUnlocked) return { ...base, isUnlocked: false };

@@ -5,52 +5,61 @@
 //
 // Pretraga i filtriranje rade u pregledaču, nad već učitanom listom. Razlog nije
 // lenjost nego budžet i osećaj: lista je ograničena na ono što je korisnik
-// platio kreditima (beta: 30 mesečno), pa je i najveći slučaj par stotina redova.
-// Server upit po svakom otkucanom slovu bio bi sporiji i skuplji od filtera u memoriji.
+// platio kreditima, pa je i najveći slučaj par stotina redova. Server upit po
+// svakom otkucanom slovu bio bi sporiji i skuplji od filtera u memoriji.
+//
+// [S30, O5] Kartice prospekta umesto tabele — ista komponenta kao na
+// `/pretraga`, sa snimcima, problemima i porukom na samoj kartici. Panel poruka
+// odavde više ne treba; ostaje u kanbanu.
+//
+// Kartice se crtaju po 30: svaka povlači svoju poruku kad uđe u vidokrug, a
+// lista od nekoliko stotina kartica odjednom je spor ekran bez ijednog razloga.
 
-import { useMemo, useState } from "react";
-import { Download, ExternalLink, PenLine, Search } from "lucide-react";
-import type { MojLead } from "@/lib/moja-lista";
-import { TelefonLink } from "./lead-tabela";
-import { PorukePanel } from "./poruke-panel";
-import { SnimakDugme } from "./snimak";
+import { useCallback, useMemo, useState } from "react";
+import { Download, Search } from "lucide-react";
+import { foldForSearch } from "@sajtoskop/shared";
+import type { PipelineKartica } from "@/lib/pipeline-tipovi";
+import type { ApiError, UnlockedLead } from "@/lib/search-types";
 import { cn } from "@/lib/cn";
+import { plural } from "@/lib/ui-tekst";
+import { KarticaProspekta } from "./kartica-prospekta";
 import { Alert } from "./ui/alert";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input, Label } from "./ui/input";
 import { Izbor } from "./ui/select";
 import { PraznoStanje } from "./ui/stranica";
-import { BAND_LABEL, formatDatum, plural, STATUS_LABEL } from "@/lib/ui-tekst";
-import type { ApiError } from "@/lib/search-types";
-import { foldForSearch } from "@sajtoskop/shared";
+
+/** Koliko kartica se crta odjednom. */
+const PO_STRANI = 30;
 
 type Props = {
-  leads: MojLead[];
+  leads: PipelineKartica[];
   cityLabels: Record<string, string>;
   /** Dnevni cap iz plana — samo za tekst uz dugme za izvoz. */
   exportPerDay: number;
   exportedToday: number;
+  /** [S30, §7.4] Živ posao analize po `place_id` — kartica crta „u toku". */
+  enrichJobs: Record<string, number>;
 };
 
-export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday }: Props) {
+export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday, enrichJobs }: Props) {
+  const [redovi, setRedovi] = useState(leads);
   const [upit, setUpit] = useState("");
   const [grad, setGrad] = useState<string>("");
   const [samoBezSajta, setSamoBezSajta] = useState(false);
   const [izvozim, setIzvozim] = useState(false);
   const [poruka, setPoruka] = useState<string | null>(null);
   const [greska, setGreska] = useState<string | null>(null);
-  /** Prospekt čije su poruke otvorene. Isti panel kao u kanbanu (F7 §2). */
-  const [otvoren, setOtvoren] = useState<MojLead | null>(null);
+  const [prikazano, setPrikazano] = useState(PO_STRANI);
 
   // Gradovi koji stvarno postoje u listi — prazan filter nema smisla nuditi.
   const gradovi = useMemo(() => {
-    const skup = new Set(leads.map((l) => l.citySlug));
+    const skup = new Set(redovi.map((l) => l.citySlug));
     return [...skup]
       .map((slug) => ({ slug, label: cityLabels[slug] ?? slug }))
       .sort((a, b) => a.label.localeCompare(b.label, "sr-Latn-RS"));
-  }, [leads, cityLabels]);
+  }, [redovi, cityLabels]);
 
   const vidljivi = useMemo(() => {
     // `foldForSearch` skida dijakritiku i prevodi ćirilicu — „sabac" nalazi
@@ -58,7 +67,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
     // nazivima beskorisna.
     const trazeno = foldForSearch(upit.trim());
 
-    return leads.filter((l) => {
+    return redovi.filter((l) => {
       if (grad && l.citySlug !== grad) return false;
       if (samoBezSajta && l.siteStatus === "ok") return false;
       if (!trazeno) return true;
@@ -68,7 +77,20 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
       );
       return seno.includes(trazeno);
     });
-  }, [leads, upit, grad, samoBezSajta]);
+  }, [redovi, upit, grad, samoBezSajta]);
+
+  /** Kartica je posle završene analize dobila pun lead. */
+  const zameni = useCallback((novi: UnlockedLead) => {
+    setRedovi((pre) => pre.map((r) => (r.placeId === novi.placeId ? { ...r, ...novi } : r)));
+  }, []);
+
+  /** „Sledeći prospekt" (§4.7) — na listi su svi otključani, pa je to prosto sledeća kartica. */
+  function sledeci(placeId: string) {
+    const od = vidljivi.findIndex((l) => l.placeId === placeId);
+    const s = vidljivi[od + 1];
+    if (!s) return;
+    document.getElementById(`kartica-${s.placeId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   /**
    * Izvoz ide kroz `fetch`, a ne kroz običan `<a download>`.
@@ -121,11 +143,13 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
     }
   }
 
+  const naEkranu = vidljivi.slice(0, prikazano);
+
   return (
     <div className="space-y-5">
       <Card className="overflow-visible p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="min-w-[15rem] flex-1">
+          <label className="min-w-[min(15rem,100%)] flex-1">
             <Label>Pretraži svoju listu</Label>
             <div className="relative">
               <Search
@@ -135,7 +159,10 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
               <Input
                 type="search"
                 value={upit}
-                onChange={(e) => setUpit(e.target.value)}
+                onChange={(e) => {
+                  setUpit(e.target.value);
+                  setPrikazano(PO_STRANI);
+                }}
                 placeholder="naziv, adresa, mejl ili telefon"
                 className="pl-9"
               />
@@ -146,7 +173,10 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
             <Izbor
               naziv="Grad"
               vrednost={grad}
-              postavi={setGrad}
+              postavi={(g) => {
+                setGrad(g);
+                setPrikazano(PO_STRANI);
+              }}
               opcije={gradovi}
               sve="Svi gradovi"
             />
@@ -170,7 +200,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
             type="button"
             variant="primary"
             onClick={() => void izvezi()}
-            disabled={izvozim || leads.length === 0}
+            disabled={izvozim || redovi.length === 0}
             title={`Izvozi otključane prospekte${grad ? " iz izabranog grada" : ""}. Dnevni limit: ${exportPerDay} redova.`}
             className="ml-auto"
           >
@@ -185,9 +215,9 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
         <p className="num">
-          {vidljivi.length === leads.length
-            ? `${leads.length} otključanih ${plural(leads.length, "prospekt", "prospekta", "prospekata")}`
-            : `${vidljivi.length} od ${leads.length} prospekata`}
+          {vidljivi.length === redovi.length
+            ? `${redovi.length} otključanih ${plural(redovi.length, "prospekt", "prospekta", "prospekata")}`
+            : `${vidljivi.length} od ${redovi.length} prospekata`}
         </p>
         <p className="text-xs num text-fg-muted">
           izvezeno danas: {exportedToday} od {exportPerDay}
@@ -201,144 +231,32 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday 
           opis="Skloni filtere ili promeni upit."
         />
       ) : (
-        <Tabela leads={vidljivi} cityLabels={cityLabels} otvoriPoruke={setOtvoren} />
-      )}
-
-      {otvoren && (
-        <PorukePanel
-          placeId={otvoren.placeId}
-          naziv={otvoren.name}
-          zatvori={() => setOtvoren(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-function Tabela({
-  leads,
-  cityLabels,
-  otvoriPoruke,
-}: {
-  leads: MojLead[];
-  cityLabels: Record<string, string>;
-  otvoriPoruke: (l: MojLead) => void;
-}) {
-  return (
-    <div className="overflow-hidden rounded-xl border border-border bg-bg-elev shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[58rem] border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-border bg-bg-subtle/70 text-left text-[11px] uppercase tracking-wider text-fg-muted">
-              <th className="py-2.5 pl-4 font-medium">Prospekt</th>
-              <th className="py-2.5 font-medium">Status</th>
-              <th className="py-2.5 font-medium">Snimak</th>
-              <th className="py-2.5 font-medium">Telefon</th>
-              <th className="py-2.5 font-medium">Mejl</th>
-              <th className="py-2.5 font-medium">Sajt</th>
-              <th className="py-2.5 text-right font-medium">Score</th>
-              <th className="py-2.5 text-right font-medium">Otključano</th>
-              <th className="py-2.5 pr-4 text-right font-medium">Poruka</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {leads.map((l) => (
-              <tr
+        <>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {naEkranu.map((l) => (
+              <KarticaProspekta
                 key={l.placeId}
-                className="border-b border-border/70 transition-colors last:border-0 hover:bg-bg-subtle/60"
-              >
-                <td className="py-3 pl-4">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{l.name}</div>
-                    <div className="truncate text-xs text-fg-muted">
-                      {cityLabels[l.citySlug] ?? l.citySlug}
-                      {l.address && ` · ${l.address}`}
-                    </div>
-                  </div>
-                </td>
-
-                <td className="py-3 align-middle text-xs">
-                  {l.siteStatus === "ok" ? (
-                    <Badge variant="outline">
-                      {l.uglyBand ? BAND_LABEL[l.uglyBand] : "Ima sajt"}
-                    </Badge>
-                  ) : l.siteStatus ? (
-                    <Badge
-                      variant={
-                        l.siteStatus === "nema_sajt"
-                          ? "success"
-                          : l.siteStatus === "mrtav"
-                            ? "warning"
-                            : "info"
-                      }
-                      className="font-semibold"
-                    >
-                      {STATUS_LABEL[l.siteStatus]}
-                    </Badge>
-                  ) : (
-                    <span className="text-fg-muted/60">—</span>
-                  )}
-                </td>
-
-                <td className="py-3 align-middle">
-                  <SnimakDugme lead={l} />
-                </td>
-
-                <td className="py-3 align-middle">
-                  <TelefonLink phone={l.phone} tip={l.phoneType} />
-                </td>
-
-                <td className="py-3 align-middle">
-                  {l.email ? (
-                    <a
-                      href={`mailto:${l.email}`}
-                      className="num block max-w-[14rem] truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
-                    >
-                      {l.email}
-                    </a>
-                  ) : (
-                    <span className="text-xs text-fg-muted/60">—</span>
-                  )}
-                </td>
-
-                <td className="py-3 align-middle">
-                  {l.websiteUrl ? (
-                    <a
-                      href={l.websiteUrl}
-                      target="_blank"
-                      rel="noreferrer noopener nofollow"
-                      className="num flex max-w-[12rem] items-center gap-1 truncate text-xs underline decoration-dotted underline-offset-4 transition-colors hover:text-accent-text"
-                    >
-                      <ExternalLink className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        {l.websiteUrl.replace(/^https?:\/\/(www\.)?/, "")}
-                      </span>
-                    </a>
-                  ) : (
-                    <span className="text-xs text-fg-muted/60">—</span>
-                  )}
-                </td>
-
-                <td className="py-3 text-right align-middle font-medium num">
-                  {l.uglyScore ?? <span className="text-fg-muted/60">—</span>}
-                </td>
-
-                <td className="py-3 text-right align-middle text-xs text-fg-muted">
-                  {l.unlockedAt ? <span className="num">{formatDatum(l.unlockedAt)}</span> : "—"}
-                </td>
-
-                <td className="py-3 pr-4 text-right align-middle">
-                  <Button type="button" variant="outline" size="sm" onClick={() => otvoriPoruke(l)}>
-                    <PenLine className="h-3 w-3" />
-                    Napiši
-                  </Button>
-                </td>
-              </tr>
+                lead={l}
+                cityLabel={cityLabels[l.citySlug] ?? l.citySlug}
+                krediti={0}
+                enrichJobId={enrichJobs[l.placeId] ?? null}
+                pipelineStatus={l.uPipelineu ? l.status : null}
+                onZameni={zameni}
+                onSledeci={() => sledeci(l.placeId)}
+              />
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+
+          {vidljivi.length > prikazano && (
+            <div className="flex justify-center">
+              <Button type="button" variant="secondary" onClick={() => setPrikazano((n) => n + PO_STRANI)}>
+                Prikaži još{" "}
+                <span className="num">{Math.min(PO_STRANI, vidljivi.length - prikazano)}</span>
+              </Button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

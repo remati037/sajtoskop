@@ -49,8 +49,8 @@ export async function POST(req: Request): Promise<Response> {
 
   // [S19] Uvoz ume da OTKLJUČAVA redove, dakle troši kredite — ista kapija kao
   // na `/api/unlock`, i pre čitanja fajla od 2 MB.
-  const { pristup } = await citajPristup();
-  const odbijen = odbijenica(pristup, "uvoz");
+  const { pristup, pretplata } = await citajPristup();
+  const odbijen = odbijenica(pristup, "uvoz", pretplata);
   if (odbijen) return odbijen;
 
   let form: FormData;

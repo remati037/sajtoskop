@@ -188,7 +188,8 @@ function ModalPristupa({
           ) : (
             <p>
               Put dalje je <strong className="font-semibold text-fg">plan</strong>. Paketi kredita
-              se kupuju samo uz aktivan plan ili betu — oni dopunjuju pristup, ne zamenjuju ga.
+              se kupuju samo uz aktivan plan, probu ili komp pristup — oni dopunjuju pristup, ne
+              zamenjuju ga.
             </p>
           )}
         </div>

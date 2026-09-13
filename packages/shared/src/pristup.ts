@@ -373,6 +373,40 @@ export function stanjePristupa(
 // stoji, pa paket uz probu nije ništa drugo nego paket uz plan koji počinje
 // osmog dana (naplata-stripe.md §7.1, `STANJA_ZA_PAKET`).
 
+// ═══════════════════════════════════════════════════════════
+// ZAŠTO JE NALOG U GRACE-U (S30, tok-i-onboarding §2.3)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Tri uzroka istog stanja, tri rečenice na baneru:
+ *
+ *   naplata   — pretplata je `past_due`: kartica je odbijena (§2.2)
+ *   besplatni — plan nikad nije postojao: potrošeni krediti dobrodošlice (O3, §1.12)
+ *   istekao   — sve ostalo: istekla otkazana pretplata, istekao komp (§2.3)
+ */
+export type UzrokGrace = "naplata" | "besplatni" | "istekao";
+
+/**
+ * Uzrok grace-a, ili `null` kad nalog nije u grace-u.
+ *
+ * `grace` namerno ne nosi uzrok u sebi (§2.3): odluka o pristupu je ista za sva
+ * tri, a razlikuje se samo tekst. Zato se uzrok izvodi odvojeno, iz istog para
+ * ulaza, i niko ne dobija drugu računicu o pristupu.
+ *
+ * „Nema pretplate nikad" = nema reda u `subscriptions` I nema plaćenog roka.
+ * Samo prazan `punDo` nije dovoljan: nalog kome je admin dao pa uzeo komp bez
+ * roka nema datum, a jeste imao pristup.
+ */
+export function uzrokGrace(
+  pristup: Pristup | null,
+  pretplata: Pick<PretplataZaPristup, "status"> | null,
+): UzrokGrace | null {
+  if (!pristup || pristup.stanje !== "grace") return null;
+  if (pretplata?.status === "past_due") return "naplata";
+  if (pretplata === null && pristup.punDo === null) return "besplatni";
+  return "istekao";
+}
+
 /** Stanja iz kojih se paket kredita sme kupiti. Jedini spisak, nema drugog. */
 export const STANJA_ZA_PAKET: readonly StanjeId[] = ["aktivan", "otkazan", "komp", "proba"];
 

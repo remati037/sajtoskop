@@ -8,7 +8,12 @@
 // ikad poraste — nešto je sišlo sa svog sprata.
 //
 // `userId` dolazi ISKLJUČIVO iz `requireUserId()` (pravilo 8 i P0-1). Telo se
-// čita tek posle toga i iz njega izlazi samo `placeId`.
+// čita tek posle toga i iz njega izlaze samo `placeId` i `ponovi`.
+//
+// [S30] Ista ruta služi i kartici prospekta posle završene analize (§7.4): drugi
+// poziv za otključan prospekt vraća `alreadyUnlocked` i pun lead, bez kredita i
+// bez nove rute. `ponovi: true` („Pokušaj ponovo", §7.5) uz to naručuje nov
+// `enrich_full` kad AI analize nema.
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
@@ -45,8 +50,8 @@ export async function POST(req: Request): Promise<Response> {
   // [S19] Otključavanje troši kredit, dakle stoji uz pretragu i skeniranje na
   // listi onoga što `grace` nalog ne sme (§1.5). Kapija ide PRE tela: nema
   // razloga parsirati zahtev koji ionako ne prolazi.
-  const { pristup } = await citajPristup();
-  const odbijen = odbijenica(pristup, "otkljucavanje");
+  const { pristup, profile, pretplata } = await citajPristup();
+  const odbijen = odbijenica(pristup, "otkljucavanje", pretplata);
   if (odbijen) return odbijen;
 
   let raw: unknown;
@@ -66,20 +71,21 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   try {
-    const outcome = await unlockLead(userId, parsed.data.placeId);
+    const outcome = await unlockLead(userId, parsed.data.placeId, {
+      ponovi: parsed.data.ponovi === true,
+      // [S30] Korak trake se upisuje samo kad ga profil još nema (§4.3).
+      koraci: profile?.onboarding_steps ?? null,
+    });
 
     if (!outcome.ok) {
       switch (outcome.reason) {
         case "insufficient_credits":
           // 402 Payment Required: kredit je ono čega je ponestalo — klijent po
-          // statusu zna da ponudi „vidi kredite", a ne „pokušaj ponovo".
+          // statusu zna da ponudi planove, a ne „pokušaj ponovo".
           //
-          // [S29] Rečenica više ne pominje betu ni iznos: mesečna dodela zavisi
-          // od plana (`plans.ts`), a zakucanih „30 kredita" odavno nema.
-          return greska(
-            "Nemaš dovoljno kredita. Pogledaj stanje i dopuni ga na `/krediti`.",
-            402,
-          );
+          // [S30, C4] Doslovno iz K4: „Nemaš dovoljno kredita." Put dalje nosi
+          // kartica (modal sa planovima, §7.3), ne rečenica.
+          return greska("Nemaš dovoljno kredita.", 402);
 
         case "no_place":
           return greska("Taj prospekt više ne postoji u bazi.", 404);
@@ -95,6 +101,8 @@ export async function POST(req: Request): Promise<Response> {
       lead: outcome.lead,
       creditsLeft: outcome.creditsLeft,
       alreadyUnlocked: outcome.reason === "already_unlocked",
+      enrichJobId: outcome.enrichJobId,
+      ...(outcome.onboardingSteps ? { onboardingSteps: outcome.onboardingSteps } : {}),
     };
 
     return NextResponse.json(body, { headers: HEADERS });

@@ -41,6 +41,7 @@ import {
   spendCreditAndScan,
   zivPlacenPosao,
 } from "@/lib/jobs";
+import { oznaciAkoTreba, prviJeBesplatan } from "@/lib/onboarding";
 import { citajPristup, odbijenica } from "@/lib/pristup";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import { searchCachedLeads } from "@/lib/search";
@@ -56,6 +57,39 @@ export const runtime = "nodejs";
 const HEADERS = { "Cache-Control": "private, no-store" };
 
 const PRAZAN_SUMAR = { noSite: 0, social: 0, dead: 0, ugly: 0, ok: 0 };
+
+type Kontekst = {
+  userId: string;
+  profile: Awaited<ReturnType<typeof citajPristup>>["profile"];
+  pristup: Awaited<ReturnType<typeof citajPristup>>["pristup"];
+};
+
+/**
+ * [S30] Dve dopune odgovora koji nosi listu (§4.4, §4.3):
+ *
+ *   prviBesplatan — samo kad na strani ima zaključanih prospekata; računa ga
+ *                   server (`prviJeBesplatan`), klijent ne.
+ *   korak         — `pretraga` se upisuje na PRVI `charged`/`already_paid`
+ *                   odgovor, i samo kad ga profil još nema.
+ *
+ * Nijedna od dve ne sme da obori odgovor: lista je plaćena i već pročitana.
+ */
+async function saOnboardingom(
+  body: SearchResponse,
+  k: Kontekst,
+  upisiKorak: boolean,
+): Promise<SearchResponse> {
+  const [prvi, koraci] = await Promise.all([
+    body.results.some((l) => !l.isUnlocked)
+      ? prviJeBesplatan(k.userId, k.profile, k.pristup).catch(() => false)
+      : Promise.resolve(false),
+    upisiKorak
+      ? oznaciAkoTreba(k.userId, k.profile?.onboarding_steps, "pretraga")
+      : Promise.resolve(undefined),
+  ]);
+
+  return { ...body, prviBesplatan: prvi, ...(koraci ? { onboardingSteps: koraci } : {}) };
+}
 
 function greska(poruka: string, status: number, detalji?: string[]): Response {
   return NextResponse.json(
@@ -110,9 +144,11 @@ export async function POST(req: Request): Promise<Response> {
   // [S19] Kapija pristupa, pre svega ostalog i pre ijednog upita o kešu.
   // Odbija se i pretraga po kešu, ne samo skeniranje: §1.5 daje `grace` nalogu
   // „samo čitanje postojećih prospekata", a pretraga je pronalaženje novih.
-  const { pristup, profile } = await citajPristup();
-  const odbijen = odbijenica(pristup, pay ? "skeniranje" : "pretraga");
+  const { pristup, profile, pretplata } = await citajPristup();
+  const odbijen = odbijenica(pristup, pay ? "skeniranje" : "pretraga", pretplata);
   if (odbijen) return odbijen;
+
+  const kontekst: Kontekst = { userId, profile, pristup };
 
   // Ponuda → rezultati → stranice → cena. Jedan lanac, jedan izvor (shared), i
   // baza ga u `spend_credit_and_scan` prelazi ponovo nad istim `maxResults`.
@@ -142,7 +178,7 @@ export async function POST(req: Request): Promise<Response> {
       // ume da bude i „filteri su preuski". UI na to dvoje odgovara različito,
       // pa razliku mora da napravi server — on jedini zna šta piše u registru.
       const body: SearchResponse = { ...result, emptyScan: stanje.total === 0 };
-      return NextResponse.json(body, { headers: HEADERS });
+      return NextResponse.json(await saOnboardingom(body, kontekst, false), { headers: HEADERS });
     }
 
     // Pristup je plaćen, a scan još traje (keš nije svež): korisnik gleda kako
@@ -162,7 +198,7 @@ export async function POST(req: Request): Promise<Response> {
         job: { id: uToku, joined: false },
       };
 
-      return NextResponse.json(body, { headers: HEADERS });
+      return NextResponse.json(await saOnboardingom(body, kontekst, false), { headers: HEADERS });
     }
 
     // ── scan koji je završio a nije se registrovao ───────────
@@ -329,7 +365,7 @@ export async function POST(req: Request): Promise<Response> {
         charged: charge.charged,
         ...(charge.charged ? { cost: charge.cost, creditsLeft: charge.creditsLeft } : {}),
       };
-      return NextResponse.json(body, { headers: HEADERS });
+      return NextResponse.json(await saOnboardingom(body, kontekst, true), { headers: HEADERS });
     }
 
     // Dupli klik: posao je isti i već plaćen, pa ni dnevna rezervacija ne sme da
@@ -373,7 +409,7 @@ export async function POST(req: Request): Promise<Response> {
       creditsLeft: charge.creditsLeft,
     };
 
-    return NextResponse.json(body, { headers: HEADERS });
+    return NextResponse.json(await saOnboardingom(body, kontekst, true), { headers: HEADERS });
   } catch (err) {
     console.error("[api/search]", err);
     return greska("Pretraga trenutno ne radi. Pokušaj ponovo za koji minut.", 500);

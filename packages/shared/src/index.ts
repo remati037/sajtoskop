@@ -211,8 +211,30 @@ export type {
   StanjeId,
   StatusPretplate,
 } from "./pristup";
+export type { UzrokGrace } from "./pristup";
 export { smeDaKupiPaket, STANJA_ZA_PAKET } from "./pristup";
-export { citanjeDoZa, stanjePristupa } from "./pristup";
+export { citanjeDoZa, stanjePristupa, uzrokGrace } from "./pristup";
+
+// ── onboarding: četiri koraka, tačke, traka (S30, tok-i-onboarding §4) ─
+export type { HintKljuc, Korak, KorakKljuc, OnboardingKanal } from "./onboarding";
+export {
+  HINT_KLJUCEVI,
+  jeHintKljuc,
+  jeKorakKljuc,
+  jeOnboardingKanal,
+  KORAK_KLJUCEVI,
+  KORACI,
+  ONBOARDING_KANALI,
+  sviKoraciUradjeni,
+  TACKA_JASNO,
+  TACKE,
+  TRAKA,
+  TRAKA_SKRIVENA,
+  trakaVidljiva,
+  trebaCarobnjak,
+  uradjeniKoraci,
+  VODIC,
+} from "./onboarding";
 
 // ── taksonomija: niše i gradovi ────────────────────────────
 export type { City, Niche, NicheGroup } from "./taxonomy";

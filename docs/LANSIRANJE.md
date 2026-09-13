@@ -671,8 +671,9 @@ odgovor knjigovođe). Ne blokira nijednu sesiju — blokira **produkciju**, ne r
 | ~~**S24**~~ | Preokret na `app.` poddomen + veze ka landingu | S22 | 0,5 dana | ☑ |
 | ~~**S25**~~ | Stripe backend, Paddle uklonjen, plaćen pristup kešu (D10), migracija `0025` | S24 | 1,5 dana | ☑ |
 | ~~**S26**~~ | Stripe cenovnik, portal, proba UI, „Aktiviraj odmah" | S25 | 1 dan | ☑ (kod) |
-| ~~**S27**~~ | Pozivnice: komp i prvi mesec gratis (K3) | S25 | 0,75 dana | ☑ (kod) |
-| **S28** | Onboarding + kartica prospekta, migracija `0026` | S27 | 1,5 dana | ◐ delimično |
+| ~~**S27**~~ | Pozivnice: komp i prvi mesec gratis (K3) — po `docs/tok-i-onboarding.md` §1.13 | S25 | 0,75 dana | ☑ (kod) |
+| ~~**S28**~~ | Onboarding + kartica prospekta, migracija `0026` — po `docs/tok-i-onboarding.md`, dovršeno u S30 | S27 | 1,5 dana | ☑ (kod) |
+| ~~**S30**~~ | Onboarding + kartica prospekta: čarobnjak, traka, tačke, vodič, kartica, migracija `0028` — po `docs/tok-i-onboarding.md` | S28, S29 | 1,5 dana | ☑ (kod) · ručni prolaz ☐ |
 | **R9–R38** | Ostali ručni koraci iz §7 — zaostalo iz ranijih faza, knjigovođa, domen, operativa | razno | ~3 dana | ☐ |
 
 > **‼️ Numeracija sesija se razišla sa ovim dokumentom.** Redovi S25–S28 iznad su
@@ -681,12 +682,12 @@ odgovor knjigovođe). Ne blokira nijednu sesiju — blokira **produkciju**, ne r
 > metrika (stari „S25") i Sentry (stari „S26") nisu isporučeni i nemaju svoj red —
 > vode se kao otvoreno u SESIJE.md.
 >
-> **Onboarding** je iz starih S27/S28 spojen u **jednu** sesiju S28, po
-> `docs/tok-i-onboarding.md` (§4 onboarding, §7 kartica prospekta). Taj dokument
-> **nije u repozitorijumu**, pa je S28 isporučen samo u delu koji ne zavisi od njega —
-> šta tačno, stoji u `docs/SESIJE.md`, unos S28.
+> **Onboarding** je iz starih S27/S28 spojen u sesije **S28** (baza, krediti dobrodošlice,
+> O3, C6) i **S30** (čarobnjak, traka, tačke, vodič, kartica prospekta), po
+> `docs/tok-i-onboarding.md` (§4 onboarding, §7 kartica prospekta). Dokument je u
+> repozitorijumu od 12. septembra; šta se razišlo sa njim stoji u `docs/SESIJE.md`, unos S30.
 
-**Ukupno: ~12,5 dana koda + ~3 dana ručnog rada.** Isporučeno: S16–S22, S24–S27 i deo S28.
+**Ukupno: ~12,5 dana koda + ~3 dana ručnog rada.** Isporučeno: S16–S22, S24–S30 (kod; ručni prolazi S26–S30 otvoreni).
 
 **Onboarding je najveći preostali blok koda** i to je namerno: S27 i S28 su jedini deo plana
 koji dodiruje brojku od koje sve zavisi — koliko ljudi koji otvore nalog dođe do prve poruke

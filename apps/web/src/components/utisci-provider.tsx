@@ -123,7 +123,12 @@ export type UtisciApi = {
    * `nonce` postoji zato što dva klika na isti kontekst daju jednak objekat, a
    * panel koji se zatvorio mora da se otvori i drugi put.
    */
-  zahtevBuga: { ctx: KontekstGreske; nonce: number } | null;
+  zahtevBuga: { ctx: KontekstGreske | null; nonce: number } | null;
+  /**
+   * [S30, §4.7] „Pošalji prvi utisak" na praznom `/utisci` — isti panel, bez
+   * pretpostavljenog tipa `bug` (`ctx: null` u zahtevu).
+   */
+  otvoriUtisak: () => void;
   /** Panel je preuzeo zahtev — briše se da se ne bi otvorio ponovo. */
   preuzetBug: () => void;
   /** Klik na `✕`. */
@@ -403,12 +408,17 @@ export function UtisciProvider({
   const zatvori = useCallback(() => setAktivno(null), []);
 
   // ── S29: prijava greške sa mesta gde je nastala ────────────
-  const [zahtevBuga, setZahtevBuga] = useState<{ ctx: KontekstGreske; nonce: number } | null>(
-    null,
-  );
+  const [zahtevBuga, setZahtevBuga] = useState<{
+    ctx: KontekstGreske | null;
+    nonce: number;
+  } | null>(null);
 
   const otvoriBug = useCallback((ctx: KontekstGreske = {}) => {
     setZahtevBuga({ ctx, nonce: Date.now() });
+  }, []);
+
+  const otvoriUtisak = useCallback(() => {
+    setZahtevBuga({ ctx: null, nonce: Date.now() });
   }, []);
 
   const preuzetBug = useCallback(() => setZahtevBuga(null), []);
@@ -423,6 +433,7 @@ export function UtisciProvider({
       dopuni,
       dopuniOdgovor,
       otvoriBug,
+      otvoriUtisak,
       zahtevBuga,
       preuzetBug,
       odbaci,
@@ -437,6 +448,7 @@ export function UtisciProvider({
       dopuni,
       dopuniOdgovor,
       otvoriBug,
+      otvoriUtisak,
       zahtevBuga,
       preuzetBug,
       odbaci,

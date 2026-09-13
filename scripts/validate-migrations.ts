@@ -2083,6 +2083,36 @@ async function main(): Promise<void> {
     "onboarding_hints_seen postoji i podrazumevano je prazan niz",
   );
 
+  // ── 0028: odgovori čarobnjaka ────────────────────────────
+  // Tri kolone koje 0026 nije donela (§4.3). Grad i niša su slobodan tekst —
+  // spisak slugova je u TS-u i proverava ga ruta; kanal je zatvoren skup.
+  console.log("\nS30: odgovori čarobnjaka (0028)");
+  const koloneCarobnjaka = await db.query<{ column_name: string; is_nullable: string }>(
+    `select column_name, is_nullable from information_schema.columns
+      where table_name = 'profiles'
+        and column_name in ('onboarding_city','onboarding_niche','onboarding_channel')`);
+  check(koloneCarobnjaka.rows.length === 3 && koloneCarobnjaka.rows.every((r) => r.is_nullable === "YES"),
+    `onboarding_city/niche/channel postoje i primaju null (${koloneCarobnjaka.rows.length})`);
+
+  await db.exec(`update profiles set onboarding_city = 'sabac', onboarding_niche = 'pvc-stolarija',
+                   onboarding_channel = 'viber' where id = 'reg1'`);
+  const izbor = await one<{ c: string; n: string; k: string }>(
+    `select onboarding_city as c, onboarding_niche as n, onboarding_channel as k from profiles where id='reg1'`);
+  check(izbor?.c === "sabac" && izbor.n === "pvc-stolarija" && izbor.k === "viber",
+    "odgovori čarobnjaka se upisuju");
+  for (const kanal of ["mejl", "instagram"]) {
+    await db.exec(`update profiles set onboarding_channel = '${kanal}' where id = 'reg1'`);
+  }
+  check((await one<{ k: string }>(`select onboarding_channel as k from profiles where id='reg1'`))?.k === "instagram",
+    "sva tri kanala prolaze");
+  await mustFail(`update profiles set onboarding_channel = 'poziv' where id = 'reg1'`,
+    "kanal `poziv` odbijen — nema šablon poruke (C9)");
+  await mustFail(`update profiles set onboarding_channel = 'Viber' where id = 'reg1'`,
+    "kanal velikim slovom odbijen");
+  await db.exec(`update profiles set onboarding_channel = null where id = 'reg1'`);
+  check((await one<{ k: string | null }>(`select onboarding_channel as k from profiles where id='reg1'`))?.k === null,
+    "kanal sme nazad na null");
+
   // ── kolone i sužavanje po ID-jevima u listi korisnika ────
   console.log("\nadmin_users_page: ulazi za stanjePristupa()");
   type StranaB = {

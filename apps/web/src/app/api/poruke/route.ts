@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import { requireUserId } from "@/lib/auth";
+import { oznaciAkoTreba } from "@/lib/onboarding";
 import { porukeZaLead, zabeleziKopiranje } from "@/lib/poruke";
 import { kontaktBodySchema } from "@/lib/pipeline-schema";
 import { citajPristup, odbijenicaCitanja } from "@/lib/pristup";
@@ -92,7 +93,8 @@ export async function POST(req: Request): Promise<Response> {
 
   // [S19] „Kopirao sam poruku" pomera karticu u pipeline-u — korisnikov rad, ne
   // kupovina. Ista kapija kao na `/api/pipeline`.
-  const odbijenPost = odbijenicaCitanja((await citajPristup()).pristup);
+  const { pristup, profile } = await citajPristup();
+  const odbijenPost = odbijenicaCitanja(pristup);
   if (odbijenPost) return odbijenPost;
 
   let raw: unknown;
@@ -120,7 +122,21 @@ export async function POST(req: Request): Promise<Response> {
       return greska("Taj prospekt nije otključan, pa ne može u pipeline.", 403);
     }
 
-    return NextResponse.json({ ok: true, status: ishod.status }, { headers: HEADERS });
+    // [S30, §4.3] Kopiranje iz panela (kanban) ima serverski trag — ovde. Isti
+    // koraci kao na kartici: `poruka` (kopirano) i `pipeline` (prvi red u
+    // `lead_status`, kad je kopiranje stvarno pomerilo prospekt). Redom, jer
+    // `onboarding_done_at` računa jedan poziv posle drugog.
+    const koraci = profile?.onboarding_steps ?? {};
+    let onboardingSteps = await oznaciAkoTreba(userId, koraci, "poruka");
+    if (ishod.status === "kontaktiran") {
+      onboardingSteps =
+        (await oznaciAkoTreba(userId, onboardingSteps ?? koraci, "pipeline")) ?? onboardingSteps;
+    }
+
+    return NextResponse.json(
+      { ok: true, status: ishod.status, ...(onboardingSteps ? { onboardingSteps } : {}) },
+      { headers: HEADERS },
+    );
   } catch (err) {
     console.error("[api/poruke POST]", err);
     return greska("Upis kontakta trenutno ne radi. Pokušaj ponovo za koji minut.", 500);

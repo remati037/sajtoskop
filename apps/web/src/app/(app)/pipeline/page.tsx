@@ -11,6 +11,7 @@ import Link from "next/link";
 import { KanbanSquare } from "lucide-react";
 import { CITIES, NICHES } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
+import { zahtevajOnboarding } from "@/lib/onboarding";
 import { zahtevajCitanje } from "@/lib/pristup";
 import { getPipeline } from "@/lib/pipeline";
 import { PipelineTabla } from "@/components/pipeline-tabla";
@@ -38,13 +39,20 @@ export default async function Page() {
   // Ide u isti `Promise.all` i vraća profil koji je ionako trebao ovoj strani —
   // dakle kapija ne košta nijedan dodatan upit nad `profiles`. `redirect()` iz
   // nje se kroz `Promise.all` uredno propagira.
-  const [kartice, { profile }] = await Promise.all([
+  const [kartice, { profile, pristup }] = await Promise.all([
     getPipeline().catch((err: unknown) => {
       console.error("[pipeline] čitanje kartica:", err);
       return [];
     }),
     zahtevajCitanje(),
   ]);
+
+  // [S30, §1.8] Treća linija: nov nalog sa pristupom ide u čarobnjak.
+  zahtevajOnboarding(profile, pristup);
+
+  // [S30, §4.7] Prazan pipeline je „0 `lead_status`", ne „0 otključanih":
+  // otključan prospekt bez reda je u levku samo po podrazumevanoj vrednosti.
+  const imaRedova = kartice.some((k) => k.uPipelineu);
 
   const cityLabels = Object.fromEntries(CITIES.map((c) => [c.slug, c.label]));
   const nicheLabels = Object.fromEntries(NICHES.map((n) => [n.slug, n.label]));
@@ -68,15 +76,15 @@ export default async function Page() {
           prepoznaje korisnika izgleda kao „nemaš nijedan prospekt". */}
       {!profile ? (
         <VezaGreska sta="Pipeline" />
-      ) : kartice.length === 0 ? (
+      ) : !imaRedova ? (
         <>
         <PraznoStanje
           ikona={<KanbanSquare />}
-          naslov="Pipeline je prazan."
-          opis="U pipeline ulaze samo otključani prospekti — onaj koji nisi otključao nema ni telefon ni poruku, pa nema šta ni da radi u kanbanu. Otključaj prvi prospekt ili uvezi svoj postojeći Sheet."
+          naslov="Pipeline je prazan dok ne pošalješ prvu poruku"
+          opis="Kad kopiraš poruku, klik na „Kontaktiran“ dovodi prospekt ovde. Pet kolona: Nekontaktiran → Kontaktiran → Odgovorio → Potpisan → Nezainteresovan."
         >
           <Button asChild variant="primary">
-            <Link href="/pretraga">Idi na pretragu</Link>
+            <Link href={kartice.length > 0 ? "/lista" : "/pretraga"}>Idi na otključane prospekte</Link>
           </Button>
         </PraznoStanje>
 

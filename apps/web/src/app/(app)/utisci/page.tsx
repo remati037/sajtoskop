@@ -23,6 +23,7 @@ import { cn } from "@/lib/cn";
 import { formatDatum } from "@/lib/ui-tekst";
 import { PraznoStanje, ZaglavljeStranice } from "@/components/ui/stranica";
 import { Badge } from "@/components/ui/badge";
+import { PosaljiPrviUtisak } from "@/components/posalji-prvi-utisak";
 
 export const dynamic = "force-dynamic";
 
@@ -91,11 +92,14 @@ export default async function Page() {
       />
 
       {prijave.length === 0 ? (
+        // [S30, §4.7] Doslovno.
         <PraznoStanje
           ikona={<Inbox />}
-          naslov="Nemaš nijednu prijavu."
-          opis='Dugme „Utisak" je u donjem desnom uglu svakog ekrana. Ocena je dovoljna — tekst, slika i dnevnik grešaka su dopuna.'
-        />
+          naslov="Još nisi ništa prijavio"
+          opis="Kad prijaviš grešku ili ideju, ovde vidiš šta se sa njom desilo. Dugme „Utisak“ je dole desno na svakom ekranu."
+        >
+          <PosaljiPrviUtisak />
+        </PraznoStanje>
       ) : (
         <ul className="mt-5 space-y-3">
           {prijave.map(({ red, sadrzaj }) => (

@@ -178,7 +178,9 @@ export const ISHOD_POZIVNICE: Record<
  * ubacuje checkout sam, iz `profiles.invite_id`, pa oznaka nije kapija.
  */
 export const POSLE_POZIVNICE: Record<AccessInviteKind, string> = {
-  komp: "/dashboard?pozivnica=komp",
+  // [S30, §1.13] Čarobnjak, ne kontrolna tabla: kapija onboardinga bi tost na
+  // `/dashboard` progutala. Prvi ekran `/pocetak` nosi red „Komp pristup do…".
+  komp: "/pocetak?pozivnica=komp",
   prvi_mesec: "/cenovnik?pozivnica=1",
 };
 

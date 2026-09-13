@@ -19,6 +19,7 @@ import Link from "next/link";
 import { Download, Radar } from "lucide-react";
 import { creditMonth, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
+import { zahtevajOnboarding } from "@/lib/onboarding";
 import { zahtevajCitanje } from "@/lib/pristup";
 import { aktivacijaZa, citajPretplatuZaEkran } from "@/lib/pretplata";
 import { getIstorijaKredita } from "@/lib/krediti";
@@ -58,6 +59,9 @@ export default async function Page() {
       return [];
     }),
   ]);
+  // [S30, §1.8] Treća linija: nov nalog sa pristupom ide u čarobnjak.
+  zahtevajOnboarding(profile, pristup);
+
   const plan = planFor(profile?.plan);
 
   // Prazna knjiga i pokvarena veza izgledaju isto kroz RLS — v. `veza-greska.tsx`.

@@ -164,6 +164,14 @@ function NemaSnimka({ lead }: { lead: Otkljucan }) {
   );
 }
 
+/**
+ * [S30] Izvezen za karticu prospekta: sličica na kartici otvara ovaj isti
+ * preklop (§7, „snimci i analiza ostaju u `snimak.tsx` preklopu").
+ */
+export function SnimakPreklop({ lead, onClose }: { lead: Otkljucan; onClose: () => void }) {
+  return <Preklop lead={lead} onClose={onClose} />;
+}
+
 function Preklop({ lead, onClose }: { lead: Otkljucan; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>

@@ -320,3 +320,111 @@ export function daniDo(iso: string): number {
   const danas = new Date().setHours(0, 0, 0, 0);
   return Math.round((kraj - danas) / dan);
 }
+
+// ═══════════════════════════════════════════════════════════
+// KARTICA PROSPEKTA (S30, tok-i-onboarding §7.8 — doslovno)
+// ═══════════════════════════════════════════════════════════
+// Ključ → tekst, tačno kako §7.8 nabraja. Rečenice sa brojem ili imenom su
+// funkcije, da se broj ne bi lepio uz tekst na tri mesta sa tri razmaka.
+//
+// Ispod spiska iz §7.8 stoje i rečenice iz §7.6 („Zašto je ovo dobar prospekt")
+// i kanal uz tip telefona iz §7.2 — isti ekran, isti izvor.
+
+export const kartica = {
+  telefon: "Telefon",
+  mejl: "Mejl",
+  sajt: "Sajt",
+  nemaBroj: "nema broj",
+  nemaMejl: "nema mejl",
+  nemaDomen: "nema domen",
+  neOdgovara: "ne odgovara",
+  samoMreze: "samo društvene mreže",
+  recenzija: { 1: "recenzija", 2: "recenzije", 5: "recenzija" },
+  bezOcena: "bez ocena",
+  problemi: "Konkretni problemi",
+  zastoDobar: "Zašto je ovo dobar prospekt",
+  brojProblema: (n: number) => `${n} ${plural(n, "problem", "problema", "problema")}`,
+  nemaSajtProblem: "Firma nema sajt — to je ceo problem, i ceo razlog za poruku.",
+  analiziram: "Analiziram sajt na telefonu i desktopu… obično 10–40 s",
+  analizaDuze: "Traje duže nego obično. Kontakt je tvoj, analiza stiže — ili je zatraži ponovo.",
+  analizaPala:
+    "Analiza nije stigla. Kredit je skinut i prospekt je tvoj — kontakt je gore. Analizu možeš da tražiš ponovo.",
+  sajtNijeOtvoren: (g: string) =>
+    `Sajt se nije otvorio pri analizi (${g}). To može biti privremeno — ili je i vlasniku isto tako.`,
+  snimakNijeSacuvan: "Snimak nije sačuvan",
+  aiPao: "Analiza problema nije prošla, poruka je iz osnovnih signala.",
+  poruka: "Predlog poruke",
+  kanal: { viber: "Viber", mejl: "Mejl", instagram: "Instagram", poziv: "Poziv" },
+  staDaKazes: "Šta da kažeš",
+  kopiraj: "Kopiraj",
+  kopirano: "Kopirano",
+  kopiranoToast: "Kopirano. Označi kao kontaktiran?",
+  kontaktiran: "Kontaktiran",
+  napisiDrugacije: "Napiši drugačije",
+  aiLimit: (n: number) => `Dnevni limit AI varijanti (${n}) je potrošen, sutra ponovo.`,
+  osvezenaPoruka: "Osvežena poruka sa analizom",
+  otkljucaj: "Otključaj za 1 kredit",
+  otkljucajBesplatno: "Otključaj · prvi je besplatan",
+  otkljucajPlan: "Otključaj · treba plan",
+  otkljucajVrati: "Otključaj · vrati pristup",
+  otkljucajOpis: "Telefon, mejl, sajt, snimci, problemi i poruka. Ne plaća se dvaput.",
+  otkljucavam: "Otključavam…",
+  potvrdaNaslov: (ime: string) => `Otključaj ${ime}?`,
+  potvrdaTekst: (ostaje: number) =>
+    `1 kredit — ostaje ti ${ostaje}. Dobijaš telefon, mejl, sajt, snimke, listu problema i poruku. Isti prospekt se nikad ne naplaćuje drugi put.`,
+  /** §7.3, dugme u modalu potvrde (ključ nije u §7.8, tekst jeste u §7.3). */
+  potvrdaDugme: "Otključaj · 1 kredit",
+  /** §7.3, dugme uz „Nemaš kredita…". */
+  pogledajPlanove: "Pogledaj planove",
+  nePitajDanas: "Ne pitaj me više danas",
+  odustani: "Odustani",
+  nemaKredita: "Nemaš kredita. Plan počinje sa 7 dana probe i 10 kredita.",
+  vecOtkljucan: (ime: string) => `${ime} je već otključan — kredit nije skinut.`,
+  nemaVeze: "Nema veze sa serverom. Prospekt nije otključan i kredit nije skinut.",
+  pokusajPonovo: "Pokušaj ponovo",
+  prijaviGresku: "Prijavi grešku",
+  solidan: "Sajt izgleda solidno",
+  solidanOpis:
+    "Analiza nije našla dovoljno problema za poruku — bolje je ne slati ništa nego izmišljati.",
+  nemaKanala: "Nema kanala",
+  nemaKanalaOpis: "Google nema ni telefon ni mejl za ovu firmu. Poruka je tu ako ih nađeš sam.",
+  mapa: "Google Maps",
+
+  // ── §4.7, dugmad praznih stanja na kartici ──
+  sledeciProspekt: "Sledeći prospekt",
+  otvoriNaMapi: "Otvori na Google Mapsu",
+
+  // ── §7.6, „Zašto je ovo dobar prospekt" ──
+  /**
+   * `nema_sajt`. Ocena i broj recenzija su u rečenici podebljani (§7.6); kad
+   * ocene nema, rečenica bez nje ne postoji u dokumentu — kartica tada pada na
+   * `nemaSajtProblem`.
+   */
+  zastoNemaSajt: {
+    pre: "Firma ima ",
+    ocena: (ocena: string, n: number) => `${ocena} ★ i ${n} ${plural(n, "recenziju", "recenzije", "recenzija")}`,
+    posle: " na Googlu, a nema sajt. Ljudi koji je nađu nemaju gde da vide radove i cene.",
+  },
+  /**
+   * `mrtav`. §7.6 u primeru nosi i kod greške („greška 522"); taj podatak
+   * kartica nema (worker ga ne upisuje u `website_audits`), pa se zagrada ne
+   * izmišlja.
+   */
+  zastoMrtav: {
+    pre: "Domen ",
+    posle: " ne odgovara. Firma je nekad imala sajt — plaćali su ga, i verovatno bi opet.",
+  },
+  zastoSamoMreze: "Firma živi na Instagramu/Facebooku. Nema mesto na koje Google šalje kupce.",
+} as const;
+
+/** „Mobilni · Viber" / „Fiksni · Poziv" / „Besplatni · Poziv" (§7.2). */
+export function telefonSaKanalom(tip: string | null): string | null {
+  if (!tip || !(tip in PHONE_LABEL) || tip === "nepoznat") return null;
+  const kanal = tip === "mobilni" ? kartica.kanal.viber : kartica.kanal.poziv;
+  return `${PHONE_LABEL[tip]} · ${kanal}`;
+}
+
+/** „4,6" — ocena sa decimalnim zarezom. */
+export function formatOcena(ocena: number): string {
+  return ocena.toFixed(1).replace(".", ",");
+}

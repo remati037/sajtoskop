@@ -14,7 +14,12 @@ import { foldForSearch } from "@sajtoskop/shared";
 import { cn } from "@/lib/cn";
 import { Label } from "./ui/input";
 
-export type ComboOption = { value: string; label: string };
+export type ComboOption = {
+  value: string;
+  label: string;
+  /** [S30] Sitan red ispod imena — „4 gotove liste · 37 firmi bez sajta" (§4.2). */
+  opis?: string;
+};
 export type ComboGroup = { label: string; options: ComboOption[] };
 
 type Props = {
@@ -35,10 +40,16 @@ type Props = {
    * „nisam još ništa otkucao".
    */
   naPrazno?: (query: string) => void;
+  /**
+   * [S30] Id polja, kad spolja treba fokus — „Probaj drugu nišu" iz praznog
+   * stanja (§4.7) stavlja kursor baš u ovaj combobox.
+   */
+  inputId?: string;
 };
 
-export function Combobox({ label, placeholder, groups, value, onChange, naPrazno }: Props) {
-  const id = useId();
+export function Combobox({ label, placeholder, groups, value, onChange, naPrazno, inputId }: Props) {
+  const generisan = useId();
+  const id = inputId ?? generisan;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -191,7 +202,14 @@ export function Combobox({ label, placeholder, groups, value, onChange, naPrazno
                           izabrana && "font-medium",
                         )}
                       >
-                        <span className="truncate">{option.label}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate">{option.label}</span>
+                          {option.opis && (
+                            <span className="num block truncate text-[11px] font-normal text-fg-muted">
+                              {option.opis}
+                            </span>
+                          )}
+                        </span>
                         {izabrana && <Check className="h-3.5 w-3.5 shrink-0 text-accent-text" />}
                       </button>
                     </li>

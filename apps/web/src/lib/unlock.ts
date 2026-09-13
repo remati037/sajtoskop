@@ -2,7 +2,7 @@
 // Otključavanje jednog leada. Ovde se troši kredit — jedino mesto u web sloju
 // koje to radi.
 //
-// ── ZAŠTO JE OVAJ FAJL TAKO KRATAK ────────────────────────
+// ── ZAŠTO JE TROŠAK JEDAN POZIV ───────────────────────────
 // Ceo trošak kredita je JEDAN poziv `spend_credit_and_unlock`. Nema
 // „pročitaj balans → uporedi → skini", jer između ta dva koraka stane drugi
 // zahtev istog korisnika: dva taba, dupli klik, ili skripta sa 20 paralelnih
@@ -16,10 +16,29 @@
 //
 // Pravilo 3 iz CLAUDE.md: krediti se menjaju samo kroz `spend_credit_and_unlock`
 // ili `grant_credits`. Direktan `update profiles.credits_balance` ne postoji.
+//
+// ── [S30] posao analize ide u odgovor (C5, §7.4) ─────────────
+// Do S30 odgovor nije nosio ID `enrich_full` posla, pa kartica nije imala šta da
+// prati i `snimak.tsx` je govorio „osveži stranicu". Sada:
+//   · novo otključavanje → ID posla koji je upravo upisan;
+//   · `ponovi` („Pokušaj ponovo", §7.5) nad prospektom bez AI analize → nov
+//     upis (dedupe po `place_id` sprečava drugi živ posao za isti prospekt);
+//   · sve ostalo → živ posao ovog korisnika za taj prospekt, ako ga ima.
+//
+// Ponovni upis ide SAMO uz izričit `ponovi`. Kartica posle `done` zove istu rutu
+// bez njega da pročita pun lead — kad bi i to naručivalo analizu, posao koji
+// završi bez traga (robots.txt) bi se upisivao u krug, svaki put drugi Playwright.
+//
+// ── zašto skladište kao ulaz ────────────────────────────────
+// Isti obrazac kao `NaplataSkladiste` i `StripeZaOtkazivanje`: odluka (kad se
+// upisuje posao, kad se upisuje korak, šta ide u odgovor) proverava se u
+// `apps/web/test/unlock.ts` bez baze. Produkcija koristi `SUPABASE_SKLADISTE`.
 
 import "server-only";
 import type { RpcResult, SpendReason } from "@sajtoskop/shared";
-import { enqueueEnrichFull } from "./jobs";
+import { enqueueEnrichFull, ziviEnrichPoslovi } from "./jobs";
+import { trebaPonovnaAnaliza } from "./kartica";
+import { oznaciKorak } from "./onboarding";
 import {
   LEAD_AUDIT_COLUMNS,
   LEAD_BUSINESS_COLUMNS,
@@ -37,8 +56,12 @@ export type UnlockSuccess = {
   /** `already_unlocked` znači da kredit NIJE skinut (pravilo 4). */
   reason: Extract<SpendReason, "unlocked" | "already_unlocked">;
   lead: UnlockedLead;
-  /** Stanje posle skidanja, za prikaz u headeru bez dodatnog kruga ka serveru. */
+  /** Stanje posle skidanja (ZBIR obe kase), za prikaz bez dodatnog kruga ka serveru. */
   creditsLeft: number;
+  /** [S30] Posao analize koji kartica prati, ili `null`. */
+  enrichJobId: number | null;
+  /** [S30] Koraci onboardinga — samo kad je ovo otključavanje upisalo nov korak. */
+  onboardingSteps?: Record<string, string>;
 };
 
 export type UnlockFailure = {
@@ -48,6 +71,30 @@ export type UnlockFailure = {
 
 export type UnlockOutcome = UnlockSuccess | UnlockFailure;
 
+/** Sve što `unlockLead` traži od sveta. Produkcija: `SUPABASE_SKLADISTE`. */
+export type UnlockSkladiste = {
+  spend(userId: string, placeId: string): Promise<RpcResult<SpendReason>>;
+  /** Upiše `enrich_full` i vrati ID posla. BACA na grešku — pozivalac je hvata. */
+  enqueue(userId: string, placeId: string): Promise<number>;
+  /** Živ `enrich_full` ovog korisnika za prospekt. BACA na grešku. */
+  zivPosao(userId: string, placeId: string): Promise<number | null>;
+  lead(placeId: string): Promise<UnlockedLead>;
+  krediti(userId: string): Promise<number>;
+  /** `null` = korak nije upisan (pao ili korisnik ne postoji). Ne baca. */
+  oznaciKorak(userId: string): Promise<Record<string, string> | null>;
+};
+
+export type UnlockOpcije = {
+  /** „Pokušaj ponovo" (§7.5): nov `enrich_full` ako AI analize nema. */
+  ponovi?: boolean;
+  /**
+   * `profile.onboarding_steps` koji je ruta pročitala kroz kapiju. Kad već ima
+   * `otkljucavanje`, korak se ne upisuje — nula poziva za svako otključavanje
+   * posle prvog.
+   */
+  koraci?: Record<string, string> | null;
+};
+
 /**
  * Potroši kredit i otključaj lead.
  *
@@ -55,33 +102,56 @@ export type UnlockOutcome = UnlockSuccess | UnlockFailure;
  * (pravilo 8). Ova funkcija to ne može da proveri — zato je zove isključivo
  * ruta, i zato ne postoji nijedna varijanta koja prima korisnika iz tela zahteva.
  */
-export async function unlockLead(userId: string, placeId: string): Promise<UnlockOutcome> {
-  const db = adminSupabase();
-
-  const { data, error } = await db.rpc("spend_credit_and_unlock", {
-    p_user: userId,
-    p_place: placeId,
-  });
-
-  if (error) throw new Error(`Otključavanje nije uspelo: ${error.message}`);
-
-  const row = ((data ?? []) as RpcResult<SpendReason>[])[0];
-  if (!row) throw new Error("spend_credit_and_unlock nije vratio rezultat.");
+export async function unlockLead(
+  userId: string,
+  placeId: string,
+  opcije: UnlockOpcije = {},
+  skladiste: UnlockSkladiste = SUPABASE_SKLADISTE,
+): Promise<UnlockOutcome> {
+  const row = await skladiste.spend(userId, placeId);
 
   if (!row.ok) {
     return { ok: false, reason: row.reason as UnlockFailure["reason"] };
   }
 
   const reason = row.reason as UnlockSuccess["reason"];
+  const novo = reason === "unlocked";
 
-  // Skup enrichment ide isključivo lazy, na unlock (pravilo 5) — i samo kad je
-  // otključavanje stvarno novo. Ponovljeno `already_unlocked` ne sme da naruči
-  // drugi screenshot i drugi Claude poziv za isti lead.
-  if (reason === "unlocked") await scheduleEnrichment(userId, placeId);
+  // Lead se čita PRE odluke o poslu: ponovni pokušaj zavisi od toga da li AI
+  // analiza postoji, a to piše baš u leadu (jedan uslov, `trebaPonovnaAnaliza`).
+  const lead = await skladiste.lead(placeId);
 
-  const [lead, creditsLeft] = await Promise.all([readUnlockedLead(placeId), readBalance(userId)]);
+  let enrichJobId: number | null;
+  if (novo || (opcije.ponovi === true && trebaPonovnaAnaliza(lead))) {
+    // Skup enrichment ide isključivo lazy, na unlock (pravilo 5) — i samo kad je
+    // otključavanje stvarno novo, ili kad ga je korisnik izričito tražio ponovo.
+    // Ponovljeno `already_unlocked` bez `ponovi` ne sme da naruči drugi
+    // screenshot i drugi Claude poziv za isti lead.
+    enrichJobId = await upisiAnalizu(skladiste, userId, placeId);
+  } else {
+    enrichJobId = await skladiste.zivPosao(userId, placeId).catch((err: unknown) => {
+      console.error(`[unlock] živ posao za ${placeId}: ${poruka(err)}`);
+      return null;
+    });
+  }
 
-  return { ok: true, reason, lead, creditsLeft };
+  const creditsLeft = await skladiste.krediti(userId);
+
+  // Korak trake (§4.3): „prvi `unlocks` red". Upisuje se samo na NOVO
+  // otključavanje i samo kad ga profil još nema.
+  let onboardingSteps: Record<string, string> | undefined;
+  if (novo && !opcije.koraci?.otkljucavanje) {
+    onboardingSteps = (await skladiste.oznaciKorak(userId)) ?? undefined;
+  }
+
+  return {
+    ok: true,
+    reason,
+    lead,
+    creditsLeft,
+    enrichJobId,
+    ...(onboardingSteps ? { onboardingSteps } : {}),
+  };
 }
 
 /**
@@ -89,17 +159,24 @@ export async function unlockLead(userId: string, placeId: string): Promise<Unloc
  *
  * Kredit je u ovom trenutku već skinut i red u `unlocks` postoji — to je
  * commit-ovano u bazi. Ako sad bacimo, korisnik dobija grešku za nešto što je
- * uspelo, plaćeno mu je, a UI ga tera da klikne ponovo. Posao je bonus
- * (u F4 ionako prazan handler), pa se neuspeh beleži i ide dalje.
+ * uspelo, plaćeno mu je, a UI ga tera da klikne ponovo. Zato `null`: kartica na
+ * to crta stanje greške sa „Pokušaj ponovo" (§7.4, „enqueue pao").
  */
-async function scheduleEnrichment(userId: string, placeId: string): Promise<void> {
+async function upisiAnalizu(
+  skladiste: UnlockSkladiste,
+  userId: string,
+  placeId: string,
+): Promise<number | null> {
   try {
-    await enqueueEnrichFull({ userId, placeId });
+    return await skladiste.enqueue(userId, placeId);
   } catch (err) {
-    console.error(
-      `[unlock] enrich_full za ${placeId} nije upisan: ${err instanceof Error ? err.message : err}`,
-    );
+    console.error(`[unlock] enrich_full za ${placeId} nije upisan: ${poruka(err)}`);
+    return null;
   }
+}
+
+function poruka(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -114,20 +191,46 @@ export async function otkljucajZaUvoz(
   userId: string,
   placeId: string,
 ): Promise<{ ok: boolean; reason: SpendReason }> {
-  const { data, error } = await adminSupabase().rpc("spend_credit_and_unlock", {
-    p_user: userId,
-    p_place: placeId,
-  });
-
-  if (error) throw new Error(`Otključavanje nije uspelo: ${error.message}`);
-
-  const row = ((data ?? []) as RpcResult<SpendReason>[])[0];
-  if (!row) throw new Error("spend_credit_and_unlock nije vratio rezultat.");
+  const row = await SUPABASE_SKLADISTE.spend(userId, placeId);
 
   if (!row.ok) return { ok: false, reason: row.reason };
-  if (row.reason === "unlocked") await scheduleEnrichment(userId, placeId);
+  if (row.reason === "unlocked") await upisiAnalizu(SUPABASE_SKLADISTE, userId, placeId);
   return { ok: true, reason: row.reason };
 }
+
+// ═══════════════════════════════════════════════════════════
+// PRODUKCIJSKO SKLADIŠTE
+// ═══════════════════════════════════════════════════════════
+
+export const SUPABASE_SKLADISTE: UnlockSkladiste = {
+  async spend(userId, placeId) {
+    const { data, error } = await adminSupabase().rpc("spend_credit_and_unlock", {
+      p_user: userId,
+      p_place: placeId,
+    });
+
+    if (error) throw new Error(`Otključavanje nije uspelo: ${error.message}`);
+
+    const row = ((data ?? []) as RpcResult<SpendReason>[])[0];
+    if (!row) throw new Error("spend_credit_and_unlock nije vratio rezultat.");
+    return row;
+  },
+
+  async enqueue(userId, placeId) {
+    return (await enqueueEnrichFull({ userId, placeId })).jobId;
+  },
+
+  async zivPosao(userId, placeId) {
+    return (await ziviEnrichPoslovi(userId, [placeId])).get(placeId) ?? null;
+  },
+
+  lead: readUnlockedLead,
+  krediti: readBalance,
+
+  async oznaciKorak(userId) {
+    return (await oznaciKorak(userId, "otkljucavanje"))?.steps ?? null;
+  },
+};
 
 /**
  * Lead posle otključavanja, kroz istu `toPublicLead` funkciju koju koristi
@@ -157,9 +260,8 @@ async function readUnlockedLead(placeId: string): Promise<UnlockedLead> {
 
   if (aErr) throw new Error(`Čitanje audita nije uspelo: ${aErr.message}`);
 
-  // Na svež unlock ovo je gotovo uvek prazno: `enrich_full` je tek upisan u red
-  // i Playwright još nije ni startovao. Snimci se pojave na prvom sledećem
-  // učitavanju liste, u roku od tridesetak sekundi.
+  // Na svež unlock snimaka gotovo uvek nema: `enrich_full` je tek upisan u red.
+  // Kartica zato prati posao (§7.4) i posle `done` ponovo zove ovu rutu.
   const signed = await signScreenshots(screenshotPathsOf(audit));
 
   const lead = toPublicLead(business, audit, true, signed);
@@ -173,14 +275,19 @@ async function readUnlockedLead(placeId: string): Promise<UnlockedLead> {
  * Balans se čita ODVOJENO, posle RPC-a, i služi samo prikazu.
  * Nikad se ne koristi za odluku da li korisnik sme da otključa — tu odluku
  * donosi baza, pod zaključanim redom.
+ *
+ * [S30] ZBIR obe kase, kao svuda drugde u proizvodu (S21). Do S30 je ovde stajao
+ * samo `credits_balance`, pa je nov nalog posle prvog otključavanja video
+ * „0 kredita" iako mu je u `credits_topup` ostao drugi kredit dobrodošlice —
+ * i kartica bi mu ponudila „treba plan" umesto otključavanja koje ima čime da plati.
  */
 async function readBalance(userId: string): Promise<number> {
   const { data, error } = await adminSupabase()
     .from("profiles")
-    .select("credits_balance")
+    .select("credits_balance, credits_topup")
     .eq("id", userId)
-    .maybeSingle<{ credits_balance: number }>();
+    .maybeSingle<{ credits_balance: number; credits_topup: number }>();
 
   if (error) throw new Error(`Čitanje stanja kredita nije uspelo: ${error.message}`);
-  return data?.credits_balance ?? 0;
+  return (data?.credits_balance ?? 0) + (data?.credits_topup ?? 0);
 }

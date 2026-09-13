@@ -16,15 +16,25 @@ import { usePathname } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { UserButton } from "@clerk/nextjs";
 import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Menu, ShieldCheck, X } from "lucide-react";
-import { smeDaKupiPaket, type MotorStanje, type Pristup, type Uslovi } from "@sajtoskop/shared";
+import {
+  smeDaKupiPaket,
+  type MotorStanje,
+  type Pristup,
+  type Uslovi,
+  type UzrokGrace,
+} from "@sajtoskop/shared";
+import type { OnboardingPocetno } from "@/lib/onboarding-schema";
 import { cn } from "@/lib/cn";
 import { NAVIGACIJA, naslovZaPutanju, type NavStavka } from "@/lib/navigacija";
 import { PrekidacTeme, PrekidacTemeDugme } from "./prekidac-teme";
 import type { AktivacijaProbe } from "./aktiviraj-odmah";
+import { OnboardingProvider } from "./onboarding-provider";
+import { OnboardingTraka } from "./onboarding-traka";
 import { PristupBaner } from "./pristup-baner";
 import { PristupProvider } from "./pristup-provider";
 import { UtisakDugme } from "./utisak-dugme";
 import { UtisciProvider } from "./utisci-provider";
+import { Vodic } from "./vodic";
 import { Znak, ZnakSaImenom } from "./znak";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
@@ -84,6 +94,12 @@ type Props = {
   aktivacijaProbe?: AktivacijaProbe | null;
   /** S26: otkazana pretplata je u stvari otkazana PROBA — traka je tako i zove. */
   probaOtkazana?: boolean;
+  /** [S30, §2.3] Zašto je nalog u grace-u — tekst banera po uzroku. */
+  uzrokGrace?: UzrokGrace | null;
+  /** [S30, §1.12] `dopuna` bez ijednog kupljenog paketa: baner „Nemaš plan". */
+  dopunaBezPaketa?: boolean;
+  /** [S30, §4.6] Stanje prvog prolaza iz profila. `null` = profil nije pročitan. */
+  onboarding?: OnboardingPocetno | null;
   children: React.ReactNode;
 };
 
@@ -99,6 +115,9 @@ export function OkvirAplikacije({
   pristup = null,
   aktivacijaProbe = null,
   probaOtkazana = false,
+  uzrokGrace = null,
+  dopunaBezPaketa = false,
+  onboarding = null,
   children,
 }: Props) {
   const putanja = usePathname();
@@ -131,6 +150,7 @@ export function OkvirAplikacije({
 
   return (
     <UtisciProvider stanje={stanjeUtisaka} uslovi={usloviUtisaka}>
+      <OnboardingProvider pocetno={onboarding}>
       <PristupProvider pristup={pristup}>
       <TooltipProvider delayDuration={200}>
       {/* Blaga aura iza svega. Prazan ekran bez ovoga izgleda kao prazan list. */}
@@ -222,6 +242,9 @@ export function OkvirAplikacije({
             </p>
           </div>
 
+          {/* [S30, §4.8] Vodič na zahtev: desno od naslova, levo od kredita. */}
+          <Vodic />
+
           <Link
             href="/krediti"
             title="Krediti se troše na otključavanje prospekata"
@@ -248,6 +271,8 @@ export function OkvirAplikacije({
           krediti={krediti}
           aktivacijaProbe={aktivacijaProbe}
           probaOtkazana={probaOtkazana}
+          uzrokGrace={uzrokGrace}
+          dopunaBezPaketa={dopunaBezPaketa}
         />
 
         {/* Donji razmak postoji zbog plutajućeg dugmeta: bez njega ono stoji
@@ -259,6 +284,7 @@ export function OkvirAplikacije({
         <UtisakDugme traziUtisak={traziUtisak} neprocitano={neprocitano} />
       </TooltipProvider>
       </PristupProvider>
+      </OnboardingProvider>
     </UtisciProvider>
   );
 }
@@ -316,6 +342,9 @@ function SadrzajTrake({
       </nav>
 
       <div className="shrink-0 space-y-3 border-t border-border p-3">
+        {/* [S30, §4.6] Traka „Prvih pet minuta": ispod navigacije, iznad čipa kredita. */}
+        <OnboardingTraka skupljen={skupljen} />
+
         {/* Ulaz u konzolu stoji ispod navigacije, odvojen od nje: to nije jedan
             od ekrana proizvoda nego izlazak iz njega. Vidi ga samo admin, i to
             je udobnost — brava je `requireAdminPage()` na svakoj strani

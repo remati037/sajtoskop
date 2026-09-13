@@ -11,7 +11,7 @@
 // kojima se zaboravi novo polje.
 
 import "server-only";
-import type { LeadStatusRow, LeadStatusValue } from "@sajtoskop/shared";
+import type { LeadChannel, LeadStatusRow, LeadStatusValue } from "@sajtoskop/shared";
 import { getMojaLista } from "./moja-lista";
 import type { PipelineKartica } from "./pipeline-tipovi";
 import { adminSupabase, userSupabase } from "./supabase";
@@ -36,6 +36,7 @@ export async function getPipeline(): Promise<PipelineKartica[]> {
       note: s?.note ?? null,
       channel: s?.channel ?? null,
       contactedAt: s?.contacted_at ?? null,
+      uPipelineu: s !== undefined,
     };
   });
 }
@@ -60,12 +61,14 @@ export async function promeniStatus(
   userId: string,
   placeId: string,
   status: LeadStatusValue,
+  /** [S30] Kanal iz tosta na kartici. `null` ne briše zatečen kanal. */
+  channel: LeadChannel | null = null,
 ): Promise<PipelineIshod> {
   const { data, error } = await adminSupabase().rpc("set_lead_status", {
     p_user: userId,
     p_place: placeId,
     p_status: status,
-    p_channel: null,
+    p_channel: channel,
   });
 
   if (error) throw new Error(`Promena statusa nije uspela: ${error.message}`);

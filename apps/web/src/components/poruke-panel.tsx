@@ -15,11 +15,13 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, Sparkles } from "lucide-react";
 import type { LeadChannel, MessageChannel, OutreachResult, Poruka } from "@sajtoskop/shared";
+import { sacekajPosao } from "@/lib/ai-varijanta";
 import type { ApiError } from "@/lib/search-types";
 import { cn } from "@/lib/cn";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
+import { useOnboarding } from "./onboarding-provider";
 import { UtisakMikro } from "./utisak-mikro";
 import { useUtisci } from "./utisci-provider";
 
@@ -316,29 +318,6 @@ function AiVarijanta({
   );
 }
 
-/** Isto pollovanje kao kod scana. `false` znači da posao nije završio uspešno. */
-async function sacekajPosao(jobId: number): Promise<boolean> {
-  const DO_KADA = Date.now() + 45_000;
-
-  while (Date.now() < DO_KADA) {
-    // [Faza 4, 4.11] Skriven tab ne troši zahteve (P5) — čeka se dok se vrati.
-    while (document.hidden) {
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-
-    await new Promise((r) => setTimeout(r, 1200));
-
-    const res = await fetch(`/api/job/${jobId}`);
-    if (!res.ok) return false;
-
-    const { status } = (await res.json()) as { status: string };
-    if (status === "done") return true;
-    if (status === "failed") return false;
-  }
-
-  return false;
-}
-
 function PorukaBlok({
   poruka,
   placeId,
@@ -361,6 +340,7 @@ function PorukaBlok({
 }) {
   const [stanje, setStanje] = useState<"mirno" | "radim" | "kopirano" | "greska">("mirno");
   const utisci = useUtisci();
+  const onboarding = useOnboarding();
 
   /**
    * Kopiranje i upis idu redom, ne paralelno: tekst mora da bude u clipboardu
@@ -385,7 +365,15 @@ function PorukaBlok({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ placeId, channel: kanal, body: poruka.body, source: izvor }),
       });
-      if (res.ok) naKontakt?.(kanal);
+      if (res.ok) {
+        naKontakt?.(kanal);
+        // [S30, §4.6] Ruta je upisala `poruka` (i `pipeline`, ako je kopiranje
+        // pomerilo prospekt) — traka se pomera bez reload-a.
+        const telo = (await res.json().catch(() => null)) as {
+          onboardingSteps?: Record<string, string>;
+        } | null;
+        onboarding?.osvezi(telo?.onboardingSteps);
+      }
     } catch {
       // Tekst je u clipboardu — to je ono zbog čega je korisnik kliknuo.
       // Neuspeo upis statusa se ne pretvara u crvenu poruku preko cele poruke.

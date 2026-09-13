@@ -41,4 +41,10 @@ export type PipelineKartica = MojLead & {
   channel: LeadChannel | null;
   /** Datum PRVOG kontakta. `null` tačno kad je status `nekontaktiran`. */
   contactedAt: string | null;
+  /**
+   * [S30, §4.7] Postoji red u `lead_status`. Prazno stanje `/pipeline` je „0
+   * `lead_status`", ne „0 otključanih" — otključan prospekt bez reda je u levku
+   * samo po podrazumevanoj vrednosti.
+   */
+  uPipelineu: boolean;
 };

@@ -81,7 +81,8 @@ async function opisKupovine(sesijaId: string, userId: string): Promise<Opis | nu
         delovi.push(`proba do ${formatDatum(new Date(krajProbe * 1000).toISOString())}`);
         return { naslov: "Proba je počela", stavka: delovi.join(", ") };
       }
-      return { naslov: "Plaćanje je primljeno", stavka: delovi.join(", ") };
+      // [S30, §1.13] Pretplata bez probe (npr. „prvi mesec gratis") — plan je aktivan.
+      return { naslov: "Plan je aktivan", stavka: delovi.join(", ") };
     }
   } catch (err) {
     // Poruka, ne ceo objekat: Stripe greška nosi i zahtev, a ovaj log je trajan.
@@ -136,8 +137,10 @@ export default async function Page({
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           {ulogovan ? (
             <>
+              {/* [S30, §1.7] Primarno vodi u čarobnjak. Ko je prvi prolaz već
+                  završio ili preskočio, `/pocetak` ga sam pošalje na pretragu. */}
               <Button variant="primary" size="lg" asChild>
-                <Link href="/pretraga">Nastavi na pretragu</Link>
+                <Link href="/pocetak">Napravi prvu listu</Link>
               </Button>
               <Button variant="secondary" size="lg" asChild>
                 <Link href="/krediti">Stanje kredita</Link>

@@ -24,6 +24,13 @@ export const unlockBodySchema = z.object({
   // gradova — zato ide isključivo u parametrizovan RPC poziv, nikad u sklopljen
   // upit. Gornja granica je zaštita od tela od megabajt teksta, ne validacija.
   placeId: z.string().min(1, { error: "Nedostaje ID prospekta." }).max(255),
+  /**
+   * [S30, §7.5] „Pokušaj ponovo" nad otključanim prospektom bez AI analize —
+   * naruči nov `enrich_full`. Bez ovoga ista ruta samo vraća pun lead (posle
+   * `done`, §7.4) i ne naručuje ništa. Kredit se ni u jednom slučaju ne skida
+   * drugi put: prospekt je već otključan (`already_unlocked`).
+   */
+  ponovi: z.boolean().optional(),
 });
 
 export type UnlockBody = z.infer<typeof unlockBodySchema>;

@@ -12,6 +12,7 @@ import "server-only";
 import { planFor, stranicaZaRezultate } from "@sajtoskop/shared";
 import type { JobStatus, JobType, ScanSpendReason, ScanSpendResult } from "@sajtoskop/shared";
 import { adminSupabase } from "./supabase";
+import { inGrupe } from "./upiti";
 
 // ── dnevni cache-miss limit ────────────────────────────────
 
@@ -343,6 +344,62 @@ export async function enqueueEnrichFull(args: {
     dedupeKey: args.placeId,
     userId: args.userId,
   });
+}
+
+/**
+ * [S30, §7.4] Živi `enrich_full` poslovi OVOG korisnika, po `place_id`.
+ *
+ * Dve provere, obe nužne:
+ *   1. posao je `pending`/`running` pod ključem `place_id` (isti `dedupeKey`
+ *      kao u `enqueueEnrichFull`);
+ *   2. korisnik je pretplatnik posla (`job_subscribers`). Bez ovoga bi kartica
+ *      dobila ID posla koji je naručio neko drugi, a `GET /api/job/:id` bi joj
+ *      vratio 404 — i ona bi to pročitala kao pad analize.
+ *
+ * Grupe od 200 (`inGrupe`): `/lista` ume da pita za stotine prospekata odjednom.
+ */
+export async function ziviEnrichPoslovi(
+  userId: string,
+  placeIds: string[],
+): Promise<Map<string, number>> {
+  const poMestu = new Map<string, number>();
+  if (placeIds.length === 0) return poMestu;
+
+  const db = adminSupabase();
+  const kandidati = new Map<number, string>();
+
+  for (const deo of inGrupe(placeIds)) {
+    const { data, error } = await db
+      .from("job_queue")
+      .select("id, dedupe_key")
+      .eq("type", "enrich_full")
+      .in("dedupe_key", deo)
+      .in("status", ["pending", "running"])
+      .returns<{ id: number; dedupe_key: string | null }[]>();
+
+    if (error) throw new Error(`Čitanje poslova analize nije uspelo: ${error.message}`);
+    for (const r of data ?? []) if (r.dedupe_key) kandidati.set(r.id, r.dedupe_key);
+  }
+
+  if (kandidati.size === 0) return poMestu;
+
+  for (const deo of inGrupe([...kandidati.keys()])) {
+    const { data, error } = await db
+      .from("job_subscribers")
+      .select("job_id")
+      .eq("user_id", userId)
+      .in("job_id", deo)
+      .returns<{ job_id: number }[]>();
+
+    if (error) throw new Error(`Čitanje pretplata na posao nije uspelo: ${error.message}`);
+    for (const r of data ?? []) {
+      const mesto = kandidati.get(r.job_id);
+      // Najmlađi posao pobeđuje — to je onaj koji je upravo naručen ponovo.
+      if (mesto && (poMestu.get(mesto) ?? 0) < r.job_id) poMestu.set(mesto, r.job_id);
+    }
+  }
+
+  return poMestu;
 }
 
 /**

@@ -6,7 +6,15 @@
 // Ovde su samo tipovi i konstante. Funkcija koja pravi `PublicLead` je u
 // `public-lead.ts` i ona jeste `server-only`.
 
-import type { AiIssue, Dubina, PhoneKind, Platform, SiteStatus, UglyBand } from "@sajtoskop/shared";
+import type {
+  AiIssue,
+  Dubina,
+  LeadStatusValue,
+  PhoneKind,
+  Platform,
+  SiteStatus,
+  UglyBand,
+} from "@sajtoskop/shared";
 
 // Hard cap, bez `limit` parametra iz klijenta (PRD §2: nema bulk endpointa).
 export const PAGE_SIZE = 30;
@@ -27,6 +35,27 @@ export type LeadBase = {
   siteStatus: SiteStatus | null;
   uglyBand: UglyBand | null;
   platform: Platform | null;
+  /**
+   * [S30, §7.0] Broj ocena na Googlu (`businesses.user_ratings_total`). Javno —
+   * stoji i na Google Mapsu uz ocenu.
+   */
+  ratingCount: number | null;
+  /**
+   * [S30, §7.3] „Ima mejl" je javno, kao `hasWebsite`; adresa nije. Čovek ne
+   * troši kredit na prospekt bez kanala.
+   */
+  hasEmail: boolean;
+  /**
+   * [S30, §7.0] Ime niše. Kartica na `/lista` nema mapu niša u pregledaču, pa
+   * ime šalje server. Prazan string kad lead nema nišu.
+   */
+  nicheLabel: string;
+  /**
+   * [S30, §7.0] Koliko problema je analiza našla — `ai_issues` ako je AI prošao,
+   * inače broj `signals`. BROJ, ne sadržaj: broj je argument, sadržaj je roba.
+   * `null` kad audita nema.
+   */
+  issueCount: number | null;
 };
 
 export type LockedLead = LeadBase & { isUnlocked: false };
@@ -179,6 +208,24 @@ export type SearchResponse = {
   cost?: number;
   /** Balans posle ovog zahteva. Popunjen samo kad je bilo naplate. */
   creditsLeft?: number;
+  /**
+   * [S30, §4.4] „Otključaj · prvi je besplatan". Server računa, klijent ne:
+   * `credits_topup ≥ 1 && unlocks = 0 && nema credit_pack`, uz pun pristup.
+   */
+  prviBesplatan?: boolean;
+  /** [S30, §4.6] Koraci onboardinga posle ovog zahteva — samo kad je upisan nov. */
+  onboardingSteps?: Record<string, string>;
+  /**
+   * [S30, §7.2] Mesto u pipeline-u za OTKLJUČANE prospekte na ovoj strani.
+   * Prospekt bez reda je `nekontaktiran` i u mapi ga nema.
+   */
+  statusi?: Record<string, LeadStatusValue>;
+  /**
+   * [S30, §7.4] Živ `enrich_full` ovog korisnika po `place_id`, samo za
+   * otključane prospekte na strani kojima analiza još nije stigla. Kartica po
+   * njemu crta „u toku" i posle ponovnog učitavanja strane.
+   */
+  enrichJobs?: Record<string, number>;
 };
 
 /**
@@ -238,6 +285,14 @@ export type UnlockResponse = {
   creditsLeft: number;
   /** `true` znači da je lead već bio otključan i da kredit NIJE skinut. */
   alreadyUnlocked: boolean;
+  /**
+   * [S30, C5, §7.4] Posao analize (`enrich_full`) koji kartica prati: nov posao
+   * posle otključavanja ili ponovnog pokušaja, odnosno živ posao ovog korisnika
+   * za taj prospekt. `null` = nema posla — enqueue je pao, ili je analiza gotova.
+   */
+  enrichJobId: number | null;
+  /** [S30, §4.6] Koraci onboardinga — samo kad je ovo otključavanje upisalo nov. */
+  onboardingSteps?: Record<string, string>;
 };
 
 /** Oblik greške koji rute vraćaju. Poruka je na srpskom i ide direktno korisniku. */

@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
+import { oznaciAkoTreba } from "@/lib/onboarding";
 import { promeniStatus, sacuvajBelesku } from "@/lib/pipeline";
 import { citajPristup, odbijenicaCitanja } from "@/lib/pristup";
 import { pipelineBodySchema } from "@/lib/pipeline-schema";
@@ -34,7 +35,7 @@ export async function PATCH(req: Request): Promise<Response> {
 
   // [S19] Pipeline je korisnikov RAD, ne kupljen podatak, i u grace stanju radi
   // normalno (§1.5). Kapija pada samo na zaključan nalog.
-  const { pristup } = await citajPristup();
+  const { pristup, profile } = await citajPristup();
   const odbijen = odbijenicaCitanja(pristup);
   if (odbijen) return odbijen;
 
@@ -54,15 +55,23 @@ export async function PATCH(req: Request): Promise<Response> {
     );
   }
 
-  const { placeId, status, note } = parsed.data;
+  const { placeId, status, note, channel } = parsed.data;
 
   try {
     // Redosled je bitan kad stignu oba: status je ono što korisnik vidi kao
     // rezultat prevlačenja, pa ide prvi. Ako beleška padne posle njega, kartica
     // je bar na pravom mestu.
+    let onboardingSteps: Record<string, string> | undefined;
+
     if (status !== undefined) {
-      const ishod = await promeniStatus(userId, placeId, status);
+      const ishod = await promeniStatus(userId, placeId, status, channel ?? null);
       if (!ishod.ok) return odbijeno(ishod.razlog);
+
+      // [S30, §4.3] Korak `pipeline` = prvi `lead_status` red. Povratak u
+      // „Nekontaktiran" nije korak — to je poništen kontakt, ne urađen.
+      if (status !== "nekontaktiran") {
+        onboardingSteps = await oznaciAkoTreba(userId, profile?.onboarding_steps, "pipeline");
+      }
     }
 
     if (note !== undefined) {
@@ -70,7 +79,10 @@ export async function PATCH(req: Request): Promise<Response> {
       if (!ishod.ok) return odbijeno(ishod.razlog);
     }
 
-    return NextResponse.json({ ok: true }, { headers: HEADERS });
+    return NextResponse.json(
+      { ok: true, ...(onboardingSteps ? { onboardingSteps } : {}) },
+      { headers: HEADERS },
+    );
   } catch (err) {
     console.error("[api/pipeline]", err);
     return greska("Izmena trenutno ne radi. Pokušaj ponovo za koji minut.", 500);

@@ -122,6 +122,14 @@ export type ProfileRow = {
   onboarding_skipped_at: string | null;
   /** Vođene tačke koje su korisniku već prikazane — ključevi iz kataloga (§4.5). */
   onboarding_hints_seen: string[];
+  /**
+   * Odgovori čarobnjaka `/pocetak` (S30, migracija 0028, §4.2). Grad i niša su
+   * slugovi iz `taxonomy.ts`; kanal je `viber | mejl | instagram`. `null` dok
+   * čovek taj ekran nije prošao.
+   */
+  onboarding_city: string | null;
+  onboarding_niche: string | null;
+  onboarding_channel: string | null;
 
   created_at: string;
 };

@@ -571,6 +571,59 @@ Snimci ekrana koje ova sesija traži su označeni **📸**. Sve ostalo je klik-p
 
 ---
 
+## 7f. Onboarding i kartica prospekta (S30)
+
+Snimci ekrana koje ova sesija traži su označeni **📸**. Lokalno, uz `stripe listen`. Pre prvog
+klika i posle poslednjeg: `select * from api_budget order by 1 desc limit 3;` — **mora biti isto**
+(izlaz u `docs/SESIJE.md`, S30).
+
+### Prolaz 1 — nov nalog bez kartice
+
+- [ ] Registracija → `/pretraga` → sama preusmeri na **`/pocetak`** (bez bočne trake).
+- [ ] Ekran 1: gradovi imaju red „N gotovih lista · M firmi bez sajta"; **Enter** ide dalje;
+      tačkice 1–4 ispod naslova, bez „1 od 4". „Preskoči" gore desno na svakom ekranu.
+- [ ] Ekran 2: čipovi `PVC stolarija · 41 firma · 24 bez sajta`, zelena brojka; „Nazad" dole levo.
+- [ ] Ekran 3: tri kartice (na 390 px jedna u redu).
+- [ ] Ekran 4: tri broja; rečenica „Imaš **2 besplatna kredita**…"; dugme „Otvori listu · 1 kredit".
+- [ ] Klik → `/pretraga?grad=…&nisa=…&dubina=brzo`, lista stoji odmah, **bez modala**; bočna
+      traka „Prvih pet minuta **1/4**"; rečenica „Zeleni bedževi su…" iznad liste.
+- [ ] Tačka 1 uz prvi bedž „Nema sajt" → „Jasno" → posle ~3 s tačka 2 uz „Otključaj".
+- [ ] Dugme kaže **„Otključaj · prvi je besplatan"** → klik **bez modala** → kartica u toku
+      (telefon i mejl odmah, „Analiziram sajt…", skeleton sličice) → puna posle `done`.
+- [ ] Tab po čarobnjaku (Viber za mobilni); tačka 3 uz tabove.
+- [ ] „Kopiraj" → tost **„Kopirano. Označi kao kontaktiran?"** sa tačkom 4 uz „Kontaktiran" →
+      klik → traka 2 s kaže **„Sva četiri. Sad znaš sve što treba."** pa nestaje.
+- [ ] Drugi prospekt: dugme **„Otključaj · treba plan"** → modal „Nemaš kredita…" → „Pogledaj planove".
+- [ ] Baner „Nemaš plan. Dobio si 2 kredita…" dok je nalog `dopuna` bez paketa.
+- [ ] `/pretraga` posle oba kredita: **„Probao si besplatno. Za dalje treba plan."**; baner
+      „Besplatni krediti su potrošeni."; `/lista` i dalje radi.
+- [ ] SQL iz `tok-i-onboarding.md` §4.9 pokazuje sva četiri koraka za ovaj nalog.
+
+### Prolaz 2 — proba (12 kredita) · Prolaz 3 — komp pozivnica
+
+- [ ] Proba: `/welcome` „Proba je počela" → „Napravi prvu listu" → čarobnjak; ekran 4 „Košta 1 kredit — imaš 12".
+- [ ] Komp: `/pozivnica/SAJT-…` → „Prihvati" → **`/pocetak?pozivnica=komp`** sa redom „Komp pristup do …, N kredita" iznad naslova.
+
+### Kartica u pet stanja 📸 (tamna + svetla, 1280 px + 390 px)
+
+- [ ] 📸 **Zaključana** — maska `06• ••• ••••`, `•••••@•••••` / „nema mejl", „N problema" + četiri reda maske; nigde blur.
+- [ ] 📸 **U toku** — „Analiziram sajt na telefonu i desktopu… obično 10–40 s", signali, skeleton 40×64.
+- [ ] 📸 **Greška** — „Analiza nije stigla…", „Pokušaj ponovo" (najviše 2×), **„Prijavi grešku"** otvara panel sa tipom Bug i `placeId`.
+- [ ] 📸 **Nema sajt** — „nema domen", „Zašto je ovo dobar prospekt", precrtan globus.
+- [ ] 📸 **Otključana** — telefon (Mobilni · Viber u akcentu), mejl skraćen u sredini, problemi sa ikonom po težini, sličica otvara preklop, tabovi, Kopiraj, Napiši drugačije.
+- [ ] 390 px: kontakti su tri reda (cela linija je meta), tabovi skroluju i aktivni ostaje vidljiv, „Napiši drugačije" puna širina, modal potvrde sa dna.
+
+### Vodič, prazna stanja, baneri
+
+- [ ] Ikonica „?" u gornjoj traci → panel 360 px; `Esc` i klik van zatvaraju; „Pokaži mi" vraća tačku; „Ponovi prve korake" → `/pocetak?ponovo=1` sa preselekcijom, bez naplate za već plaćenu listu.
+- [ ] „Sakrij" u traci → traka nestaje i ne vraća se posle reload-a; koraci se i dalje beleže.
+- [ ] Prazna stanja §4.7: `/pretraga` (bez izbora sa fusnotom „Podrazumevano: …", filteri, prazan scan), `/lista`, `/pipeline`, `/utisci` („Pošalji prvi utisak" otvara panel). „Šta ti ovde fali?" i dalje ispod.
+- [ ] Grace po uzroku: `past_due` → „Naplata nije prošla." + „Ažuriraj karticu"; istekla pretplata → „Pristup ti je istekao …".
+- [ ] `/zakljucano` za nalog koji nikad nije platio: **„Nalog čeka plan"**.
+- [ ] Obe teme na svemu iznad.
+
+---
+
 ## 8. Tema i pristupačnost (Faza 4, 4.8 · Faza 5)
 
 - [ ] Prekidač teme: **Tab** ulazi u celu grupu, **strelicama ← →** menja temu; klik radi isto.

@@ -24,6 +24,7 @@ import { BAND_LABEL, formatDatum, plural, STATUS_LABEL } from "@/lib/ui-tekst";
 import { PorukePanel } from "./poruke-panel";
 import { UtisakKartica } from "./utisak-kartica";
 import { useUtisci } from "./utisci-provider";
+import { VodjenaTacka } from "./vodjena-tacka";
 import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Input, Label, Textarea } from "./ui/input";
@@ -245,7 +246,10 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
             >
               <h2 className="flex items-center gap-2 px-1 pb-2.5 text-xs font-semibold">
                 <span aria-hidden className={cn("h-2 w-2 rounded-full", BOJA[k].tacka)} />
-                <span>{KOLONA_LABEL[k]}</span>
+                {/* [S30, §4.5] Tačka 4 stoji i uz kolonu „Nekontaktiran". */}
+                <VodjenaTacka hint="pipeline" kandidat={k === "nekontaktiran"} className="inline-block">
+                  <span>{KOLONA_LABEL[k]}</span>
+                </VodjenaTacka>
                 <span className="ml-auto rounded-full bg-bg-inset px-1.5 py-0.5 text-[11px] font-medium num text-fg-muted">
                   {u.length}
                 </span>
@@ -268,7 +272,7 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
 
                 {u.length === 0 && (
                   <p className="rounded-xl border border-dashed border-border px-3 py-5 text-center text-[11px] text-fg-muted/70">
-                    prevuci karticu ovde
+                    Prevuci prospekt ovde
                   </p>
                 )}
               </div>

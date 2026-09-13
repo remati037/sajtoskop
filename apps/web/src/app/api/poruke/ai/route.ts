@@ -73,8 +73,8 @@ export async function POST(req: Request): Promise<Response> {
     return greska("Nisi prijavljen.", 401);
   }
 
-  const { pristup } = await citajPristup();
-  const odbijenPristup = odbijenica(pristup, "ai-poruka");
+  const { pristup, pretplata } = await citajPristup();
+  const odbijenPristup = odbijenica(pristup, "ai-poruka", pretplata);
   if (odbijenPristup) return odbijenPristup;
 
   let raw: unknown;

@@ -24,7 +24,7 @@ import "server-only";
 import { cache } from "react";
 import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
-import { stanjePristupa, type Pristup, type PretplataZaPristup } from "@sajtoskop/shared";
+import { stanjePristupa, uzrokGrace, type Pristup, type PretplataZaPristup } from "@sajtoskop/shared";
 import type { ProfileRow } from "@sajtoskop/shared";
 import { getCurrentUserId } from "./auth";
 import { citajProfil } from "./profile";
@@ -192,29 +192,62 @@ const HEADERS = { "Cache-Control": "private, no-store" };
  * Odbijenica za rutu koja troši, ili `null` ako radnja sme da prođe.
  *
  * ‼️ `403`, ne `402`. U ovom kodu `402` znači tačno jednu stvar — „nemaš
- *    dovoljno kredita" — i klijent na njega nudi „vidi kredite". Istekao pristup
- *    nije stanje novčanika: kupovina kredita ga u `grace` stanju ne popravlja
- *    ako je razlog istekla pretplata, a `dopuna` ga popravlja i bez plana. Dva
- *    različita razloga sa istim statusom bi značila jedno pogrešno dugme.
+ *    dovoljno kredita" — i klijent na njega nudi planove. Istekao pristup nije
+ *    stanje novčanika: kupovina kredita ga u `grace` stanju ne popravlja
+ *    (`smeDaKupiPaket(grace) = false`, §2.3), a `dopuna` ga popravlja i bez
+ *    plana. Dva različita razloga sa istim statusom bi značila jedno pogrešno
+ *    dugme.
+ *
+ * [S30] Tekst po UZROKU grace-a (§2.3), iz istih rečenica koje stoje na
+ * baneru — samo sa imenom radnje ispred, jer odgovor rute stiže uz klik na
+ * konkretno dugme. `pretplata` je potrebna samo za `past_due`; bez nje (stari
+ * pozivalac) uzrok pada na „besplatni"/„istekao" po tome ima li plaćenog roka.
  */
-export function odbijenica(pristup: Pristup | null, radnja: Radnja): Response | null {
+export function odbijenica(
+  pristup: Pristup | null,
+  radnja: Radnja,
+  pretplata: PretplataZaPristup | null = null,
+): Response | null {
   // Nepoznato stanje ne zaključava — v. `IshodPristupa.pristup`.
   if (!pristup || pristup.pun) return null;
 
-  // [S28, O3] `grace` ima dva uzroka, pa i dve rečenice: istekao plaćen rok
-  // (`punDo` postoji) i potrošeni krediti dobrodošlice na nalogu koji nikad nije
-  // platio (`punDo === null`). Drugome „pristup ti je istekao" ne kaže ništa.
-  const grace = pristup.stanje === "grace";
-  const uvod =
-    grace && pristup.punDo === null
-      ? `${IME_RADNJE[radnja]} ne radi jer su besplatni krediti potrošeni.`
-      : `${IME_RADNJE[radnja]} ne radi jer ti je pristup istekao.`;
+  const ime = IME_RADNJE[radnja];
+  let poruka: string;
 
-  const poruka = grace
-    ? `${uvod} Do ${formatDatum(pristup.citanjeDo)} ` +
-      "možeš da otvaraš svoje prospekte, vodiš pipeline i izvezeš oba CSV-a. " +
-      "Uzmi plan ili paket kredita na /cenovnik i sve se odmah vraća."
-    : `${uvod} Uzmi plan ili paket kredita na /cenovnik.`;
+  switch (uzrokGrace(pristup, pretplata)) {
+    case "besplatni":
+      // §1.12, grana posle oba kredita dobrodošlice.
+      poruka =
+        `${ime} ne radi jer su besplatni krediti potrošeni. ` +
+        `Do ${formatDatum(pristup.citanjeDo ?? new Date().toISOString())} možeš da otvaraš svoj prospekt, poruku i pipeline. ` +
+        "Za nove liste i otključavanja treba plan — 7 dana probe, kartica se naplaćuje osmog dana. Planovi su na /cenovnik.";
+      break;
+
+    case "naplata":
+      // §2.2, dan 8.
+      poruka =
+        `${ime} ne radi jer naplata nije prošla. ` +
+        (pristup.punDo ? `Kartica je odbijena ${formatDatum(pristup.punDo)}. ` : "") +
+        "Ažuriraj karticu i plan se nastavlja" +
+        (pristup.citanjeDo ? `; do ${formatDatum(pristup.citanjeDo)} možeš da čitaš svoje prospekte.` : ".") +
+        " Kartica se menja kroz portal na /krediti, a planovi su na /cenovnik.";
+      break;
+
+    case "istekao":
+      // §2.3: izlaz iz grace-a je plan — paket NE (`smeDaKupiPaket(grace) = false`).
+      poruka =
+        `${ime} ne radi jer ti je pristup istekao` +
+        (pristup.punDo ? ` ${formatDatum(pristup.punDo)}.` : ".") +
+        (pristup.citanjeDo
+          ? ` Do ${formatDatum(pristup.citanjeDo)} možeš da otvaraš svoje prospekte, vodiš pipeline i izvezeš oba CSV-a.`
+          : "") +
+        " Uzmi plan na /cenovnik i sve se odmah vraća.";
+      break;
+
+    default:
+      // `zakljucan` — do API rute stiže samo iz drugog taba otvorenog pre isteka.
+      poruka = `${ime} ne radi jer ti je pristup istekao. Uzmi plan na /cenovnik.`;
+  }
 
   const body: ApiError = { greska: poruka };
   return NextResponse.json(body, { status: 403, headers: HEADERS });

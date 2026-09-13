@@ -17,11 +17,12 @@
 
 import { after } from "next/server";
 import { redirect } from "next/navigation";
-import { planFor } from "@sajtoskop/shared";
+import { planFor, uzrokGrace } from "@sajtoskop/shared";
 import { currentUser } from "@clerk/nextjs/server";
 import { jeAdminIzProfila } from "@/lib/admin";
 import { requireSession } from "@/lib/auth";
 import { trebaPodsetnikSada } from "@/lib/feedback";
+import { imaKupljenPaket, onboardingIzProfila } from "@/lib/onboarding";
 import { citajProfil, ensureProfile, zabeleziDolazak } from "@/lib/profile";
 import { aktivacijaZa, citajPretplatuZaEkran } from "@/lib/pretplata";
 import { citajPretplatu, pristupZaProfil, PUTANJA_ZAKLJUCANO } from "@/lib/pristup";
@@ -87,6 +88,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Otkazana PROBA je `otkazan` (§7.1), ali traka je zove njenim imenom.
   const probaOtkazana = pristup?.stanje === "otkazan" && pretplata?.status === "trialing";
 
+  // [S30, §1.12] Baner „Nemaš plan" traži `dopuna` BEZ ijednog kupljenog paketa.
+  // Upit ide samo za `dopuna` nalog — svaki drugi zahtev kroz `(app)` ga nema.
+  const dopunaBezPaketa =
+    pristup?.stanje === "dopuna" && profile ? !(await imaKupljenPaket(userId)) : false;
+
   // [Faza 3, 3.6] Stanje motora utisaka se odavde više NE čita — layout je
   // čekao na feedback upite pre prvog bajta (P4). `UtisciProvider` ga povlači
   // klijentski, sa `/api/utisci/stanje`, posle prvog prikaza. Isti broj upita,
@@ -141,6 +147,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       pristup={pristup}
       aktivacijaProbe={aktivacijaProbe}
       probaOtkazana={probaOtkazana}
+      // [S30, §2.3] Grace ne nosi uzrok; izvodi se iz istog para ulaza.
+      uzrokGrace={uzrokGrace(pristup, pretplata)}
+      dopunaBezPaketa={dopunaBezPaketa}
+      // [S30, §4.6] Traka, tačke i vodič — iz profila koji je gore već pročitan.
+      onboarding={onboardingIzProfila(profile)}
     >
       {children}
     </OkvirAplikacije>

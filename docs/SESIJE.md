@@ -38,6 +38,7 @@ sledeću sesiju.
 | S22 | Pravni tekstovi i futer | `LANSIRANJE.md`, `F8-landing.md` §3 | — | 0,5 dana | ☑ |
 | — | *Izmena posle S22: dva domena, onboarding kao faza, O1* | `LANSIRANJE.md` §1.7, §1.8 | — | — | ☑ |
 | S29 | Feedback: NPS, „Fali", citat, prijava greške | `tok-i-onboarding.md` §5 | `0027` | 1 dan | ☑ |
+| S30 | Onboarding + kartica prospekta (dovršava S28) | `tok-i-onboarding.md` §4, §7 | `0028` | 1,5 dana | ☑ (kod) · ručni prolaz ☐ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -3561,7 +3562,7 @@ Ledger izlaz posle ručnog prolaza (`select reason, ref_id, delta from credit_le
 
 ---
 
-## S28 — Onboarding + kartica prospekta ◐ DELIMIČNO (PRD nedostaje)
+## S28 — Onboarding + kartica prospekta ◐ DELIMIČNO (PRD nedostaje) → dovršeno u S30
 
 **Delimično isporučeno 12. septembra 2026.** Commit: „S28: onboarding + kartica prospekta"
 (obim ispod). Migracija: **0026** (`onboarding`).
@@ -3840,3 +3841,162 @@ grep „beta" u vidljivom tekstu → 0
 | — | **K4 / `kartica-prospekta.tsx`** | Ne postoji (S28, sada odblokirano — §7 i §8/K4). Zbog toga „Prijavi grešku" nije montiran na kartici u stanju greške (§7.5); ostalih pet mesta jeste. Kad kartica stigne: `<PrijaviGresku ctx={{ placeId, greska }} />`. |
 | — | migracija `0027` | Primeniti na Supabase pre deploya. Do tada `/admin` puca na `utisci.nps` (`admin_overview` još vraća `cena_odgovori`). |
 | — | ručni prolaz | Cela sekcija **7e** u `docs/PROVERA-VIZUELNA.md`, uz tri snimka ekrana (NPS na 390 px, panel „Kontekst", admin NPS). |
+
+---
+
+## S30 — Onboarding + kartica prospekta ☑ (kod) · ručni prolaz otvoren
+
+**Isporučeno 13. septembra 2026.** Commit: „S30: onboarding + kartica prospekta".
+Migracija: **0028** (`pocetak`). Dovršava K4 — sve stavke iz „Šta NIJE urađeno" u unosu S28 su
+zatvorene, a „Prijavi grešku" na kartici u stanju greške je šesto mesto iz §5.3 D koje je S29
+ostavila nemontirano.
+
+Radjeno iz `docs/tok-i-onboarding.md` §0, §1.8–§1.13, §2.3, §2.5, §4, §7. Ništa od onoga što
+je S28 već isporučila (0026, `ONBOARDING_CREDITS`, O3, C6, `lib/profile.ts`) nije dirano.
+
+### Šta je urađeno
+
+- **`supabase/migrations/0028_pocetak.sql`** — samo `onboarding_city`, `onboarding_niche`,
+  `onboarding_channel` i `profiles_onboarding_channel_valid` (viber/mejl/instagram), doslovno iz
+  §4.3. `check:sql` je pušta dvaput i proverava da `poziv` i `Viber` padaju.
+- **`packages/shared/src/onboarding.ts`** (+ barrel) — `KORACI`, `TACKE`, `TRAKA`, `VODIC`,
+  `TRAKA_SKRIVENA`, `ONBOARDING_KANALI`, i dve odluke: `trebaCarobnjak()` i `trakaVidljiva()`.
+  **`uzrokGrace()`** u `pristup.ts` (`naplata` / `besplatni` / `istekao`, §2.3).
+- **Server:** `lib/onboarding.ts` (`zahtevajOnboarding`, `oznaciAkoTreba`, `prviJeBesplatan`,
+  `imaKupljenPaket`, `preskoci`, `dodajHint`, `upisiIzbor`), `lib/onboarding-schema.ts` (tri
+  `strictObject` šeme), `lib/kartica.ts` (stanje kartice iz podataka — deli ga kartica, test i
+  `lib/unlock.ts`), `lib/ai-varijanta.ts` (pollovanje AI varijante, sad deljeno sa panelom).
+- **Rute:** `api/onboarding/{korak,preskoci,hint}` — `requireUserId`, tempo, `strictObject`.
+  Koraci iz ruta koje ih rade: `api/search` (`pretraga` na prvi `charged`/`already_paid`),
+  `lib/unlock.ts` (`otkljucavanje`), `api/pipeline` (`pipeline`). `api/search` vraća i
+  `prviBesplatan`, `statusi` (pipeline) i `enrichJobs`; `api/unlock` vraća `enrichJobId`.
+- **Kapija** `zahtevajOnboarding()` u `/pretraga`, `/lista`, `/pipeline`, `/dashboard`,
+  `/krediti`, odmah posle `zahtevajCitanje()`; **nije** u layout-u.
+- **`/pocetak`** — `page.tsx` + `pocetak-ekran.tsx`: četiri ekrana, tekst doslovno, kombinacije
+  samo iz `listaKesa()` sa `fresh`, `?pozivnica=komp`, `?ponovo=1`, prazan keš.
+- **Traka, tačke, vodič:** `OnboardingProvider`, `onboarding-traka.tsx` (u bočnoj traci, i
+  skupljena sa prstenom), `vodjena-tacka.tsx` (jedna odjednom, ćuti preko modala, posla i
+  pitanja), `vodic.tsx` (panel iz gornje trake). Blok „Prvi koraci" na `/dashboard` obrisan.
+- **Kartica** `kartica-prospekta.tsx` — pet stanja, tekst iz §7.8 u `ui-tekst.ts` pod `kartica`,
+  potvrda „1 kredit" sa „Ne pitaj me više danas" (`sessionStorage`), polling `enrich_full`,
+  tabovi Viber/Mejl/Instagram/Poziv, tost „Kopirano. Označi kao kontaktiran?", izbor mesta u
+  pipeline-u, sličica otvara `SnimakPreklop`. **`lead-tabela.tsx` obrisan**; `/pretraga` i
+  `/lista` crtaju grid kartica. `LeadBase` + `ratingCount`, `hasEmail`, `nicheLabel`, `issueCount`.
+- **Prazna stanja §4.7** doslovno na `/pretraga` (bez izbora, filteri, prazan scan, grace po
+  uzroku), `/lista`, `/pipeline` (+ „Prevuci prospekt ovde"), `/utisci` (dugme otvara panel),
+  i u kartici („Sajt izgleda solidno", „Nema kanala"). `PraznoStanje` dobio `fusnota`.
+  `<FaliMikro>` iz S29 ostao ispod praznih stanja.
+- **Baneri:** `pristup-baner.tsx` — „Nemaš plan…" za `dopuna` bez paketa (§1.12) i grace po
+  uzroku (§2.2, §2.3); `pretplata-blok.tsx` isto; `odbijenica()` u `lib/pristup.ts` gradi poruku
+  iz rečenica §2.3. **Sve četiri improvizovane rečenice iz S28 su zamenjene.**
+  `/zakljucano` ima granu **„Nalog čeka plan"**.
+- **Pozivnice:** komp → `/pocetak?pozivnica=komp`; `/welcome` primarno dugme „Napravi prvu
+  listu" → `/pocetak`, naslov „Plan je aktivan" za pretplatu bez probe.
+- **Testovi:** `packages/shared/test/onboarding.ts` (katalog naspram SQL-a 0026/0028, tekst,
+  odluke), `apps/web/test/kartica.ts` (pravilo 9 nad JSON ključevima, pet stanja, tabovi, §7.8),
+  `apps/web/test/unlock.ts` (`enrichJobId`, ponovni enqueue, koraci — lažno skladište),
+  `apps/web/test/onboarding-rute.ts` (šeme, 401, žice). `test/pozivnice.ts` ažuriran.
+
+### Fallback iz zahteva
+
+**Nijedan nije iskorišćen.** „Otključaj · prvi je besplatan" računa server (§4.4), a
+podrazumevan tab poruke je kanal iz čarobnjaka kad je primenljiv, inače `predlog`.
+
+### Gde §4/§7 ne može kako piše — i šta je urađeno umesto toga
+
+1. **Kapija bi pravila petlju.** §1.8: `pun && done IS NULL && skipped IS NULL → /pocetak`. Ekran 4
+   plaća listu i šalje na `/pretraga`, a `done_at` nastaje tek posle SVA ČETIRI koraka — pa bi
+   kapija čoveka vratila u čarobnjak sekund pošto je platio. `trebaCarobnjak()` zato traži i
+   `!steps.pretraga`. Isto: „Idi na pretragu" sa praznog keša upisuje `skipped_at`.
+2. **Redirekcija posle ekrana 4 nosi `&dubina=brzo`.** §4.2 piše `/pretraga?grad=…&nisa=…`; bez
+   dubine pretraga traži „Standardno" (2 stranice), nema plaćen pristup za to i prikazuje cenu.
+3. **Ekran 4 prvo pita bez naplate.** §4.2 kaže `pay: true` odmah; nad kombinacijom koja je istekla
+   između ekrana to bi tiho pokrenulo **skeniranje** (Places poziv). Prvo `pay: false`: ako je
+   `kind: kes` (ili pristup već postoji) ide `pay: true`, inače se ekran crta sa rečenicom iz §1.8
+   i novom cenom, a plaća tek sledeći klik.
+4. **„Sakrij" i „Preskoči" pišu istu kolonu.** Oba traže `onboarding_skipped_at` (§4.2, §4.6), a
+   §4.6 kaže da traka OSTAJE za onoga ko je preskočio čarobnjak. „Sakrij" zato uz datum upisuje i
+   oznaku `traka` u `onboarding_hints_seen` (`TRAKA_SKRIVENA`). Nova kolona bi bila migracija za
+   jedan boolean.
+5. **`/api/onboarding/korak` prima i odgovore čarobnjaka.** §4.3 kaže „prima SAMO
+   `{korak: 'poruka'}`", a §1.8 kaže da isti poziv sa `vrednost` puni `onboarding_city/niche/channel`.
+   Šema je unija `strictObject`-a: `poruka`, ili `grad`/`nisa`/`kanal` sa vrednošću iz taksonomije.
+   `pretraga`, `otkljucavanje` i `pipeline` i dalje dobijaju **400** (test).
+6. **„9 sa mrtvim domenom (iz `search_cache`)" — tog broja u `search_cache` nema** (samo `total` i
+   `no_site`, 0020). `/pocetak` pravi jedan `count` upit po svežoj kombinaciji
+   (`businesses` ⋈ `website_audits`, `site_status = mrtav`); pad upita prikazuje `—`. Kad keš
+   poraste preko nekoliko desetina kombinacija, ovo je kandidat za kolonu u `search_cache`.
+7. **Dugme „Otključaj" nije primarno.** §7.3 kaže „jedno primarno dugme" po kartici; lista od 20
+   kartica bi imala 20 primarnih dugmadi, a CLAUDE.md i DIZAJN §7.1 kažu jedno po ekranu. Dugme je
+   `outline` sa akcentnom podlogom na hover — isto kao u tabeli koju menja. Isto važi za „Skini
+   filtere" i „Probaj drugu nišu" na `/pretraga` (`secondary`, jer je „Pretraži" primarno).
+8. **Ponovni `enrich_full` ide samo uz izričit `ponovi: true`.** K4 kaže da ga `POST /api/unlock`
+   upisuje „kad audit nema ai_*/screenshot polja". Kartica posle `done` zove istu rutu da pročita
+   lead — bez zastavice bi posao koji završi bez traga (robots.txt) naručivao novi u krug. Uslov
+   je `trebaPonovnaAnaliza()`: sajt postoji i `ai_issues` je `null` (pokriva „sve palo" i „AI pao,
+   snimak prošao"; „snimak pao, AI prošao" nema dugme i ne prolazi).
+9. **Razlog greške nije dostupan.** `kartica.sajtNijeOtvoren(<timeout / 403 / DNS>)` i „(greška
+   522)" iz §7.6 traže podatak koji worker ne upisuje (`enrich_full` na nedostupan sajt vrati
+   `note`, ne grešku). Kartica koristi `analizaPala` / `analizaDuze`; zagrada se ne izmišlja.
+10. **Prazan `/pipeline` = 0 redova u `lead_status`**, doslovno iz §4.7 — dakle i nalog SA
+    otključanim prospektima vidi prazno stanje dok ne pošalje prvu poruku (dugme vodi na `/lista`).
+    Kanban se za takav nalog ne crta. Ako to smeta, uslov je jedna linija u `pipeline/page.tsx`.
+11. **Tost je unutar kartice**, ne plutajući — tačka 4 mora da stoji uz dugme „Kontaktiran", a
+    plutajući tost bi joj pomerao sidro. Nestaje posle 15 s. „Kontaktiran" se ne nudi prospektu
+    koji je već dalje u levku.
+12. **Koraci `poruka` i `pipeline` se upisuju i iz `/api/poruke` POST** (kopiranje iz panela u
+    kanbanu). §4.3 kaže „Kopiraj nema serverski trag" — za karticu je tačno, za panel nije: on je
+    oduvek upisivao `mark_contacted`. Bez ovoga bi korisnik koji radi iz kanbana ostao na 2/4.
+13. **Tekst odbijenice u API-ju** = rečenice iz §2.3/§2.2/§1.12 sa imenom radnje ispred
+    („Otključavanje ne radi jer…"). §2.3 daje tekst banera, ne rute.
+14. **`/lista` crta po 30 kartica** („Prikaži još"). Svaka kartica povlači svoju poruku kad uđe u
+    vidokrug; stotine odjednom bi bile spor ekran bez razloga.
+15. **Red iznad naslova za komp** je postojeći `porukaKompa()` („bez roka" umesto „neograničeno"),
+    da `/pozivnica` i `/pocetak` ne bi imali dve rečenice za isto.
+16. **„Imaš 2 besplatna kredita…" (ekran 4)** samo za `dopuna` bez paketa I dok su krediti
+    netaknuti; inače „Košta 1 kredit — imaš N.".
+17. **„Nalog čeka plan"**: datum „potrošio" je poslednja stavka sa minusom u `credit_ledger`, rok
+    za čitanje `created_at + GRACE_DAYS` (O3).
+
+### Nađeno usput i popravljeno
+
+- **`readBalance()` u `lib/unlock.ts` je čitao samo `credits_balance`.** Nov nalog posle prvog
+  otključavanja bi video „0 kredita" iako mu je drugi kredit dobrodošlice u `credits_topup` — i
+  kartica bi mu ponudila „treba plan". Sad zbir, kao svuda od S21.
+- „betu" u vidljivom tekstu `/zakljucano` i modala pristupa (`pristup-provider.tsx`) → „probu
+  ili komp pristup". Grace baner više ne nudi paket kredita (§2.3: grace ne sme da ga kupi).
+
+### Provereno
+
+```
+pnpm typecheck                 → čisto (shared, web, worker, cli)
+pnpm check:sql                 → Sve prošlo (0028 u oba prolaza; kanal poziv/Viber odbijen)
+pnpm test                      → sve prošlo (shared: 5 fajlova; web: 15; worker)
+pnpm --filter web lint         → čisto (0 grešaka, 0 upozorenja)
+pnpm build                     → čisto (/pocetak 8.3 kB, /pretraga 16.7 kB)
+pnpm check:secrets             → čisto
+grep beta/trial u vidljivom UI → 0 (jedan pogodak je komentar u dashboard/page.tsx)
+```
+
+### Nije urađeno u ovoj sesiji (traži Clerk sesiju u pregledaču, Stripe CLI i bazu)
+
+- [ ] **Ručni prolaz**, sva tri: nov nalog bez kartice → `/pocetak` → lista (1 kredit) → „prvi je
+      besplatan" → kartica u toku → puna → Kopiraj → Kontaktiran → traka „Sva četiri" nestaje →
+      drugi prospekt „treba plan"; isto sa probom; isto sa komp pozivnicom. Checklist je u
+      `docs/PROVERA-VIZUELNA.md` §7f.
+- [ ] **`api_budget` pre i posle oba prolaza** — izlaz ide ovde. Upit:
+      `select * from api_budget order by 1 desc limit 3;` pre prvog klika i posle poslednjeg.
+- [ ] **SQL iz §4.9** posle prolaza — sva četiri koraka za test nalog.
+- [ ] **Screenshoti kartice** u pet stanja, obe teme, 390 px — mesta su označena 📸 u §7f.
+
+### Ostaje na meni
+
+| # | Gde | Šta |
+|---|---|---|
+| — | migracija `0028` | Primeniti na Supabase pre deploya. Bez nje `/api/onboarding/korak` sa `grad`/`nisa`/`kanal` pada na 500 (koraci trake rade — oni su u 0026). |
+| — | **postojeći nalozi** | Kapija šalje u čarobnjak SVAKI nalog sa punim pristupom bez `done_at`, `skipped_at` i koraka `pretraga` — dakle i naloge iz bete/S25–S29 koji su već radili. Odluka je tvoja; ako ih ne želiš u čarobnjaku, jedna linija PRE deploya: `update profiles set onboarding_skipped_at = now() where onboarding_done_at is null and onboarding_skipped_at is null and exists (select 1 from unlocks u where u.user_id = profiles.id);` |
+| — | keš | §4.2: seed 15–20 svežih kombinacija pre snimanja, inače čarobnjak pokazuje „Još nema gotovih lista". |
+| — | `/uslovi` | Pravni tekst i dalje kaže „Paket kredita se kupuje samo uz aktivan plan ili betu." — nisam menjao pravni tekst bez tebe. |
+| — | `/dashboard` | Prečica „Pretraga prospekata" kaže „sve što je u kešu je besplatno" — od D10 nije. Van obima S30. |
+| — | ručni prolaz | v. gore i PROVERA-VIZUELNA §7f. |
+

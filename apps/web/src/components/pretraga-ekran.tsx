@@ -51,7 +51,8 @@ import {
 } from "@sajtoskop/shared";
 import { Combobox, type ComboGroup } from "./combobox";
 import { KesLista } from "./kes-lista";
-import { LeadTabela } from "./lead-tabela";
+import { KarticaProspekta } from "./kartica-prospekta";
+import { useOnboarding } from "./onboarding-provider";
 import { SkeniranjeModal, type SkeniranjePredlog } from "./skeniranje-modal";
 import { UtisakKartica } from "./utisak-kartica";
 import { UtisakMikro } from "./utisak-mikro";
@@ -71,7 +72,7 @@ import {
   type KesStavka,
   type SearchFilters,
   type SearchResponse,
-  type UnlockResponse,
+  type UnlockedLead,
 } from "@/lib/search-types";
 import { daniDo, formatDatum, formatDatumKratko, plural, summaryLine } from "@/lib/ui-tekst";
 
@@ -84,7 +85,16 @@ type Props = {
   pocetniKes: KesStavka[];
   /** Balans u trenutku renderovanja strane. Modal ga prikazuje pre naplate. */
   pocetniKrediti: number;
+  /** [S30, §4.2] Grad i niša iz čarobnjaka — podrazumevana forma, bez pretrage. */
+  podrazumevaniGrad?: string | null;
+  podrazumevanaNisa?: string | null;
 };
+
+/** Id combobox-a niše — „Probaj drugu nišu" iz praznog stanja stavlja fokus ovde (§4.7). */
+const NISA_ID = "pretraga-nisa";
+
+/** §4.4 — rečenica iznad liste dok prvi prolaz nije završen (S27, tekst zadržan). */
+const ZELENI_BEDZEVI = "Zeleni bedževi su najbolji prospekti — firme koje sajt uopšte nemaju.";
 
 const PRAZNI_FILTERI: SearchFilters = { onlyNoSite: false, onlySocial: false, onlyDead: false };
 
@@ -169,8 +179,11 @@ export function PretragaEkran({
   nicheLabels,
   pocetniKes,
   pocetniKrediti,
+  podrazumevaniGrad = null,
+  podrazumevanaNisa = null,
 }: Props) {
   const router = useRouter();
+  const onboarding = useOnboarding();
 
   // [Faza 4, 4.3] Stanje pretrage živi u URL-u (?grad=&nisa=&bezSajta=&strana=):
   // link se deli i vraća isti rezultat, a Back prolazi kroz istoriju pretraga
@@ -220,6 +233,9 @@ export function PretragaEkran({
     const grad = searchParams.get("grad");
     const nisa = searchParams.get("nisa");
     if (!grad || !nisa) {
+      // [S30, §4.2] Forma dobija izbor iz čarobnjaka — bez pretrage i bez modala.
+      if (podrazumevaniGrad) setCity(podrazumevaniGrad);
+      if (podrazumevanaNisa) setNiche(podrazumevanaNisa);
       urlInicijalizovan.current = true;
       return;
     }
@@ -318,20 +334,11 @@ export function PretragaEkran({
   const naplata = useRef<Zahtev | null>(null);
   const [obavestenje, setObavestenje] = useState<string | null>(null);
 
-  // Otključavanje: `place_id` reda u toku, i poruka posle uspeha.
-  const [otkljucavam, setOtkljucavam] = useState<string | null>(null);
-  const [otkljucano, setOtkljucano] = useState<string | null>(null);
-  // [Faza 4, 4.6] Neuspeh otključavanja se prikazuje UZ tabelu — poruka na vrhu
-  // strane stoji daleko od reda koji je korisnik kliknuo (nalaz 7.1.2).
-  const [greskaOtkljuc, setGreskaOtkljuc] = useState<string | null>(null);
   /**
-   * [S29 §5.3 D] Prospekt na kom je otključavanje palo.
-   *
-   * Postoji da bi „Prijavi grešku" uz tost nosio `placeId`. Sve ostalo o toj
-   * grešci — plan, krediti, stanje pristupa — čita server; ovde se pamti samo
-   * na ČEMU je pala.
+   * [S30] Prospekt koji se upravo otključava — „jedan po jedan". Sam tok
+   * otključavanja (potvrda, polling, greška) živi u kartici (§7.3, §7.4).
    */
-  const [paoOtkljuc, setPaoOtkljuc] = useState<string | null>(null);
+  const [otkljucavam, setOtkljucavam] = useState<string | null>(null);
 
   /**
    * Koliko je prospekata otključano OTKAD je strana učitana.
@@ -454,6 +461,8 @@ export function PretragaEkran({
 
     // Naplata je jedini put kojim se balans menja mimo otključavanja.
     if (typeof odgovor.creditsLeft === "number") setKrediti(odgovor.creditsLeft);
+    // [S30, §4.6] Prva plaćena lista pomera traku napretka bez reload-a.
+    onboarding?.osvezi(odgovor.onboardingSteps);
     if (odgovor.scan) setKrediti(odgovor.scan.creditsLeft);
 
     // `needs_scan` nije rezultat nego račun — tabela ostaje prazna dok se ne plati.
@@ -801,72 +810,45 @@ export function PretragaEkran({
     });
   }
 
-  /**
-   * Otključavanje jednog prospekta.
-   *
-   * Lista se NE traži ponovo posle uspeha: `/api/unlock` vraća pun otključan
-   * lead, pa se menja samo taj jedan red.
-   *
-   * Zato je i „jedan po jedan": `otkljucavam !== null` gasi ostala dugmad dok
-   * traje zahtev. Dupli klik na dva reda sa poslednjim kreditom bi inače dao
-   * jedan uspeh i jednu crvenu poruku, iako je korisnik uradio ono što je smeo.
-   */
-  async function otkljucaj(placeId: string) {
-    if (otkljucavam) return;
+  /** [S30] Kartica je dobila pun lead (otključavanje ili završena analiza). */
+  const zameniLead = useCallback((novi: UnlockedLead) => {
+    setData((prev) =>
+      prev
+        ? { ...prev, results: prev.results.map((l) => (l.placeId === novi.placeId ? novi : l)) }
+        : prev,
+    );
+  }, []);
 
-    setOtkljucavam(placeId);
-    setGreska(null);
-    setGreskaOtkljuc(null);
-    setPaoOtkljuc(null);
-    setOtkljucano(null);
+  /** Novo otključavanje: brojač za F11 i kraj „prvi je besplatan" za ostale kartice (§4.4). */
+  const novoOtkljucano = useCallback(() => {
+    setOtkljucanoSad((n) => n + 1);
+    setData((prev) => (prev ? { ...prev, prviBesplatan: false } : prev));
+  }, []);
 
-    try {
-      const res = await fetch("/api/unlock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ placeId }),
-      });
-
-      const json: UnlockResponse | ApiError = await res.json();
-
-      if (!res.ok) {
-        if (res.status === 402) pristup?.prijaviBezKredita();
-
-        setGreskaOtkljuc("greska" in json ? json.greska : "Otključavanje nije uspelo.");
-        setPaoOtkljuc(placeId);
-        return;
-      }
-
-      const odgovor = json as UnlockResponse;
-
-      setData((prev) =>
-        prev
-          ? {
-              ...prev,
-              results: prev.results.map((l) => (l.placeId === placeId ? odgovor.lead : l)),
-            }
-          : prev,
-      );
-
-      // Ponovljeno otključavanje nije novo otključavanje — kredit se ne skida i
-      // brojač se ne pomera.
-      if (!odgovor.alreadyUnlocked) setOtkljucanoSad((n) => n + 1);
-
-      setKrediti(odgovor.creditsLeft);
-      setOtkljucano(
-        odgovor.alreadyUnlocked
-          ? `${odgovor.lead.name} je već bio otključan — kredit nije skinut.`
-          : `${odgovor.lead.name} otključan. Ostalo ti je ${odgovor.creditsLeft} ${plural(odgovor.creditsLeft, "kredit", "kredita", "kredita")}.`,
-      );
-
-      // Balans u bočnoj traci crta serverski layout, pa ga osvežava samo ovo.
-      router.refresh();
-    } catch {
-      setGreskaOtkljuc("Nema veze sa serverom. Prospekt nije otključan i kredit nije skinut.");
-    } finally {
-      setOtkljucavam(null);
-    }
+  /** „Sledeći prospekt" (§4.7): skrol na sledeću zaključanu karticu. */
+  function sledeciZakljucan(placeId: string) {
+    const lista = data?.results ?? [];
+    const od = lista.findIndex((l) => l.placeId === placeId);
+    const sledeci = lista.slice(od + 1).find((l) => !l.isUnlocked);
+    if (!sledeci) return;
+    document
+      .getElementById(`kartica-${sledeci.placeId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  /**
+   * [S30, §4.5] Koja kartica nosi tačke 1 i 2: prvi zaključan „Nema sajt", a
+   * kad takvog nema, tačka 2 ide na prvi zaključan prospekt.
+   */
+  const kandidati = useMemo(() => {
+    const lista = data?.results ?? [];
+    const nemaSajt = lista.find((l) => !l.isUnlocked && l.siteStatus === "nema_sajt");
+    const zakljucan = lista.find((l) => !l.isUnlocked);
+    return {
+      nemaSajt: nemaSajt?.placeId ?? null,
+      otkljucaj: (nemaSajt ?? zakljucan)?.placeId ?? null,
+    };
+  }, [data]);
 
   // Promena filtera ili strane ne traži novi klik na „Pretraži", i ne može da
   // košta: `poslednji` se ponavlja bez `pay`.
@@ -880,6 +862,13 @@ export function PretragaEkran({
   }
 
   const strana_ukupno = data ? Math.min(Math.ceil(data.total / data.pageSize) || 1, MAX_PAGE) : 1;
+
+  /** [S30, §4.7] „U ovoj listi ima <N> firmi" — iz registra keša, ne iz filtrirane liste. */
+  const ukupnoBezFiltera =
+    (poslednji ? kesMapa.get(`${poslednji.city}:${poslednji.niche}`)?.total : undefined) ??
+    (data
+      ? data.summary.noSite + data.summary.social + data.summary.dead + data.summary.ugly + data.summary.ok
+      : 0);
   const ceka = posao !== null && !predugo;
   const imaRezultat = data !== null && data.status !== "needs_scan";
 
@@ -891,6 +880,13 @@ export function PretragaEkran({
   useEffect(() => {
     utisci?.postaviMir("pretraga", !ceka && !ucitava && predlog === null);
   }, [utisci, ceka, ucitava, predlog]);
+
+  /** [S30, §4.5] Isto pravilo za vođene tačke: ni preko posla, ni preko modala. */
+  const postaviZauzeto = onboarding?.postaviZauzeto;
+  useEffect(() => {
+    postaviZauzeto?.("pretraga", ceka || ucitava || predlog !== null);
+    return () => postaviZauzeto?.("pretraga", false);
+  }, [postaviZauzeto, ceka, ucitava, predlog]);
 
   /** Prva pretraga koja vrati bar jedan prospekt, 3 s pošto tabela sedne. */
   useEffect(() => {
@@ -974,6 +970,7 @@ export function PretragaEkran({
             groups={niches}
             value={niche}
             onChange={promeniNisu}
+            inputId={NISA_ID}
             // [S29 §5.3 C] Niša koju čovek traži a nemam je najjeftiniji mogući
             // ulaz u taksonomiju: on je već otkucao tačno ono što mu fali.
             // Grad namerno nema ovo — spisak gradova je zatvoren i potpun, pa bi
@@ -1036,12 +1033,6 @@ export function PretragaEkran({
 
       {obavestenje && <Alert variant="success">{obavestenje}</Alert>}
 
-      {otkljucano && (
-        <Alert variant="success">
-          {otkljucano} <a href="/lista">Moja lista</a>
-        </Alert>
-      )}
-
       {/* Pitanje o tačnosti podataka stoji uz potvrdu o otključavanju — tu su i
           podaci o kojima pita (F11 §2.1). */}
       <UtisakMikro kljuc="tacnost-podataka" />
@@ -1070,6 +1061,20 @@ export function PretragaEkran({
         </Alert>
       )}
 
+      {/* [S30, §4.7] „Izaberi grad i nišu" — dok nijedna pretraga nije krenula. */}
+      {data === null && !ucitava && !ceka && !predugo && !greska && (
+        <PraznoStanje
+          ikona={<Search />}
+          naslov="Izaberi grad i nišu"
+          opis="Gore levo. Sve što je u kešu stiže odmah — 1 kredit za 20 firmi; skeniranje nove kombinacije isto toliko. Ako nađemo manje firmi nego što si tražio, razliku vraćamo."
+          fusnota={
+            podrazumevaniGrad && podrazumevanaNisa
+              ? `Podrazumevano: ${cityLabels[podrazumevaniGrad] ?? podrazumevaniGrad} · ${nicheLabels[podrazumevanaNisa] ?? podrazumevanaNisa} iz prvih koraka`
+              : undefined
+          }
+        />
+      )}
+
       {/* Lista keša stoji ODMAH ispod forme dok rezultata nema — tada je ona
           glavna stvar na ekranu i nosi uvodni tekst. Čim rezultati stignu,
           sklapa se u jedan red (v. `sazeto`) i propušta tabelu napred. */}
@@ -1094,19 +1099,39 @@ export function PretragaEkran({
 
           {data.total === 0 && !ceka && !predugo ? (
             <div className="space-y-4">
-              <PraznoStanje
-                ikona={<Search />}
-                naslov={
-                  data.emptyScan
-                    ? "Google nema nijednu firmu za ovu kombinaciju."
-                    : "Nijedan prospekt ne odgovara filterima."
-                }
-                opis={
-                  data.emptyScan
-                    ? "Skeniranje je obavljeno i ništa nije nađeno — ako si ga platio, kredit ti je vraćen. Probaj drugu nišu ili susedni grad."
-                    : "Baza za ovaj grad i nišu nije prazna — filteri su preuski. Isključi neki toggle iznad."
-                }
-              />
+              {/* [S30, §4.7] Tekstovi doslovno. Dugme je `secondary`: primarno
+                  dugme ovog ekrana je „Pretraži" iznad (§7.1). */}
+              {data.emptyScan ? (
+                <PraznoStanje
+                  ikona={<Search />}
+                  naslov="Google nema nijednu firmu za ovu kombinaciju"
+                  opis="Kredit ti je vraćen. Probaj širu nišu ili susedni grad — ili mi reci šta si tražio, pa dodam u taksonomiju."
+                >
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => document.getElementById(NISA_ID)?.focus()}
+                  >
+                    Probaj drugu nišu
+                  </Button>
+                </PraznoStanje>
+              ) : (
+                <PraznoStanje
+                  ikona={<SlidersHorizontal />}
+                  naslov="Filteri su preuski"
+                  opis={
+                    <>
+                      U ovoj listi ima <span className="num">{ukupnoBezFiltera}</span>{" "}
+                      {plural(ukupnoBezFiltera, "firma", "firme", "firmi")}, ali nijedna ne prolazi
+                      filtere koje si uključio.
+                    </>
+                  }
+                >
+                  <Button type="button" variant="secondary" onClick={() => primeniFiltere(PRAZNI_FILTERI)}>
+                    Skini filtere
+                  </Button>
+                </PraznoStanje>
+              )}
 
               {/* Dva prazna stanja, dva različita pitanja (S29 §5.3 C).
                   „Google nema nijednu firmu" je pitanje o TAKSONOMIJI — šta je
@@ -1151,28 +1176,32 @@ export function PretragaEkran({
                   sedne i ne pomera je više nego jednom. */}
               <UtisakMikro kljuc="prva-lista" />
 
-              {greskaOtkljuc && (
-                <Alert variant="danger">
-                  {greskaOtkljuc}
-                  {/* Prijava kreće ODAVDE, sa prospektom koji je pao i sa
-                      porukom koju je čovek upravo pročitao (§5.3 D). Panel je
-                      isti onaj iza plutajućeg dugmeta — v. `prijavi-gresku.tsx`. */}
-                  <PrijaviGresku
-                    ctx={{
-                      greska: greskaOtkljuc,
-                      ...(paoOtkljuc ? { placeId: paoOtkljuc } : {}),
-                    }}
-                    className="ml-2"
-                  />
-                </Alert>
+              {onboarding && onboarding.doneAt === null && (
+                <p className="text-sm text-fg-muted">{ZELENI_BEDZEVI}</p>
               )}
 
-              <LeadTabela
-                leads={data.results}
-                cityLabels={cityLabels}
-                onUnlock={(placeId) => void otkljucaj(placeId)}
-                otkljucavam={otkljucavam}
-              />
+              {/* [S30, O5] Kartice umesto tabele — jedna kolona do 1024 px, dve iznad (§7). */}
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {data.results.map((lead) => (
+                  <KarticaProspekta
+                    key={lead.placeId}
+                    lead={lead}
+                    cityLabel={cityLabels[lead.citySlug] ?? lead.citySlug}
+                    krediti={krediti}
+                    prviBesplatan={data.prviBesplatan === true}
+                    enrichJobId={data.enrichJobs?.[lead.placeId] ?? null}
+                    pipelineStatus={data.statusi?.[lead.placeId] ?? null}
+                    zauzeto={otkljucavam !== null && otkljucavam !== lead.placeId}
+                    kandidatNemaSajt={lead.placeId === kandidati.nemaSajt}
+                    kandidatOtkljucaj={lead.placeId === kandidati.otkljucaj}
+                    onOtkljucavanje={setOtkljucavam}
+                    onZameni={zameniLead}
+                    onKrediti={setKrediti}
+                    onNovoOtkljucano={novoOtkljucano}
+                    onSledeci={() => sledeciZakljucan(lead.placeId)}
+                  />
+                ))}
+              </div>
 
               {strana_ukupno > 1 && (
                 <div className="flex items-center justify-between gap-3">
