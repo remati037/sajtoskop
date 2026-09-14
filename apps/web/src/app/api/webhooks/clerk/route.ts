@@ -55,29 +55,19 @@ async function obrisiMarker(eventId: string): Promise<void> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
-  // [Faza 1, 1.3] Svix šalje `id` (ID događaja) na vrhu tela; Clerkov tip ga
-  // ne nosi. Čita se iz sirovog tela PRE verifikacije — a verifikacija traži
-  // tačno taj sirovi string, pa se za nju zahtev rekonstruiše.
-  let eventId: string | null = null;
-  let verifikacijaReq: NextRequest = req;
-  try {
-    const raw = await req.text();
-    const telo = JSON.parse(raw) as { id?: unknown };
-    eventId = typeof telo.id === "string" ? telo.id : null;
-    verifikacijaReq = new NextRequest(req.url, {
-      method: "POST",
-      headers: req.headers,
-      body: raw,
-    });
-  } catch (err) {
-    console.error("[clerk-webhook] telo se ne parsira:", err);
-    return new Response("Neispravno telo.", { status: 400 });
-  }
+  // [Faza 1, 1.3] ID događaja je Svix zaglavlje `svix-id` (`msg_…`), ne polje
+  // u telu — Clerkov payload na vrhu nosi samo `data`, `object`, `type`,
+  // `timestamp` i `instance_id`. Dok se čitao iz tela, svaki potpisan događaj
+  // je vraćao 400 „Događaj bez ID-ja." i nijedan nije stigao do baze.
+  //
+  // Zaglavlju se sme verovati tek POSLE verifikacije: Svix potpisuje
+  // `${svix-id}.${svix-timestamp}.${telo}`, pa izmenjen ID obara potpis.
+  const eventId = req.headers.get("svix-id");
 
   let event: WebhookEvent;
 
   try {
-    event = await verifyWebhook(verifikacijaReq, { signingSecret: webhookSecret() });
+    event = await verifyWebhook(req, { signingSecret: webhookSecret() });
   } catch (err) {
     console.error("[clerk-webhook] potpis nije prošao:", err);
     return new Response("Neispravan potpis.", { status: 400 });
