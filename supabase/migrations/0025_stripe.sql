@@ -51,9 +51,14 @@ create unique index if not exists profiles_stripe_customer_uniq
 drop trigger if exists profiles_beta_guard on profiles;
 drop function if exists profiles_beta_samo_iz_konzole();
 
+-- ‼️ Redosled: staro ograničenje (0024) dozvoljava `beta` a NE `komp`, pa mora da
+--    ode PRE update-a. Obrnuto pada na prvom postojećem beta nalogu
+--    (`profiles_plan_valid`) — na praznoj bazi `check:sql` to ne vidi, zato tamo
+--    postoji provera sa ubačenim beta nalogom između 0024 i 0025.
+alter table profiles drop constraint if exists profiles_plan_valid;
+
 update profiles set plan = 'komp' where plan = 'beta';
 
-alter table profiles drop constraint if exists profiles_plan_valid;
 alter table profiles add  constraint profiles_plan_valid check (
   plan in ('komp', 'dopuna', 'starter', 'pro', 'advanced')
 );

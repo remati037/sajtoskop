@@ -75,6 +75,28 @@ async function main(): Promise<void> {
       try {
         await db.exec(sql);
         check(true, `${file}${pass === 2 ? " (drugi prolaz)" : ""}`);
+
+        // [0025 nad pravim podacima] Prazna baza ne vidi prelaz `beta` → `komp`:
+        // update pogodi nula redova, pa je redosled „update pa novo ograničenje"
+        // prolazio ovde, a pucao na produkciji (`profiles_plan_valid`). Zato se u
+        // prvom prolazu, posle 0024, ubacuje beta nalog onako kako ga je pravila
+        // konzola — i proverava se odmah posle 0025, pa briše da ne kvari fiksture.
+        if (pass === 1 && file.startsWith("0024_")) {
+          await db.exec(`
+            begin;
+            select set_config('sajtoskop.beta', 'konzola', true);
+            insert into profiles (id, email, plan, beta_expires_at, credits_balance)
+              values ('stari_beta', 'stari@beta.rs', 'beta', '2026-12-31T00:00:00Z', 30);
+            commit;
+          `);
+        }
+        if (pass === 1 && file.startsWith("0025_")) {
+          const stari = await one<{ plan: string; rok: string | null; bal: number }>(
+            `select plan, komp_expires_at::text as rok, credits_balance as bal from profiles where id = 'stari_beta'`);
+          check(stari?.plan === "komp" && stari.rok !== null && stari.bal === 30,
+            `0025 nad postojećim beta nalogom: plan '${stari?.plan}', rok sačuvan, krediti netaknuti`);
+          await db.exec(`delete from profiles where id = 'stari_beta'`);
+        }
       } catch (err) {
         check(false, `${file}${pass === 2 ? " (drugi prolaz)" : ""}`, String(err));
         process.exit(1);

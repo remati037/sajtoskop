@@ -4000,3 +4000,18 @@ grep beta/trial u vidljivom UI → 0 (jedan pogodak je komentar u dashboard/page
 | — | `/dashboard` | Prečica „Pretraga prospekata" kaže „sve što je u kešu je besplatno" — od D10 nije. Van obima S30. |
 | — | ručni prolaz | v. gore i PROVERA-VIZUELNA §7f. |
 
+
+### Popravka posle S30 — `0025` pada nad postojećim beta nalogom
+
+**14. septembra 2026.** Pokretanje `0025` na Supabase-u: `profiles_plan_valid` odbija red sa
+`plan = komp`. Uzrok: `update profiles set plan = 'komp' where plan = 'beta'` je išao PRE nego
+što se obriše staro ograničenje iz `0024` (koje zna `beta`, a ne `komp`). Na praznoj bazi update
+pogodi nula redova, pa `check:sql` to nije video.
+
+- `0025` §1: `drop constraint` pre update-a, `add constraint` posle. Ništa drugo nije menjano.
+- `validate-migrations.ts`: u prvom prolazu, posle `0024`, ubacuje se beta nalog (kroz zastavicu
+  konzole) i posle `0025` se proverava da je `komp`, sa sačuvanim rokom i kreditima. Provera je
+  pala pre popravke istom porukom kao na produkciji.
+- Ostala dva koraka `0025` koja dodiruju postojeće redove su provereni i bezbedni: novi
+  `credit_ledger_reason_valid` je nadskup liste iz `0024`, a indeks idempotencije dobija samo
+  razloge bez postojećih redova (`trial_grant`, `komp_grant`, `expire`).
