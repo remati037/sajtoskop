@@ -4175,3 +4175,55 @@ pretplatu koja se gasi; plaćena je do kraja perioda.
 - [ ] Ručni prolaz §12 #7 u sandboxu: portal otkaži → `/krediti` „otkazana, traje do <datum>";
       portal „Renew" → `cancel_at` i zastavica prazni, stanje `aktivan`. Zabeležiti da li Stripe tada
       briše i `canceled_at`.
+
+### Popravka posle S30 — povraćaj skida ono što je transakcija upisala
+
+**16. septembra 2026.** Prijava iz sandboxa, `ch_3UG3e1…`: Pro sa 450 kredita i 200 dopune, upgrade na
+Advanced usred perioda (proraciona faktura €59.41, `monthly_grant +750`, balans 1202 sa dopunom), pa
+pun refund → `admin −500 povracaj:ch_…`, `−500 …#2`, `−200 …#3`, balans 2. Očekivano jedan red −750,
+balans 452. Uzrok nije bio `monthlyCredits` nego pravilo iz `0030` (skini `balance_after`, ceo mesec),
+plus deljenje na komade od 500 zbog granice u `admin_adjust_credits`.
+
+1. **`0032_refund_po_ledgeru.sql`** — razlog `povracaj` (check + unique indeks
+   `credit_ledger_grant_idem_idx`), kolona `credit_ledger.details jsonb`, funkcija `apply_refund(user,
+   ref, iznos, kasa, details)`: jedan red, bez granice 500, `already_applied` vraća ranije skinuto.
+   Kasa `topup` (paket) skida iz dopune, a potrošen deo kao dug iz balansa (dopuna je na tvrdoj nuli,
+   0022); kasa `balance` (pretplata) dopunu ne dira. Pod −1000: `odseceno` (pod u `details`) ili
+   `na_podu` (bez reda, `delta <> 0`). `admin_adjust_credits` nepromenjen, i dalje za konzolu.
+2. **`billing.ts`** — `dodeljenoZaTransakciju(stavke)` sabira `delta` po kasi, `zaSkidanje` računa
+   srazmeru delimičnog refunda (nadole). Nema redova → `preskočeno:nema_dodele`; suma ≤ 0 →
+   `preskočeno:dodela <n>`. `zaPovracaj`, `MAX_KOREKCIJA`, komadi i `#N` sufiksi obrisani;
+   `korigujKredite` u skladištu je sada `primeniPovracaj`. Izgubljen spor ide istim putem (ref
+   `spor:<dp_…>`, razlog `povracaj`).
+3. **UI** — `RAZLOG_KREDITA.povracaj = "Vraćen novac"` („Povraćaj" je zauzet za `refund` skeniranja).
+4. **Testovi** — `naplata.ts`: proracija 750 → refund −750 / balans 450; resend istog događaja
+   (duplikat) i bez markera (`already_applied`) bez novih redova; delimičan 50% → −375; faktura bez
+   dodele → nula redova; `already_granted` faktura → jedna dodela skinuta; paket 200 → dopuna 0,
+   balans netaknut; pod. `check:sql`: `apply_refund` nad pravom migracijom, unique indeks hvata drugi
+   red i mimo funkcije.
+
+**Razišlo se sa zahtevom / odluke koje menjaju 0030:**
+
+- Tražena `0028_refund_po_ledgeru.sql` je `0032` (0028–0031 zauzeti i deployovani).
+- **Downgrade:** faktura obnove na nižem planu ima deltu −450 (600 → 150). Po novom pravilu njen refund
+  **ne skida ništa** i korisnik zadržava 150 kredita za vraćen mesec. `0030` je to rešavao celim
+  mesecom; sada je svesno prihvaćeno — rešava se ručno iz konzole. Isto: refund prve fakture posle
+  probe skida 440, probnih 10 ostaje.
+- **„Zabeleži srazmeru u ref_id"** protivreči „ref_id tačno `povracaj:<ch>`, bez sufiksa". Ref ostaje
+  bez sufiksa; srazmera (`iznos`, `vraceno`, `dodeljeno`, `trazeno`) je u `credit_ledger.details`.
+- **Drugi delimičan refund iste naplate** (Stripe šalje kumulativan `amount_refunded`) dobija
+  `already_applied` — jedan ref po naplati. Razlika se loguje (`razlika N ručno iz konzole`).
+- **Paket delimično potrošen:** „ne iz balansa" nije izvodljivo bez probijanja `profiles_topup_nonneg`;
+  ostatak ide u balans kao dug (isto obrazloženje kao Z3 u 0022).
+- **„€0 faktura prvi_mesec"** jeste dodela (§12 #12) i nema naplatu koja se refundira; test „nije ništa
+  dodelila" ide nad probnom fakturom od 0 € i plaćanjem bez reda u knjizi.
+- `payment_intent.invoice` ne postoji na `dahlia`; veza ostaje `invoicePayments.list`.
+
+**Ostaje na meni:**
+
+- [ ] Primeniti `0032` na Supabase pre deploya (kod zove `apply_refund`, koga bez migracije nema →
+      500 i Stripe ponavlja).
+- [ ] Postojeći pogrešni redovi iz sandboxa (`admin −500/−500/−200` nad `ch_3UG3e1…`) ostaju u knjizi;
+      ispraviti balans ručno iz konzole (+750) ako nalog ostaje u upotrebi.
+- [ ] Ručni prolaz §12 #8 u sandboxu: upgrade pa refund proracione naplate → jedan red −750;
+      `stripe events resend` istog `charge.refunded` → `duplikat`.

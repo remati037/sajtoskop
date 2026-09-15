@@ -1607,6 +1607,64 @@ async function main(): Promise<void> {
     `select count(*)::int as n from admin_audit where target_user = 'fak0030' and target_ref = 'povracaj:ch_pod#2'`))?.n === 1,
     "…i bez drugog reda u reviziji");
 
+  // ── [0032] apply_refund — jedan red `povracaj`, suma iz knjige, bez granice 500 ──
+  console.log("\n0032 — apply_refund");
+  type Refund = { ok: boolean; reason: string; delta: number; balance: number; topup: number };
+  const refund = (u: string, ref: string, iznos: number, kasa: string) =>
+    one<Refund>(`select * from apply_refund($1, $2, $3, $4, '{"naplata":"ch_x"}'::jsonb)`, [u, ref, iznos, kasa]);
+  const refundRedovi = async (u: string, ref: string) =>
+    (await one<{ n: number }>(
+      `select count(*)::int as n from credit_ledger where user_id = $1 and reason = 'povracaj' and ref_id = $2`, [u, ref]))?.n;
+
+  // Sandbox: Pro 450 + 200 dopune, upgrade → +750 (balans 1200), refund → −750.
+  await db.exec(`insert into profiles (id, email, credits_balance, credits_topup) values ('ref32', 'ref32@x.rs', 450, 200)`);
+  const upgrade32 = await one<Inv>(`select * from apply_invoice_paid('ref32', 'in_upgrade', 1200)`);
+  check(upgrade32?.delta === 750, `upgrade Pro → Advanced: delta ${upgrade32?.delta}`);
+  const prvi32 = await refund("ref32", "povracaj:ch_upgrade", 750, "balance");
+  let k32 = await kase("ref32");
+  check(prvi32?.reason === "applied" && prvi32.delta === -750 && k32?.b === 450 && k32.t === 200,
+    `refund −750 jednim pozivom (preko 500): balans ${k32?.b}, dopuna ${k32?.t} netaknuta`);
+  const red32 = await one<{ reason: string; delta: number; d: Record<string, unknown> }>(
+    `select reason, delta, details as d from credit_ledger where user_id = 'ref32' and ref_id = 'povracaj:ch_upgrade'`);
+  check(red32?.reason === "povracaj" && red32.delta === -750 && red32.d.trazeno === 750 && red32.d.naplata === "ch_x",
+    "red: reason povracaj, ref bez sufiksa, details nosi traženo i kontekst naplate");
+  const drugi32 = await refund("ref32", "povracaj:ch_upgrade", 750, "balance");
+  k32 = await kase("ref32");
+  check(drugi32?.reason === "already_applied" && drugi32.delta === -750 && k32?.b === 450 &&
+    (await refundRedovi("ref32", "povracaj:ch_upgrade")) === 1,
+    "isti ref drugi put → already_applied, vraća ranije skinuto, bez novog reda");
+  await mustFail(
+    `insert into credit_ledger (user_id, delta, reason, ref_id) values ('ref32', -1, 'povracaj', 'povracaj:ch_upgrade')`,
+    "unique indeks hvata drugi `povracaj` red za isti ref i mimo funkcije");
+
+  // Paket: iz dopune; potrošen deo ide u balans kao dug, dopuna ne ide ispod nule.
+  await db.exec(`update profiles set credits_balance = 30, credits_topup = 200 where id = 'ref32'`);
+  const paket32 = await refund("ref32", "povracaj:ch_paket", 200, "topup");
+  k32 = await kase("ref32");
+  check(paket32?.reason === "applied" && k32?.t === 0 && k32.b === 30, `paket 200 → dopuna ${k32?.t}, balans ${k32?.b} netaknut`);
+  await db.exec(`update profiles set credits_balance = 30, credits_topup = 50 where id = 'ref32'`);
+  const potrosen32 = await refund("ref32", "povracaj:ch_paket2", 200, "topup");
+  k32 = await kase("ref32");
+  check(potrosen32?.delta === -200 && k32?.t === 0 && k32.b === -120, `potrošen paket: 50 iz dopune, 150 dug u balansu (${k32?.b})`);
+
+  // Pod: odseca se, traženo ostaje u details; na podu nema reda.
+  await db.exec(`update profiles set credits_balance = -900, credits_topup = 0 where id = 'ref32'`);
+  const odseceno32 = await refund("ref32", "povracaj:ch_pod32", 1200, "balance");
+  k32 = await kase("ref32");
+  check(odseceno32?.reason === "odseceno" && odseceno32.delta === -100 && k32?.b === -1000,
+    `ispod poda → odseceno −100, balans ${k32?.b}`);
+  check((await one<{ p: number }>(
+    `select (details->>'pod')::int as p from credit_ledger where ref_id = 'povracaj:ch_pod32'`))?.p === -1000,
+    "odsečen red pamti pod u details");
+  const naPodu32 = await refund("ref32", "povracaj:ch_pod33", 50, "balance");
+  check(naPodu32?.reason === "na_podu" && (await refundRedovi("ref32", "povracaj:ch_pod33")) === 0,
+    "na podu → na_podu, bez reda (delta <> 0)");
+
+  check((await refund("ref32", "povracaj:ch_0", 0, "balance"))?.reason === "invalid_amount", "iznos 0 odbijen");
+  check((await refund("ref32", "", 10, "balance"))?.reason === "missing_ref_id", "povraćaj bez ref-a odbijen");
+  check((await refund("ref32", "povracaj:ch_k", 10, "kasa"))?.reason === "invalid_kasa", "nepoznata kasa odbijena");
+  check((await refund("nema_ga", "povracaj:ch_n", 10, "balance"))?.reason === "no_user", "nepostojeći nalog → no_user");
+
   // Proba: 10 kredita, jednom po NALOGU (ref `trial:<user>`), ne po pretplati.
   await db.exec(`update profiles set credits_balance = 0 where id = 'w1'`);
   type Tr = { ok: boolean; reason: string };
@@ -2451,7 +2509,7 @@ async function main(): Promise<void> {
                     "grant_feedback_credits",
                     "apply_subscription", "apply_credit_pack",
                     "claim_ai_rewrite", "release_ai_rewrite",
-                    "admin_adjust_credits", "admin_users_page", "admin_open_komp",
+                    "admin_adjust_credits", "admin_users_page", "admin_open_komp", "apply_refund",
                     "apply_invoice_paid", "apply_trial_start", "expire_subscription_credits",
                     "redeem_invite", "has_search_access",
                     "admin_set_role", "admin_overview",

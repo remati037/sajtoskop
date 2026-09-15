@@ -3,11 +3,12 @@
 // zamenjuje `@/lib/billing-skladiste`, pa ruta radi nad njim ne znajući to —
 // isto kao što `scripts/lib/next-stubs.ts` zamenjuje Clerk.
 //
-// Ponaša se kao migracije 0025, 0026 i 0030 tačno tamo gde je to bitno za
+// Ponaša se kao migracije 0025, 0026, 0030 i 0032 tačno tamo gde je to bitno za
 // testove: dve kase, razlog bira kasu (`credit_pack` i `onboarding` → dopuna),
 // `ref_id` je ključ idempotencije, mesečna dodela POSTAVLJA balans (bez
 // rollovera) i pamti `balance_after`, `stale_ignored` po `event.created`,
-// pražnjenje na kraju pretplate, povraćaj se odseca na pod −1000. Sve ostalo
+// pražnjenje na kraju pretplate, povraćaj (`apply_refund`) jednim redom
+// `povracaj`, paket prvo iz dopune, odsečen na pod −1000. Sve ostalo
 // (zaključavanje reda, trke, `check` ograničenja) proverava `pnpm check:sql`
 // nad pravom migracijom — ovde bi bilo lažno dvaput.
 //
@@ -19,6 +20,7 @@
 import { kupovinaZaLookupKey } from "@sajtoskop/shared";
 import type {
   CenaStavke,
+  IshodPovracaja,
   NaplataSkladiste,
   NaplataSpora,
   OtisakPretplate,
@@ -44,10 +46,9 @@ export type Knjiga = {
   refId: string | null;
   /** `credit_ledger.balance_after` (0030) — samo mesečna dodela ga upisuje. */
   balanceAfter?: number | null;
+  /** `credit_ledger.details` (0032) — povraćaj upisuje traženo i skinuto po kasi. */
+  details?: Record<string, unknown> | null;
 };
-
-/** `admin_audit` za povraćaj: šta je traženo i šta je stvarno skinuto. */
-export type Revizija = { refId: string; trazeno: number; delta: number };
 
 export type Pretplata = {
   userId: string;
@@ -87,7 +88,6 @@ export type Lazno = {
   naplate: Map<string, NaplataSpora>;
   /** `pi_…` → `in_…` fakture koje je to plaćanje platilo (`invoicePayments.list`). */
   fakturePlacanja: Map<string, string[]>;
-  revizija: Revizija[];
   /**
    * `grant_credits` — za fiksture koje u produkciji ne stižu kroz webhook
    * (`onboarding` iz `create_profile_with_grant`).
@@ -112,7 +112,6 @@ export function napraviLazno(): Lazno {
   const probaNaplacena: string[] = [];
   const naplate = new Map<string, NaplataSpora>();
   const fakturePlacanja = new Map<string, string[]>();
-  const revizija: Revizija[] = [];
 
   /** `grant_credits` (0026): razlog bira kasu, `ref_id` je ključ idempotencije. */
   function dodeli(reason: string, delta: number, refId: string | null): string {
@@ -242,29 +241,36 @@ export function napraviLazno(): Lazno {
             refIds.includes(r.refId) &&
             (r.reason === "monthly_grant" || r.reason === "subscription_grant" || r.reason === "credit_pack"),
         )
-        .map((r) => ({ reason: r.reason, delta: r.delta, balanceAfter: r.balanceAfter ?? null }));
+        .map((r) => ({ reason: r.reason, delta: r.delta }));
     },
-    async korigujKredite(a) {
-      // `admin_adjust_credits` sa `p_kind => 'povracaj'` sme u minus i preskače
-      // proveru „balans bi bio negativan" (0022 §1), ali ne ispod poda (0030).
-      if (knjiga.some((r) => r.reason === "admin" && r.refId === a.refId)) {
-        return { ok: true, reason: "already_applied", granted: 0 };
-      }
-      let delta = a.delta;
-      if (profil.balance + delta < POD) {
-        delta = Math.min(0, POD - profil.balance);
-        if (delta === 0) {
-          if (revizija.some((r) => r.refId === a.refId)) {
-            return { ok: true, reason: "already_applied", granted: 0 };
-          }
-          revizija.push({ refId: a.refId, trazeno: a.delta, delta: 0 });
-          return { ok: true, reason: "na_podu", granted: 0 };
-        }
-      }
-      knjiga.push({ userId: a.userId, delta, reason: "admin", refId: a.refId });
-      revizija.push({ refId: a.refId, trazeno: a.delta, delta });
-      profil.balance += delta;
-      return { ok: true, reason: delta === a.delta ? "ok" : "odseceno", granted: 0 };
+    async primeniPovracaj(a): Promise<IshodPovracaja> {
+      // `apply_refund` (0032): jedan red `povracaj` po ref-u, bez granice iznosa;
+      // paket prvo iz dopune (tvrda nula), ostatak i pretplata iz balansa do poda.
+      const postojeci = knjiga.find((r) => r.reason === "povracaj" && r.refId === a.refId);
+      if (postojeci) return { ok: true, reason: "already_applied", skinuto: -postojeci.delta };
+
+      const izDopune = a.kasa === "topup" ? Math.min(a.iznos, Math.max(profil.topup, 0)) : 0;
+      const izBalansa = Math.min(a.iznos - izDopune, Math.max(profil.balance - POD, 0));
+      const ukupno = izDopune + izBalansa;
+      if (ukupno === 0) return { ok: true, reason: "na_podu", skinuto: 0 };
+
+      knjiga.push({
+        userId: a.userId,
+        delta: -ukupno,
+        reason: "povracaj",
+        refId: a.refId,
+        details: {
+          ...a.details,
+          trazeno: a.iznos,
+          kasa: a.kasa,
+          iz_dopune: izDopune,
+          iz_balansa: izBalansa,
+          ...(ukupno < a.iznos ? { pod: POD } : {}),
+        },
+      });
+      profil.topup -= izDopune;
+      profil.balance -= izBalansa;
+      return { ok: true, reason: ukupno === a.iznos ? "applied" : "odseceno", skinuto: ukupno };
     },
   };
 
@@ -279,7 +285,6 @@ export function napraviLazno(): Lazno {
     probaNaplacena,
     naplate,
     fakturePlacanja,
-    revizija,
     dodeli,
   };
 }

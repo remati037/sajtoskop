@@ -18,6 +18,7 @@
 
 import "server-only";
 import type {
+  IshodPovracaja,
   NaplataSkladiste,
   NaplataSpora,
   OtisakPretplate,
@@ -247,34 +248,31 @@ export function supabaseSkladiste(): NaplataSkladiste {
       if (refIds.length === 0) return [];
       const { data, error } = await db
         .from("credit_ledger")
-        .select("reason, delta, balance_after")
+        .select("reason, delta")
         .eq("user_id", userId)
         .in("ref_id", refIds)
         .in("reason", ["monthly_grant", "subscription_grant", "credit_pack"])
-        .returns<{ reason: string; delta: number; balance_after: number | null }[]>();
+        .returns<{ reason: string; delta: number }[]>();
 
       if (error) throw new Error(`credit_ledger: ${error.message}`);
-      return (data ?? []).map((r) => ({ reason: r.reason, delta: r.delta, balanceAfter: r.balance_after }));
+      return (data ?? []).map((r) => ({ reason: r.reason, delta: r.delta }));
     },
 
-    async korigujKredite(a) {
-      // `p_actor` je NULL, ne neki izmišljen ID: `admin_audit.actor_id` je strani
-      // ključ ka `profiles`, pa bi „stripe-webhook" srušio upis. Isti obrazac
-      // koristi i Clerk webhook za kaskadno brisanje — u reviziji se `null`
-      // aktor čita kao „nije iz konzole", što je ovde tačno.
-      const { data, error } = await db.rpc("admin_adjust_credits", {
-        p_actor: null,
+    async primeniPovracaj(a): Promise<IshodPovracaja> {
+      const { data, error } = await db.rpc("apply_refund", {
         p_user: a.userId,
-        p_delta: a.delta,
-        p_note: a.note,
         p_ref_id: a.refId,
-        p_kind: "povracaj",
+        p_amount: a.iznos,
+        p_kasa: a.kasa,
+        p_details: a.details,
       });
-      if (error) throw new Error(`admin_adjust_credits: ${error.message}`);
-      // Ova funkcija vraća `balance` umesto `granted`; `prviRed` će za `granted`
-      // dati 0 i to je tačno — povraćaj ne dodeljuje ništa. Od 0030 `reason`
-      // ume da bude `odseceno` ili `na_podu` (pod −1000), oba sa `ok = true`.
-      return prviRed(data, "prazan odgovor");
+      if (error) throw new Error(`apply_refund: ${error.message}`);
+      // `delta` je negativan (ili 0 za `na_podu`); obrada broji skinuto pozitivno.
+      const red = (Array.isArray(data) ? data[0] : null) as
+        | { ok?: unknown; reason?: string; delta?: number }
+        | null;
+      if (!red || typeof red.ok !== "boolean") return { ok: false, reason: "prazan odgovor", skinuto: 0 };
+      return { ok: red.ok, reason: red.reason ?? "", skinuto: -(red.delta ?? 0) };
     },
   };
 }

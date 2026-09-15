@@ -50,6 +50,9 @@ export const RAZLOG_KREDITA: Record<CreditReason, string> = {
   komp_grant: "Komp paket",
   trial_grant: "Probni krediti",
   expire: "Istek pretplate",
+  // 0032. „Povraćaj" je zauzet za `refund` (kredit vraćen za neuspelo
+  // skeniranje) — ovde ide suprotan smer: novac je vraćen, krediti odlaze.
+  povracaj: "Vraćen novac",
 };
 
 /**

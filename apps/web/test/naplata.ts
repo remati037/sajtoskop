@@ -20,7 +20,7 @@
 // 10 (paket), 12 (prvi mesec gratis). Plus: pogrešan potpis, nema korisnika,
 // `komp` iz webhooka, redosled događaja, plan sa fakture (downgrade kroz
 // schedule, proracija, faktura van kataloga), prolazna greška, povraćaj skida
-// ceo mesec fakture i staje na podu (0030), izgubljen spor.
+// tačno ono što je transakcija upisala u knjigu, jednim redom (0032), izgubljen spor.
 
 import { registerHooks } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -426,50 +426,156 @@ function sesija(o: {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 8. REFUND PUNE MESEČNE NAPLATE (§12 #8)
+// 8. REFUND (§12 #8) — skida TAČNO ono što je transakcija upisala (0032)
 // ═══════════════════════════════════════════════════════════
 
 /** `charge.refunded` u obliku `dahlia`: bez `invoice`, faktura ide preko `payment_intent`. */
-function povracenaNaplata(o: { id: string; pi: string; iznos: number; refunded?: boolean }) {
+function povracenaNaplata(o: { id: string; pi: string; iznos: number; vraceno?: number }) {
+  const vraceno = o.vraceno ?? o.iznos;
   return {
     id: o.id,
     object: "charge",
     customer: "cus_test_1",
     amount: o.iznos,
-    amount_refunded: o.refunded === false ? 1000 : o.iznos,
-    refunded: o.refunded ?? true,
+    amount_refunded: vraceno,
+    refunded: vraceno >= o.iznos,
     payment_intent: o.pi,
   };
 }
 
-{
-  const s = napraviLazno();
+const povracaji = (s: ReturnType<typeof napraviLazno>) => s.knjiga.filter((k) => k.reason === "povracaj");
+
+/**
+ * Sandbox, `ch_3UG3e1…`: Pro sa 450 kredita i 200 dopune, upgrade na Advanced
+ * usred perioda → proraciona faktura (`subscription_update`, obe stavke
+ * proracione) → `monthly_grant +750`, balans 1200.
+ */
+async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv: string; pi: string; iznos: number }) {
+  const PRO = PLAN_PRICES.pro.month.lookupKey;
+  const ADV = PLAN_PRICES.advanced.month.lookupKey;
+  await posalji(dogadjaj(`evt_${o.inv}_pro`, "invoice.paid", faktura({ id: `${o.inv}_pro`, billingReason: "subscription_create", amountDue: 5900 })), s.skladiste);
+  s.dodeli("credit_pack", 200, `pi_${o.inv}_paket`);
   await posalji(
-    dogadjaj("evt_8_sub", "customer.subscription.created", pretplata({ status: "active", lookupKey: PLAN_PRICES.advanced.month.lookupKey })),
+    dogadjaj(`evt_${o.inv}_up`, "invoice.paid", faktura({
+      id: o.inv,
+      billingReason: "subscription_update",
+      amountDue: o.iznos,
+      linije: [linija({ lookupKey: PRO, iznos: -4000, proracija: true }), linija({ lookupKey: ADV, iznos: o.iznos + 4000, proracija: true })],
+    })),
     s.skladiste,
   );
-  await posalji(
-    dogadjaj("evt_8_inv", "invoice.paid", faktura({ id: "in_8", billingReason: "subscription_create", amountDue: 11900, lookupKey: PLAN_PRICES.advanced.month.lookupKey, metadata: { user_id: KORISNIK, plan: "advanced", lookup_key: PLAN_PRICES.advanced.month.lookupKey } })),
-    s.skladiste,
-  );
-  check(s.profil.balance === PLANS.advanced.monthlyCredits, `8: Advanced daje ${PLANS.advanced.monthlyCredits}`);
-
-  // Na `dahlia` naplata nema `invoice` — faktura se nalazi preko plaćanja.
-  s.fakturePlacanja.set("pi_8", ["in_8"]);
-
-  // Nepotrošen mesec: 1.200 > 500 → tri komada sa različitim ref-om, balans 0.
-  const r = await posalji(dogadjaj("evt_8_ref", "charge.refunded", povracenaNaplata({ id: "ch_8", pi: "pi_8", iznos: 11900 })), s.skladiste);
-  check(r.status === 200 && r.body.ok === true, "8: charge.refunded → ok");
-  check(s.profil.balance === 0, "8: skinut ceo mesec in_8 (1.200 → 0)");
-  const komadi = s.knjiga.filter((k) => k.reason === "admin");
-  check(komadi.length === 3 && new Set(komadi.map((k) => k.refId)).size === 3, "8: povraćaj preko 500 ide u komade sa RAZLIČITIM ref-om");
-
-  await posalji(dogadjaj("evt_8_ref2", "charge.refunded", povracenaNaplata({ id: "ch_8", pi: "pi_8", iznos: 11900 })), s.skladiste);
-  check(s.profil.balance === 0 && s.knjiga.filter((k) => k.reason === "admin").length === 3, "8: isti charge drugim event_id-jem ne skida dvaput (fina brana)");
+  s.fakturePlacanja.set(o.pi, [o.inv]);
 }
 
 {
-  // Potrošen Advanced mesec: −1.200 bi probilo pod −1000 (0030) → odseca se, ne puca.
+  const s = napraviLazno();
+  await proUpgradeNaAdvanced(s, { inv: "in_8_up", pi: "pi_8_up", iznos: 5941 });
+  const dodela = s.knjiga.find((k) => k.reason === "monthly_grant" && k.refId === "in_8_up");
+  check(
+    dodela?.delta === PLANS.advanced.monthlyCredits - PLANS.pro.monthlyCredits && s.profil.balance === PLANS.advanced.monthlyCredits && s.profil.topup === 200,
+    `8: proracija Pro → Advanced: +${dodela?.delta}, balans ${s.profil.balance}, dopuna ${s.profil.topup}`,
+  );
+
+  const telo = dogadjaj("evt_8_ref", "charge.refunded", povracenaNaplata({ id: "ch_8_up", pi: "pi_8_up", iznos: 5941 }));
+  const r = await posalji(telo, s.skladiste);
+  const redovi = povracaji(s);
+  check(r.status === 200 && r.body.ok === true && r.body.radnja === "povraćaj -750", `8: full refund proracione naplate → ${String(r.body.radnja)}`);
+  check(
+    s.profil.balance === PLANS.pro.monthlyCredits && s.profil.topup === 200,
+    `8: balans ${s.profil.balance} (ne 0), dopuna ${s.profil.topup} netaknuta`,
+  );
+  check(
+    redovi.length === 1 && redovi[0]?.delta === -750 && redovi[0].refId === "povracaj:ch_8_up",
+    "8: JEDAN red `povracaj` −750, ref tačno `povracaj:<ch>` bez sufiksa",
+  );
+  check(s.knjiga.every((k) => k.reason !== "admin"), "8: povraćaj ne piše razlog `admin`");
+  check(
+    redovi[0]?.details?.dodeljeno === 750 && redovi[0].details.trazeno === 750 && redovi[0].details.naplata === "ch_8_up",
+    "8: details nosi naplatu, dodeljeno i traženo",
+  );
+
+  // Scenario 9 za refund granu: Stripe ponovi isti `charge.refunded`.
+  const ponovo = await posalji(telo, s.skladiste);
+  check(
+    ponovo.status === 200 && ponovo.body.duplikat === true && povracaji(s).length === 1 && s.profil.balance === PLANS.pro.monthlyCredits,
+    "8/9: isti događaj drugi put → duplikat, nula novih redova, balans isti",
+  );
+
+  // Gruba brana zakaže (marker obrisan) → fina brana je ref u knjizi.
+  s.dogadjaji.delete("evt_8_ref");
+  const bezMarkera = await posalji(telo, s.skladiste);
+  check(
+    bezMarkera.body.radnja === "povraćaj:already_applied" && povracaji(s).length === 1 && s.profil.balance === PLANS.pro.monthlyCredits,
+    "8/9: isti refund bez markera → already_applied, nula novih redova, balans isti",
+  );
+
+  const drugiEvt = await posalji(dogadjaj("evt_8_ref_b", "charge.refunded", povracenaNaplata({ id: "ch_8_up", pi: "pi_8_up", iznos: 5941 })), s.skladiste);
+  check(
+    drugiEvt.body.radnja === "povraćaj:already_applied" && povracaji(s).length === 1,
+    "8/9: ista naplata drugim event_id-jem → already_applied",
+  );
+}
+
+{
+  // Delimičan refund 50% naplate koja je dala 750 → −375; drugi delimičan iste
+  // naplate ne skida ponovo (jedan ref po naplati — razlika ide ručno).
+  const s = napraviLazno();
+  await proUpgradeNaAdvanced(s, { inv: "in_8_pol", pi: "pi_8_pol", iznos: 6000 });
+  const r = await posalji(dogadjaj("evt_8_pol", "charge.refunded", povracenaNaplata({ id: "ch_8_pol", pi: "pi_8_pol", iznos: 6000, vraceno: 3000 })), s.skladiste);
+  const red = povracaji(s)[0];
+  check(r.body.ok === true && red?.delta === -375 && s.profil.balance === PLANS.advanced.monthlyCredits - 375, `8: delimičan 50% od 750 → ${red?.delta}`);
+  check(red?.refId === "povracaj:ch_8_pol" && red.details?.vraceno === 3000 && red.details.iznos === 6000, "8: srazmera zapisana u details reda, ref bez sufiksa");
+
+  const s3 = napraviLazno();
+  await proUpgradeNaAdvanced(s3, { inv: "in_8_tr", pi: "pi_8_tr", iznos: 5941 });
+  await posalji(dogadjaj("evt_8_tr", "charge.refunded", povracenaNaplata({ id: "ch_8_tr", pi: "pi_8_tr", iznos: 5941, vraceno: 1980 })), s3.skladiste);
+  check(povracaji(s3)[0]?.delta === -Math.floor((750 * 1980) / 5941), `8: srazmera se zaokružuje nadole (${povracaji(s3)[0]?.delta})`);
+
+  const drugi = await posalji(dogadjaj("evt_8_pol2", "charge.refunded", povracenaNaplata({ id: "ch_8_pol", pi: "pi_8_pol", iznos: 6000, vraceno: 6000 })), s.skladiste);
+  check(
+    drugi.body.radnja === "povraćaj:already_applied" && povracaji(s).length === 1 && s.profil.balance === PLANS.advanced.monthlyCredits - 375,
+    "8: drugi refund iste naplate → already_applied, ne skida dvaput",
+  );
+}
+
+{
+  // Refund naplate koja nije ništa upisala → nula redova, 200, nikad fallback na plan.
+  const s = napraviLazno();
+  await posalji(
+    dogadjaj("evt_8n_sub", "customer.subscription.created", pretplata({ status: "trialing", lookupKey: PLAN_PRICES.pro.month.lookupKey, trialEnd: T0 + 7 * DAN })),
+    s.skladiste,
+  );
+  await posalji(dogadjaj("evt_8n_inv", "invoice.paid", faktura({ id: "in_8n", billingReason: "subscription_create", amountDue: 0 })), s.skladiste);
+  s.fakturePlacanja.set("pi_8n", ["in_8n"]);
+  const pre = s.profil.balance;
+  const r = await posalji(dogadjaj("evt_8n_ref", "charge.refunded", povracenaNaplata({ id: "ch_8n", pi: "pi_8n", iznos: 5900 })), s.skladiste);
+  check(
+    r.status === 200 && r.body.radnja === "preskočeno:nema_dodele" && povracaji(s).length === 0 && s.profil.balance === pre,
+    `8: faktura od 0 € (proba) bez dodele → preskočeno:nema_dodele, balans ${s.profil.balance}`,
+  );
+
+  const s2 = napraviLazno();
+  await posalji(dogadjaj("evt_8b_inv", "invoice.paid", faktura({ id: "in_8b", billingReason: "subscription_cycle", amountDue: 5900 })), s2.skladiste);
+  const bez = await posalji(dogadjaj("evt_8b_ref", "charge.refunded", povracenaNaplata({ id: "ch_8b", pi: "pi_8b", iznos: 5900 })), s2.skladiste);
+  check(
+    bez.body.radnja === "preskočeno:nema_dodele" && s2.profil.balance === PLANS.pro.monthlyCredits && povracaji(s2).length === 0,
+    "8: plaćanje bez fakture i bez reda u knjizi → ništa se ne skida",
+  );
+
+  // Duplikat `invoice.paid` (already_granted) ne pravi drugi red, pa se ni ne skida dvaput.
+  const s4 = napraviLazno();
+  await posalji(dogadjaj("evt_8d_inv", "invoice.paid", faktura({ id: "in_8d", billingReason: "subscription_cycle", amountDue: 5900 })), s4.skladiste);
+  const dup = await posalji(dogadjaj("evt_8d_inv2", "invoice.paid", faktura({ id: "in_8d", billingReason: "subscription_cycle", amountDue: 5900 })), s4.skladiste);
+  s4.fakturePlacanja.set("pi_8d", ["in_8d"]);
+  await posalji(dogadjaj("evt_8d_ref", "charge.refunded", povracenaNaplata({ id: "ch_8d", pi: "pi_8d", iznos: 5900 })), s4.skladiste);
+  check(
+    dup.body.radnja === "faktura:already_granted" && povracaji(s4).length === 1 && povracaji(s4)[0]?.delta === -PLANS.pro.monthlyCredits && s4.profil.balance === 0,
+    "8: faktura isporučena dvaput (already_granted) → refund skida jednu dodelu",
+  );
+}
+
+{
+  // Potrošen Advanced mesec: −1.200 bi probilo pod −1000 → odseca se, jedan red, ne puca.
   const s = napraviLazno();
   await posalji(
     dogadjaj("evt_8p_inv", "invoice.paid", faktura({ id: "in_8p", billingReason: "subscription_create", amountDue: 11900, lookupKey: PLAN_PRICES.advanced.month.lookupKey })),
@@ -478,16 +584,19 @@ function povracenaNaplata(o: { id: string; pi: string; iznos: number; refunded?:
   s.profil.balance = 0;
   s.fakturePlacanja.set("pi_8p", ["in_8p"]);
 
-  const r = await posalji(dogadjaj("evt_8p_ref", "charge.refunded", povracenaNaplata({ id: "ch_8p", pi: "pi_8p", iznos: 11900 })), s.skladiste);
+  const telo = dogadjaj("evt_8p_ref", "charge.refunded", povracenaNaplata({ id: "ch_8p", pi: "pi_8p", iznos: 11900 }));
+  const r = await posalji(telo, s.skladiste);
+  const redovi = povracaji(s);
   check(r.status === 200 && r.body.ok === true && String(r.body.radnja).includes("pod"), "8: povraćaj ispod poda → 200, radnja kaže da je odsečeno");
   check(s.profil.balance === -1000, `8: balans staje na podu −1000 (${s.profil.balance}), ne ${-PLANS.advanced.monthlyCredits}`);
   check(
-    s.knjiga.filter((k) => k.reason === "admin").length === 2 && s.revizija.length === 3 && s.revizija[2]?.delta === 0 && s.revizija[2]?.trazeno === -200,
-    "8: dva komada u knjizi, treći samo u reviziji (traženo −200, skinuto 0)",
+    redovi.length === 1 && redovi[0]?.delta === -1000 && redovi[0].details?.trazeno === PLANS.advanced.monthlyCredits && redovi[0].details.pod === -1000,
+    "8: jedan red −1000, traženo 1200 i pod zapisani u details",
   );
 
-  const ponovo = await posalji(dogadjaj("evt_8p_ref2", "charge.refunded", povracenaNaplata({ id: "ch_8p", pi: "pi_8p", iznos: 11900 })), s.skladiste);
-  check(ponovo.body.ok === true && s.profil.balance === -1000 && s.revizija.length === 3, "8: ponovljen povraćaj na podu → bez novih redova");
+  s.dogadjaji.delete("evt_8p_ref");
+  const ponovo = await posalji(telo, s.skladiste);
+  check(ponovo.body.ok === true && s.profil.balance === -1000 && povracaji(s).length === 1, "8: ponovljen povraćaj na podu → bez novih redova");
 }
 
 {
@@ -499,27 +608,37 @@ function povracenaNaplata(o: { id: string; pi: string; iznos: number; refunded?:
     s.skladiste,
   );
   check(r.body.ok === true && s.profil.balance === 0, "8: stari oblik `charge.invoice` i dalje nalazi fakturu");
-
-  const s2 = napraviLazno();
-  await posalji(dogadjaj("evt_8b_inv", "invoice.paid", faktura({ id: "in_8b", billingReason: "subscription_cycle", amountDue: 5900 })), s2.skladiste);
-  const bez = await posalji(dogadjaj("evt_8b_ref", "charge.refunded", povracenaNaplata({ id: "ch_8b", pi: "pi_8b", iznos: 5900 })), s2.skladiste);
-  check(
-    bez.body.radnja === "povraćaj bez kredita" && s2.profil.balance === PLANS.pro.monthlyCredits,
-    "8: plaćanje bez fakture i bez reda u knjizi → ništa se ne skida (tako je pucalo pre popravke)",
-  );
 }
 
 {
+  // Paket 200: refund skida iz dopune, balans pretplate se ne dira.
   const s = napraviLazno();
-  s.profil.balance = 37;
-
-  // Delimičan refund: ništa automatski.
-  const pre = s.profil.balance;
+  const paket = CREDIT_PACKS["dopuna-200"];
   await posalji(
-    dogadjaj("evt_8_part", "charge.refunded", { id: "ch_8b", object: "charge", customer: "cus_test_1", amount: 11900, amount_refunded: 1000, refunded: false, invoice: "in_8", payment_intent: "pi_8" }),
+    dogadjaj("evt_pk_cs", "checkout.session.completed", sesija({ mode: "payment", paket: "dopuna-200", paymentIntent: "pi_pk" })),
     s.skladiste,
   );
-  check(s.profil.balance === pre, "8: delimičan refund ne dira kredite (ručno)");
+  s.profil.balance = 50;
+  await posalji(dogadjaj("evt_pk_ref", "charge.refunded", povracenaNaplata({ id: "ch_pk", pi: "pi_pk", iznos: 4900 })), s.skladiste);
+  const red = povracaji(s)[0];
+  check(
+    s.profil.topup === 0 && s.profil.balance === 50 && red?.delta === -paket.credits && red.details?.kasa === "topup",
+    `paket: refund → dopuna ${s.profil.topup}, balans ${s.profil.balance} nepromenjen, −${paket.credits} iz dopune`,
+  );
+
+  // Delimično potrošen paket: dopuna ne ide ispod nule (0022), ostatak je dug u balansu.
+  const s2 = napraviLazno();
+  await posalji(
+    dogadjaj("evt_pk2_cs", "checkout.session.completed", sesija({ mode: "payment", paket: "dopuna-200", paymentIntent: "pi_pk2" })),
+    s2.skladiste,
+  );
+  s2.profil.topup = 50;
+  s2.profil.balance = 0;
+  await posalji(dogadjaj("evt_pk2_ref", "charge.refunded", povracenaNaplata({ id: "ch_pk2", pi: "pi_pk2", iznos: 4900 })), s2.skladiste);
+  check(
+    s2.profil.topup === 0 && s2.profil.balance === 50 - paket.credits,
+    `paket potrošen do 50: dopuna 0, dug ${s2.profil.balance} u balansu`,
+  );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -831,11 +950,11 @@ const promenaStarter = dogadjaj(
 }
 
 // ═══════════════════════════════════════════════════════════
-// POVRAĆAJ SKIDA CEO MESEC FAKTURE (0030)
+// POVRAĆAJ SKIDA DELTU DODELE, NE MESEC (0032)
 // ═══════════════════════════════════════════════════════════
 // Prijava iz sandboxa: onboarding +2, proba +10, „Aktiviraj odmah" → Pro, u
 // konzoli „452". Balans JE 450; 2 su dopuna (0026). Povraćaj te fakture skida
-// ceo mesec (`balance_after`), ne deltu — v. `zaPovracaj`.
+// ono što je faktura upisala (+440), ne `balance_after` — v. `dodeljenoZaTransakciju`.
 
 {
   const s = napraviLazno();
@@ -866,13 +985,13 @@ const promenaStarter = dogadjaj(
   s.fakturePlacanja.set("pi_m", ["in_m"]);
   await posalji(dogadjaj("evt_m_ref", "charge.refunded", povracenaNaplata({ id: "ch_m", pi: "pi_m", iznos: 5900 })), s.skladiste);
   check(
-    s.profil.balance === 0 && s.profil.topup === ONBOARDING_CREDITS,
-    `mesec: povraćaj → balans 0 (ne ${TRIAL_CREDITS}), dopuna ${ONBOARDING_CREDITS} ostaje`,
+    s.profil.balance === TRIAL_CREDITS && s.profil.topup === ONBOARDING_CREDITS,
+    `mesec: povraćaj → −${PLANS.pro.monthlyCredits - TRIAL_CREDITS}, balans ${s.profil.balance}, dopuna ${ONBOARDING_CREDITS} ostaje`,
   );
 }
 
 {
-  // Downgrade: ostatak 600, faktura Starter → delta negativna. Povraćaj skida ceo mesec, ne 0.
+  // Downgrade: ostatak 600, faktura Starter → delta −450. Nema šta da se skine.
   const s = napraviLazno();
   s.profil.balance = 600;
   s.profil.topup = 25;
@@ -888,15 +1007,15 @@ const promenaStarter = dogadjaj(
   check(s.profil.topup === 25, "downgrade: dopuna preživljava mesečnu dodelu");
 
   s.fakturePlacanja.set("pi_md", ["in_md"]);
-  await posalji(dogadjaj("evt_md_ref", "charge.refunded", povracenaNaplata({ id: "ch_md", pi: "pi_md", iznos: 2900 })), s.skladiste);
+  const r = await posalji(dogadjaj("evt_md_ref", "charge.refunded", povracenaNaplata({ id: "ch_md", pi: "pi_md", iznos: 2900 })), s.skladiste);
   check(
-    s.profil.balance === 0 && s.profil.topup === 25,
-    `downgrade: povraćaj → balans 0, ne ${PLANS.starter.monthlyCredits}`,
+    r.body.ok === true && String(r.body.radnja).startsWith("preskočeno:") && s.profil.balance === PLANS.starter.monthlyCredits && povracaji(s).length === 0,
+    `downgrade: povraćaj fakture sa negativnom deltom → ${String(r.body.radnja)}, balans ${s.profil.balance}`,
   );
 }
 
 {
-  // Deo meseca potrošen pre povraćaja → dug, isto kao potrošen paket.
+  // Deo meseca potrošen pre povraćaja → dug.
   const s = napraviLazno();
   await posalji(
     dogadjaj("evt_mp_inv", "invoice.paid", faktura({ id: "in_mp", billingReason: "subscription_cycle", amountDue: 2900, lookupKey: PLAN_PRICES.starter.month.lookupKey })),
@@ -906,29 +1025,6 @@ const promenaStarter = dogadjaj(
   s.fakturePlacanja.set("pi_mp", ["in_mp"]);
   await posalji(dogadjaj("evt_mp_ref", "charge.refunded", povracenaNaplata({ id: "ch_mp", pi: "pi_mp", iznos: 2900 })), s.skladiste);
   check(s.profil.balance === -40, `potrošeno 40 pa povraćaj → dug −40 (${s.profil.balance})`);
-}
-
-{
-  // Red pre 0030 (bez `balance_after`) → staro pravilo, max(delta, 0).
-  const s = napraviLazno();
-  s.knjiga.push({ userId: KORISNIK, delta: PLANS.pro.monthlyCredits - TRIAL_CREDITS, reason: "monthly_grant", refId: "in_staro" });
-  s.profil.balance = PLANS.pro.monthlyCredits;
-  s.fakturePlacanja.set("pi_staro", ["in_staro"]);
-  await posalji(dogadjaj("evt_staro_ref", "charge.refunded", povracenaNaplata({ id: "ch_staro", pi: "pi_staro", iznos: 5900 })), s.skladiste);
-  check(s.profil.balance === TRIAL_CREDITS, `red bez balance_after → skida se delta (balans ${s.profil.balance})`);
-}
-
-{
-  // Paket: skida se ono što je paket dodao; faktura ne postoji.
-  const s = napraviLazno();
-  const paket = CREDIT_PACKS["dopuna-200"];
-  await posalji(
-    dogadjaj("evt_pk_cs", "checkout.session.completed", sesija({ mode: "payment", paket: "dopuna-200", paymentIntent: "pi_pk" })),
-    s.skladiste,
-  );
-  s.profil.balance = 50;
-  await posalji(dogadjaj("evt_pk_ref", "charge.refunded", povracenaNaplata({ id: "ch_pk", pi: "pi_pk", iznos: 4900 })), s.skladiste);
-  check(s.profil.balance === 50 - paket.credits, `paket: povraćaj skida ${paket.credits} (iz kase koja sme u minus)`);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -947,8 +1043,8 @@ const promenaStarter = dogadjaj(
   check(dobijen.body.ok === true && s.profil.balance === PLANS.pro.monthlyCredits, "spor dobijen → krediti netaknuti");
 
   const izgubljen = await posalji(spor("evt_sp_lost", "lost"), s.skladiste);
-  check(izgubljen.body.ok === true && s.profil.balance === 0, `spor izgubljen → skinut ceo mesec (balans ${s.profil.balance})`);
-  check(s.knjiga.some((k) => k.reason === "admin" && k.refId === "spor:dp_sp"), "spor: ref je spor:<dp_…>");
+  check(izgubljen.body.ok === true && s.profil.balance === 0, `spor izgubljen → skinuta dodela fakture (balans ${s.profil.balance})`);
+  check(povracaji(s).length === 1 && povracaji(s)[0]?.refId === "spor:dp_sp", "spor: jedan red `povracaj`, ref je spor:<dp_…>");
 
   const s2 = napraviLazno();
   const nepoznat = await posalji(
@@ -981,7 +1077,7 @@ const promenaStarter = dogadjaj(
     "invoicePayments pao → 500, ništa skinuto, marker povučen",
   );
   const ponovljen = await posalji(telo, nestabilno);
-  check(ponovljen.body.ok === true && s.profil.balance === 0, "retry povraćaja skida ceo mesec");
+  check(ponovljen.body.ok === true && s.profil.balance === 0 && povracaji(s).length === 1, "retry povraćaja skida dodelu fakture, jednim redom");
 }
 
 // ═══════════════════════════════════════════════════════════

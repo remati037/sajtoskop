@@ -349,7 +349,13 @@ export type CreditReason =
    * Kasa koja ističe se prazni kad pretplata prestane (`customer.subscription.deleted`,
    * `expire_subscription_credits`). Uvek negativan; `ref_id` je `expire:<sub>`.
    */
-  | "expire";
+  | "expire"
+  /**
+   * Vraćen novac (0032, `apply_refund`): `charge.refunded` ili izgubljen spor.
+   * Uvek negativan, tačno onoliko koliko je vraćena transakcija upisala u knjigu.
+   * `ref_id` je `povracaj:<ch_…>` ili `spor:<dp_…>`, bez sufiksa.
+   */
+  | "povracaj";
 
 export type CreditLedgerRow = {
   id: number;
@@ -357,8 +363,10 @@ export type CreditLedgerRow = {
   delta: number;
   reason: CreditReason;
   ref_id: string | null;
-  /** Stanje `credits_balance` posle stavke — samo `monthly_grant`, od 0030; osnova povraćaja. */
+  /** Stanje `credits_balance` posle stavke — samo `monthly_grant`, od 0030. Povraćaj ga od 0032 ne čita. */
   balance_after: number | null;
+  /** Kontekst stavke (0032). Za `povracaj`: naplata, srazmera, traženo i skinuto po kasi. */
+  details: Record<string, unknown> | null;
   created_at: string;
 };
 
