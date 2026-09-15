@@ -120,6 +120,13 @@ export type StavkaDodele = {
   delta: number;
 };
 
+/**
+ * Jedan Stripe refund nad naplatom. `id` je ključ idempotencije povraćaja
+ * (`povracaj:<re_…>`), `amount` je iznos BAŠ TOG refunda — ne kumulativni
+ * `charge.amount_refunded`.
+ */
+export type StripeRefund = { id: string; amount: number; created: number; status: string | null };
+
 /** Ono što Stripe zna o naplati iza spora — spor sam ne nosi kupca. */
 export type NaplataSpora = { customerId: string | null; paymentIntentId: string | null };
 
@@ -171,6 +178,13 @@ export interface NaplataSkladiste {
   naplata(chargeId: string): Promise<NaplataSpora | null>;
   /** `in_…` fakture koje je ovo plaćanje platilo (Stripe poziv, `invoicePayments`). */
   faktureZaPlacanje(paymentIntentId: string): Promise<string[]>;
+  /**
+   * Refundi nad naplatom (Stripe poziv, `refunds.list`), najstariji prvi.
+   *
+   * `charge.refunded` u `data.object` nosi naplatu, a lista `charge.refunds` ume
+   * da bude skraćena ili neekspandovana — zato zaseban, deterministički poziv.
+   */
+  refundiNaplate(chargeId: string): Promise<StripeRefund[]>;
   /** Redovi knjige pod ovim ref-ovima (`in_…`, `pi_…`) — iznos računa `dodeljenoZaTransakciju`. */
   dodeleZaTransakciju(userId: string, refIds: string[]): Promise<StavkaDodele[]>;
   /** `apply_refund` (0032) — jedini put kojim naplata skida kredite. */
@@ -681,6 +695,7 @@ async function placenaFaktura(
 }
 
 /**
+/**
  * `charge.refunded` — jedini put kojim krediti idu NANIŽE iz naplate (uz
  * izgubljen spor).
  *
@@ -689,26 +704,54 @@ async function placenaFaktura(
  * `plans.ts` i nikad iz `balance_after` — kod proracije iznos u parama i broj
  * kredita nisu u srazmeri (Pro → Advanced usred perioda: €59.41, +750).
  *
- * Delimičan refund: srazmerno `amount_refunded / amount`, nadole. Stripe šalje
- * kumulativan `amount_refunded`, ali ref je jedan po naplati (`povracaj:<ch_…>`),
- * pa drugi delimičan refund iste naplate dobija `already_applied` — razlika se
- * loguje i rešava iz konzole.
+ * ── ključ je REFUND, ne naplata (0033) ────────────────────
+ * Jedan `re_…` = jedan red `povracaj:<re_…>`, sa srazmerom `refund.amount /
+ * charge.amount`. Retry iste isporuke nosi isti `re_…` i pada na unique indeks;
+ * dva delimična refunda iste naplate su dva `re_…` i oba prolaze. Zato se ni ne
+ * gleda kumulativni `charge.amount_refunded`.
+ *
+ * Događaj je okidač, a ne spisak posla: prolazi se kroz SVE refunde naplate i
+ * svaki koji još nije u knjizi se primenjuje. `refunds.list` je deterministički
+ * izvor (lista na samoj naplati ume da bude skraćena), a već primenjeni refund
+ * vraća `already_applied`, pa je ponavljanje besplatno. Time ni refund koji je
+ * nastao dok je prethodni događaj još čekao ne ostane nepokriven.
  */
 async function povracaj(charge: Stripe.Charge, s: NaplataSkladiste): Promise<Ishod> {
+  const refundi = (await s.refundiNaplate(charge.id))
+    // `failed` / `canceled` refund nije vraćen novac.
+    .filter((r) => r.status === null || !["failed", "canceled"].includes(r.status))
+    .sort((a, b) => a.created - b.created);
+
+  if (refundi.length === 0) {
+    console.warn(`[stripe-webhook] ${charge.id}: refunds.list bez ijednog refunda — ništa se ne skida`);
+    return { ok: true, radnja: "preskočeno:nema_refunda" };
+  }
+
   const staraFaktura = id((charge as unknown as { invoice?: string | { id: string } | null }).invoice);
-  return await skiniDodeljeno(
-    s,
-    {
-      customerId: id(charge.customer),
-      chargeId: charge.id,
-      refKandidati: await refoviNaplate(s, staraFaktura, id(charge.payment_intent)),
-      srazmera: charge.refunded
-        ? PUN_POVRACAJ
-        : { vraceno: charge.amount_refunded, ukupno: charge.amount },
-    },
-    `povracaj:${charge.id}`,
-    { naplata: charge.id, iznos: charge.amount, vraceno: charge.amount_refunded },
-  );
+  const refKandidati = await refoviNaplate(s, staraFaktura, id(charge.payment_intent));
+  const customerId = id(charge.customer);
+
+  const radnje: string[] = [];
+  for (const refund of refundi) {
+    const ishod = await skiniDodeljeno(
+      s,
+      {
+        customerId,
+        chargeId: charge.id,
+        refKandidati,
+        // Srazmera JEDNOG refunda, nikad kumulativni `amount_refunded`.
+        srazmera: { vraceno: refund.amount, ukupno: charge.amount },
+      },
+      `povracaj:${refund.id}`,
+      { naplata: charge.id, refund: refund.id, iznos: charge.amount, vraceno: refund.amount },
+    );
+    // Trajan neuspeh jednog refunda obara ceo događaj: ostatak je već primenjen i
+    // idempotentan, pa ponovljena isporuka nastavlja odakle je stalo.
+    if (!ishod.ok) return ishod;
+    radnje.push(`${refund.id}: ${ishod.radnja}`);
+  }
+
+  return { ok: true, radnja: radnje.join(" · ") };
 }
 
 /**
@@ -728,6 +771,7 @@ async function izgubljenSpor(d: Stripe.Dispute, s: NaplataSkladiste): Promise<Is
   const pi = id(d.payment_intent) ?? naplata.paymentIntentId;
   return await skiniDodeljeno(
     s,
+    // Spor nije refund i nema `re_…`; ključ ostaje `spor:<dp_…>`, iznos je pun.
     { customerId: naplata.customerId, chargeId, refKandidati: await refoviNaplate(s, null, pi), srazmera: PUN_POVRACAJ },
     `spor:${d.id}`,
     { spor: d.id, naplata: chargeId },
@@ -836,12 +880,8 @@ async function skiniDodeljeno(
   if (!r.ok) return { ok: false, radnja: "povraćaj", greska: r.reason };
 
   if (r.reason === "already_applied") {
-    if (r.skinuto < iznos) {
-      console.warn(
-        `[stripe-webhook] ${refId}: već skinuto ${r.skinuto}, sada traženo ${iznos} ` +
-          `(drugi delimičan refund iste naplate?) — razlika ${iznos - r.skinuto} ručno iz konzole`,
-      );
-    }
+    // Od 0033 je ključ sam refund, pa je ovo uvek ponovljena isporuka istog
+    // refunda — ne drugi delimičan refund nad istom naplatom.
     return { ok: true, radnja: "povraćaj:already_applied" };
   }
   if (r.reason === "na_podu") {

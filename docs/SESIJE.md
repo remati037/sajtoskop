@@ -4227,3 +4227,53 @@ plus deljenje na komade od 500 zbog granice u `admin_adjust_credits`.
       ispraviti balans ručno iz konzole (+750) ako nalog ostaje u upotrebi.
 - [ ] Ručni prolaz §12 #8 u sandboxu: upgrade pa refund proracione naplate → jedan red −750;
       `stripe events resend` istog `charge.refunded` → `duplikat`.
+
+### Popravka posle S30 — ključ povraćaja je refund, i preliv paketa se vidi
+
+**16. septembra 2026.** Dve dopune na `0032`, obe iz iste primedbe: „negativan balans se pojavi kod
+kupca, a ne znam odakle" i „ključ mora da bude ID refunda, ne naplate".
+
+1. **`0033_povracaj_po_refundu.sql`** — telo `apply_refund` iz 0032 + jedan `admin_audit` red
+   `refund_preliv` (`actor_id null`) kad povraćaj PAKETA prelije dug iz dopune u balans
+   (`p_kasa = 'topup'` i `v_iz_balansa > 0`). Payload nosi `trazeno`, `iz_dopune`, `iz_balansa`,
+   `skinuto` i stanje obe kase posle. **Ponašanje nepromenjeno, samo vidljivost.** `admin_audit.action`
+   nema `check` listu, pa nova vrednost ne traži izmenu šeme.
+2. **Ključ je `povracaj:<re_…>`** (`billing.ts`), ne `povracaj:<ch_…>`. Retry iste isporuke nosi isti
+   `re_…` i pada na unique indeks; dva delimična refunda iste naplate su dva `re_…` i oba prolaze,
+   svaki sa srazmerom `refund.amount / charge.amount`. Kumulativni `charge.amount_refunded` više ne
+   učestvuje u računici. Suma dodele se i dalje računa po pravilu iz 0032.
+3. **`refundiNaplate` = `refunds.list({ charge, limit: 100 })`**, ne `charge.refunds.data[0]` — lista na
+   naplati ume da bude skraćena ili neekspandovana. `failed` i `canceled` refundi se preskaču.
+4. **Testovi** — dva delimična refunda (2 × 50% naplate koja je dala 750) daju dva reda po −375, zbir
+   −750 i balans vraćen na pre-fakturno stanje; resend jednog od njih je `duplikat`, a ista isporuka
+   bez markera daje `already_applied` bez novih redova. Preliv paketa proverava i red u reviziji.
+   `check:sql`: `refund_preliv` postoji kod preliva, a ne postoji kod paketa pokrivenog dopunom ni kod
+   refunda pretplate.
+
+**Odstupanje od zahteva, svesno:** umesto „uzmi najnoviji refund po `created`", događaj se tretira kao
+okidač i prolazi se kroz SVE refunde naplate, a svaki koji je već u knjizi vraća `already_applied`.
+Razlog: kad drugi refund nastane pre nego što prvi događaj bude obrađen, „najnoviji" bi isti refund
+primenio dvaput, a stariji nikad. Ishod je isti u običnom slučaju, a bez rupe u trci.
+
+**Ostaje na meni:**
+
+- [ ] Primeniti `0032` pa `0033` na Supabase (redom) pre deploya.
+- [ ] Opciono: uključiti i događaj `refund.created` u Stripe panelu. Sada je bezbedan, jer isti `re_…`
+      daje isti ključ; `charge.refunded` ostaje dovoljan.
+- [ ] Ručni prolaz §12 #8: dva delimična refunda iste naplate → dva reda `povracaj:re_…`.
+
+**P2 uz istu sesiju — trka nad skeniranjem: provereno, nije bug.** Prijava je glasila da `ref_id`
+skeniranja nosi timestamp, pa unique indeks `(user_id, reason, ref_id)` ne služi kao druga brana za
+`scan` redove, i da dva paralelna zahteva mogu da naplate isto skeniranje dvaput. Prvi deo je tačan,
+drugi nije: `spend_credit_and_scan` prvom naredbom uzima `for update` nad redom profila, pre svake
+provere, pa se pozivi istog korisnika serijalizuju; drugi tek tada čita `search_access` (nova naredba,
+svež snapshot u `read committed`) i vraća `already_paid` sa cenom 0. Predložena izmena ref-a je
+**odbijena**: deterministički `kes:` ključ bi pukao kad isti korisnik posle 30 dana legitimno ponovo
+plati istu kombinaciju. Dodatni lock nad `search_access` bi bio suvišan uz grublji lock nad profilom.
+
+Dodat je dokaz umesto brane: `checkRaceScan` u `scripts/check-unlock.ts` (`pnpm check:f4`) pušta 20
+paralelnih `spend_credit_and_scan` nad istom kombinacijom i tvrdi da je naplata tačno jedna, da su
+ostali `already_paid` sa cenom 0, da u knjizi stoji jedan `scan` red i da `sum(delta)` prati obe kase.
+Test gađa KEŠ granu namerno — grana koja upisuje `scan` posao bi ostavila posao koji živ worker
+pokupi i plati pravom Places kvotom. `pnpm check:sql` ovo ne može da pokaže, jer PGlite ima jednu
+konekciju. Zabeleženo i u `docs/LANSIRANJE.md` kao `Z4`.

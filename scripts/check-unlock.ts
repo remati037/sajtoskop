@@ -453,6 +453,145 @@ async function checkMonthlyGrant(db: SupabaseClient): Promise<string> {
   return user;
 }
 
+// ── 6b. trka: 20 paralelnih skeniranja iste kombinacije ────
+
+/**
+ * P2 od 16. septembra 2026: `ref_id` skeniranja nosi timestamp
+ * (`kes:RS:grad:nisa:<vreme>`), pa `credit_ledger_grant_idem_idx` NE pokriva
+ * `scan` redove. Pitanje je bilo može li dva paralelna zahteva za istu pretragu
+ * oba da prođu proveru i naplate korisnika dvaput.
+ *
+ * Ne mogu, i ovo je dokaz: `spend_credit_and_scan` PRVOM naredbom uzima
+ * `for update` nad redom profila, pre svake provere. Pozivi istog korisnika se
+ * time serijalizuju, a drugi tek posle otključavanja čita `search_access` —
+ * nova naredba, dakle svež snapshot u `read committed` — i vidi red koji je
+ * prvi upisao (`already_paid`, cena 0). `pnpm check:sql` ovo ne može da pokaže:
+ * PGlite ima jednu konekciju.
+ *
+ * Gađa se KEŠ grana, namerno. Grana koja upisuje `scan` posao bi ostavila posao
+ * koji živ worker pokupi i plati pravom Places kvotom (CLAUDE.md, „Budžet").
+ * Keš grana prolazi kroz isto zaključavanje i istu naplatu, bez tog rizika.
+ */
+async function checkRaceScan(db: SupabaseClient): Promise<string> {
+  naslov(`Trka — ${PARALLEL} paralelnih skeniranja iste kombinacije (keš)`);
+
+  const user = `user_f4scan_${Date.now()}`;
+  const grad = "nis";
+  const nisa = `f4race-${Date.now()}`;
+
+  // Kredita ima za SVIH 20. Ako zaključavanje popusti, test to vidi kao 20
+  // naplata i praznu kasu — ne kao pad.
+  await makeProfile(db, user, PARALLEL);
+
+  const { error: cacheErr } = await db.from("search_cache").insert({
+    country_code: "RS",
+    city_slug: grad,
+    niche_slug: nisa,
+    last_scanned_at: new Date().toISOString(),
+    last_results_count: 20,
+    scan_count: 1,
+    pages: 1,
+    partial: false,
+  });
+  if (cacheErr) throw new Error(`Priprema keša nije uspela: ${cacheErr.message}`);
+
+  type Scan = { ok: boolean; reason: string; charged: boolean; cost: number; job_id: number | null };
+
+  try {
+    const started = Date.now();
+    const rezultati = await Promise.all(
+      Array.from({ length: PARALLEL }, () =>
+        db
+          .rpc("spend_credit_and_scan", {
+            p_user: user,
+            p_country: "RS",
+            p_city: grad,
+            p_niche: nisa,
+            p_max_results: 20,
+            p_ttl_days: 30,
+          })
+          .then((r) => {
+            if (r.error) return { ok: false, reason: `rpc_error: ${r.error.message}`, charged: false, cost: -1, job_id: null };
+            return (
+              ((r.data ?? []) as Scan[])[0] ??
+              { ok: false, reason: "no_result", charged: false, cost: -1, job_id: null }
+            );
+          }),
+      ),
+    );
+    const trajanje = Date.now() - started;
+
+    const naplaceni = rezultati.filter((r) => r.charged);
+    const vecPlaceni = rezultati.filter((r) => r.reason === "already_paid");
+    const greske = rezultati.filter((r) => r.cost === -1);
+
+    console.log(
+      `   ${naplaceni.length}× naplaćeno, ${vecPlaceni.length}× already_paid, ` +
+        `${greske.length}× greška   (${trajanje} ms)`,
+    );
+
+    check(greske.length === 0, `nijedan poziv nije pukao  (grešaka: ${greske.length})`,
+      greske[0]?.reason);
+    check(naplaceni.length === 1, `tačno JEDNA naplata  (dobijeno: ${naplaceni.length})`);
+    check(
+      naplaceni[0]?.cost === 1 && naplaceni[0].reason === "cached",
+      `naplaćena je jedna stranica iz keša  (cena ${naplaceni[0]?.cost}, ${naplaceni[0]?.reason})`,
+    );
+    check(
+      vecPlaceni.length === PARALLEL - 1 && vecPlaceni.every((r) => r.cost === 0),
+      `ostali su besplatni already_paid  (dobijeno: ${vecPlaceni.length}/${PARALLEL - 1})`,
+    );
+    check(
+      rezultati.every((r) => r.job_id === null),
+      "nijedan poziv nije upisao scan posao (keš grana, bez Places poziva)",
+    );
+
+    const posle = await kase(db, user);
+    check(
+      posle.b + posle.t === PARALLEL - 1,
+      `skinut je tačno jedan kredit  (ostalo ${posle.b} + ${posle.t}, očekivano ${PARALLEL - 1})`,
+    );
+
+    const { count: scanRedovi } = await db
+      .from("credit_ledger")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user)
+      .eq("reason", "scan");
+    check(scanRedovi === 1, `tačno jedan 'scan' red u knjizi  (dobijeno: ${scanRedovi})`);
+
+    const { data: pristup } = await db
+      .from("search_access")
+      .select("pages")
+      .eq("user_id", user)
+      .returns<{ pages: number }[]>();
+    check(
+      (pristup ?? []).length === 1 && pristup?.[0]?.pages === 1,
+      `jedan red u search_access, dubina 1  (dobijeno: ${(pristup ?? []).length})`,
+    );
+
+    const { data: rows } = await db
+      .from("credit_ledger")
+      .select("delta")
+      .eq("user_id", user)
+      .returns<{ delta: number }[]>();
+    const zbir = (rows ?? []).reduce((z, r) => z + r.delta, 0);
+    check(
+      zbir === posle.b + posle.t,
+      `sum(delta) = balans + dopuna  (${zbir} = ${posle.b + posle.t})`,
+    );
+  } finally {
+    // `search_cache` nema FK ka profilu, pa ga brisanje naloga ne počisti.
+    await db
+      .from("search_cache")
+      .delete()
+      .eq("country_code", "RS")
+      .eq("city_slug", grad)
+      .eq("niche_slug", nisa);
+  }
+
+  return user;
+}
+
 // ── 7. tuđi credit_ledger anon ključem ─────────────────────
 
 async function checkLedgerRls(anon: SupabaseClient, users: string[]): Promise<void> {
@@ -505,6 +644,8 @@ async function main(): Promise<void> {
 
     const idorUsers = await checkBodyUserIdIgnored(db, POST, ids[0]!);
     profili.push(...idorUsers);
+
+    profili.push(await checkRaceScan(db));
 
     profili.push(await checkExportCap(db));
     profili.push(await checkMonthlyGrant(db));

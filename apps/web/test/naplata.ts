@@ -426,12 +426,22 @@ function sesija(o: {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 8. REFUND (§12 #8) — skida TAČNO ono što je transakcija upisala (0032)
+// 8. REFUND (§12 #8) — svaki `re_…` svoj red, svoj iznos (0032 + 0033)
 // ═══════════════════════════════════════════════════════════
 
-/** `charge.refunded` u obliku `dahlia`: bez `invoice`, faktura ide preko `payment_intent`. */
-function povracenaNaplata(o: { id: string; pi: string; iznos: number; vraceno?: number }) {
+/**
+ * `charge.refunded` u obliku `dahlia`: bez `invoice`, faktura ide preko
+ * `payment_intent`. Usput registruje refund u `refunds.list` lažnog Stripe-a —
+ * od 0033 je ključ idempotencije `re_…`, pa bez njega nema povraćaja.
+ */
+function povracenaNaplata(
+  s: ReturnType<typeof napraviLazno>,
+  o: { id: string; pi: string; iznos: number; vraceno?: number; refundId?: string },
+) {
   const vraceno = o.vraceno ?? o.iznos;
+  s.refundi.set(o.id, [
+    { id: o.refundId ?? `re_${o.id}`, amount: vraceno, created: T0, status: "succeeded" },
+  ]);
   return {
     id: o.id,
     object: "charge",
@@ -476,17 +486,17 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
     `8: proracija Pro → Advanced: +${dodela?.delta}, balans ${s.profil.balance}, dopuna ${s.profil.topup}`,
   );
 
-  const telo = dogadjaj("evt_8_ref", "charge.refunded", povracenaNaplata({ id: "ch_8_up", pi: "pi_8_up", iznos: 5941 }));
+  const telo = dogadjaj("evt_8_ref", "charge.refunded", povracenaNaplata(s, { id: "ch_8_up", pi: "pi_8_up", iznos: 5941 }));
   const r = await posalji(telo, s.skladiste);
   const redovi = povracaji(s);
-  check(r.status === 200 && r.body.ok === true && r.body.radnja === "povraćaj -750", `8: full refund proracione naplate → ${String(r.body.radnja)}`);
+  check(r.status === 200 && r.body.ok === true && r.body.radnja === "re_ch_8_up: povraćaj -750", `8: full refund proracione naplate → ${String(r.body.radnja)}`);
   check(
     s.profil.balance === PLANS.pro.monthlyCredits && s.profil.topup === 200,
     `8: balans ${s.profil.balance} (ne 0), dopuna ${s.profil.topup} netaknuta`,
   );
   check(
-    redovi.length === 1 && redovi[0]?.delta === -750 && redovi[0].refId === "povracaj:ch_8_up",
-    "8: JEDAN red `povracaj` −750, ref tačno `povracaj:<ch>` bez sufiksa",
+    redovi.length === 1 && redovi[0]?.delta === -750 && redovi[0].refId === "povracaj:re_ch_8_up",
+    "8: JEDAN red `povracaj` −750, ref je `povracaj:<re_…>` bez sufiksa",
   );
   check(s.knjiga.every((k) => k.reason !== "admin"), "8: povraćaj ne piše razlog `admin`");
   check(
@@ -505,14 +515,14 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
   s.dogadjaji.delete("evt_8_ref");
   const bezMarkera = await posalji(telo, s.skladiste);
   check(
-    bezMarkera.body.radnja === "povraćaj:already_applied" && povracaji(s).length === 1 && s.profil.balance === PLANS.pro.monthlyCredits,
+    bezMarkera.body.radnja === "re_ch_8_up: povraćaj:already_applied" && povracaji(s).length === 1 && s.profil.balance === PLANS.pro.monthlyCredits,
     "8/9: isti refund bez markera → already_applied, nula novih redova, balans isti",
   );
 
-  const drugiEvt = await posalji(dogadjaj("evt_8_ref_b", "charge.refunded", povracenaNaplata({ id: "ch_8_up", pi: "pi_8_up", iznos: 5941 })), s.skladiste);
+  const drugiEvt = await posalji(dogadjaj("evt_8_ref_b", "charge.refunded", povracenaNaplata(s, { id: "ch_8_up", pi: "pi_8_up", iznos: 5941 })), s.skladiste);
   check(
-    drugiEvt.body.radnja === "povraćaj:already_applied" && povracaji(s).length === 1,
-    "8/9: ista naplata drugim event_id-jem → already_applied",
+    drugiEvt.body.radnja === "re_ch_8_up: povraćaj:already_applied" && povracaji(s).length === 1,
+    "8/9: isti refund drugim event_id-jem → already_applied",
   );
 }
 
@@ -521,20 +531,53 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
   // naplate ne skida ponovo (jedan ref po naplati — razlika ide ručno).
   const s = napraviLazno();
   await proUpgradeNaAdvanced(s, { inv: "in_8_pol", pi: "pi_8_pol", iznos: 6000 });
-  const r = await posalji(dogadjaj("evt_8_pol", "charge.refunded", povracenaNaplata({ id: "ch_8_pol", pi: "pi_8_pol", iznos: 6000, vraceno: 3000 })), s.skladiste);
+  const r = await posalji(
+    dogadjaj("evt_8_pol", "charge.refunded", povracenaNaplata(s, { id: "ch_8_pol", pi: "pi_8_pol", iznos: 6000, vraceno: 3000, refundId: "re_8_pol_1" })),
+    s.skladiste,
+  );
   const red = povracaji(s)[0];
   check(r.body.ok === true && red?.delta === -375 && s.profil.balance === PLANS.advanced.monthlyCredits - 375, `8: delimičan 50% od 750 → ${red?.delta}`);
-  check(red?.refId === "povracaj:ch_8_pol" && red.details?.vraceno === 3000 && red.details.iznos === 6000, "8: srazmera zapisana u details reda, ref bez sufiksa");
+  check(
+    red?.refId === "povracaj:re_8_pol_1" && red.details?.vraceno === 3000 && red.details.iznos === 6000 && red.details.refund === "re_8_pol_1",
+    "8: srazmera i `re_…` zapisani u details reda",
+  );
 
   const s3 = napraviLazno();
   await proUpgradeNaAdvanced(s3, { inv: "in_8_tr", pi: "pi_8_tr", iznos: 5941 });
-  await posalji(dogadjaj("evt_8_tr", "charge.refunded", povracenaNaplata({ id: "ch_8_tr", pi: "pi_8_tr", iznos: 5941, vraceno: 1980 })), s3.skladiste);
+  await posalji(dogadjaj("evt_8_tr", "charge.refunded", povracenaNaplata(s3, { id: "ch_8_tr", pi: "pi_8_tr", iznos: 5941, vraceno: 1980 })), s3.skladiste);
   check(povracaji(s3)[0]?.delta === -Math.floor((750 * 1980) / 5941), `8: srazmera se zaokružuje nadole (${povracaji(s3)[0]?.delta})`);
 
-  const drugi = await posalji(dogadjaj("evt_8_pol2", "charge.refunded", povracenaNaplata({ id: "ch_8_pol", pi: "pi_8_pol", iznos: 6000, vraceno: 6000 })), s.skladiste);
+  // [0033] Drugi delimičan refund iste naplate je svoj `re_…` i prolazi.
+  // `refunds.list` sada vraća oba; događaj je okidač, ne spisak posla.
+  s.refundi.set("ch_8_pol", [
+    { id: "re_8_pol_1", amount: 3000, created: T0, status: "succeeded" },
+    { id: "re_8_pol_2", amount: 3000, created: T0 + 60, status: "succeeded" },
+  ]);
+  const naplata8 = { id: "ch_8_pol", object: "charge", customer: "cus_test_1", amount: 6000, amount_refunded: 6000, refunded: true, payment_intent: "pi_8_pol" };
+  const drugi = await posalji(dogadjaj("evt_8_pol2", "charge.refunded", naplata8), s.skladiste);
+  const redovi = povracaji(s);
   check(
-    drugi.body.radnja === "povraćaj:already_applied" && povracaji(s).length === 1 && s.profil.balance === PLANS.advanced.monthlyCredits - 375,
-    "8: drugi refund iste naplate → already_applied, ne skida dvaput",
+    drugi.body.ok === true && redovi.length === 2 && redovi.every((k) => k.delta === -375),
+    `8: dva delimična refunda iste naplate → dva reda po −375 (${redovi.length})`,
+  );
+  check(
+    new Set(redovi.map((k) => k.refId)).size === 2 && redovi.every((k) => String(k.refId).startsWith("povracaj:re_")),
+    "8: ključ je ID REFUNDA (`povracaj:re_…`), dva različita refunda → dva ključa",
+  );
+  check(
+    redovi.reduce((z, k) => z + k.delta, 0) === -750 && s.profil.balance === PLANS.advanced.monthlyCredits - 750,
+    `8: ukupno −750, balans vraćen na pre-fakturno stanje (${s.profil.balance})`,
+  );
+
+  // Resend jednog od ta dva → duplikat po `event_id`, pa i po ref-u u knjizi.
+  const resend = await posalji(dogadjaj("evt_8_pol2", "charge.refunded", naplata8), s.skladiste);
+  check(resend.body.duplikat === true && povracaji(s).length === 2 && s.profil.balance === PLANS.advanced.monthlyCredits - 750, "8: resend istog događaja → duplikat, bez efekta");
+
+  s.dogadjaji.delete("evt_8_pol2");
+  const bezMarkera = await posalji(dogadjaj("evt_8_pol2", "charge.refunded", naplata8), s.skladiste);
+  check(
+    bezMarkera.body.ok === true && povracaji(s).length === 2 && s.profil.balance === PLANS.advanced.monthlyCredits - 750,
+    "8: ista dva refunda bez markera → oba already_applied, nula novih redova",
   );
 }
 
@@ -548,17 +591,17 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
   await posalji(dogadjaj("evt_8n_inv", "invoice.paid", faktura({ id: "in_8n", billingReason: "subscription_create", amountDue: 0 })), s.skladiste);
   s.fakturePlacanja.set("pi_8n", ["in_8n"]);
   const pre = s.profil.balance;
-  const r = await posalji(dogadjaj("evt_8n_ref", "charge.refunded", povracenaNaplata({ id: "ch_8n", pi: "pi_8n", iznos: 5900 })), s.skladiste);
+  const r = await posalji(dogadjaj("evt_8n_ref", "charge.refunded", povracenaNaplata(s, { id: "ch_8n", pi: "pi_8n", iznos: 5900 })), s.skladiste);
   check(
-    r.status === 200 && r.body.radnja === "preskočeno:nema_dodele" && povracaji(s).length === 0 && s.profil.balance === pre,
+    r.status === 200 && String(r.body.radnja).endsWith("preskočeno:nema_dodele") && povracaji(s).length === 0 && s.profil.balance === pre,
     `8: faktura od 0 € (proba) bez dodele → preskočeno:nema_dodele, balans ${s.profil.balance}`,
   );
 
   const s2 = napraviLazno();
   await posalji(dogadjaj("evt_8b_inv", "invoice.paid", faktura({ id: "in_8b", billingReason: "subscription_cycle", amountDue: 5900 })), s2.skladiste);
-  const bez = await posalji(dogadjaj("evt_8b_ref", "charge.refunded", povracenaNaplata({ id: "ch_8b", pi: "pi_8b", iznos: 5900 })), s2.skladiste);
+  const bez = await posalji(dogadjaj("evt_8b_ref", "charge.refunded", povracenaNaplata(s2, { id: "ch_8b", pi: "pi_8b", iznos: 5900 })), s2.skladiste);
   check(
-    bez.body.radnja === "preskočeno:nema_dodele" && s2.profil.balance === PLANS.pro.monthlyCredits && povracaji(s2).length === 0,
+    String(bez.body.radnja).endsWith("preskočeno:nema_dodele") && s2.profil.balance === PLANS.pro.monthlyCredits && povracaji(s2).length === 0,
     "8: plaćanje bez fakture i bez reda u knjizi → ništa se ne skida",
   );
 
@@ -567,7 +610,7 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
   await posalji(dogadjaj("evt_8d_inv", "invoice.paid", faktura({ id: "in_8d", billingReason: "subscription_cycle", amountDue: 5900 })), s4.skladiste);
   const dup = await posalji(dogadjaj("evt_8d_inv2", "invoice.paid", faktura({ id: "in_8d", billingReason: "subscription_cycle", amountDue: 5900 })), s4.skladiste);
   s4.fakturePlacanja.set("pi_8d", ["in_8d"]);
-  await posalji(dogadjaj("evt_8d_ref", "charge.refunded", povracenaNaplata({ id: "ch_8d", pi: "pi_8d", iznos: 5900 })), s4.skladiste);
+  await posalji(dogadjaj("evt_8d_ref", "charge.refunded", povracenaNaplata(s4, { id: "ch_8d", pi: "pi_8d", iznos: 5900 })), s4.skladiste);
   check(
     dup.body.radnja === "faktura:already_granted" && povracaji(s4).length === 1 && povracaji(s4)[0]?.delta === -PLANS.pro.monthlyCredits && s4.profil.balance === 0,
     "8: faktura isporučena dvaput (already_granted) → refund skida jednu dodelu",
@@ -584,7 +627,7 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
   s.profil.balance = 0;
   s.fakturePlacanja.set("pi_8p", ["in_8p"]);
 
-  const telo = dogadjaj("evt_8p_ref", "charge.refunded", povracenaNaplata({ id: "ch_8p", pi: "pi_8p", iznos: 11900 }));
+  const telo = dogadjaj("evt_8p_ref", "charge.refunded", povracenaNaplata(s, { id: "ch_8p", pi: "pi_8p", iznos: 11900 }));
   const r = await posalji(telo, s.skladiste);
   const redovi = povracaji(s);
   check(r.status === 200 && r.body.ok === true && String(r.body.radnja).includes("pod"), "8: povraćaj ispod poda → 200, radnja kaže da je odsečeno");
@@ -604,7 +647,7 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
   const s = napraviLazno();
   await posalji(dogadjaj("evt_8s_inv", "invoice.paid", faktura({ id: "in_8s", billingReason: "subscription_cycle", amountDue: 5900 })), s.skladiste);
   const r = await posalji(
-    dogadjaj("evt_8s_ref", "charge.refunded", { ...povracenaNaplata({ id: "ch_8s", pi: "pi_8s", iznos: 5900 }), invoice: "in_8s" }),
+    dogadjaj("evt_8s_ref", "charge.refunded", { ...povracenaNaplata(s, { id: "ch_8s", pi: "pi_8s", iznos: 5900 }), invoice: "in_8s" }),
     s.skladiste,
   );
   check(r.body.ok === true && s.profil.balance === 0, "8: stari oblik `charge.invoice` i dalje nalazi fakturu");
@@ -619,7 +662,7 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
     s.skladiste,
   );
   s.profil.balance = 50;
-  await posalji(dogadjaj("evt_pk_ref", "charge.refunded", povracenaNaplata({ id: "ch_pk", pi: "pi_pk", iznos: 4900 })), s.skladiste);
+  await posalji(dogadjaj("evt_pk_ref", "charge.refunded", povracenaNaplata(s, { id: "ch_pk", pi: "pi_pk", iznos: 4900 })), s.skladiste);
   const red = povracaji(s)[0];
   check(
     s.profil.topup === 0 && s.profil.balance === 50 && red?.delta === -paket.credits && red.details?.kasa === "topup",
@@ -634,11 +677,17 @@ async function proUpgradeNaAdvanced(s: ReturnType<typeof napraviLazno>, o: { inv
   );
   s2.profil.topup = 50;
   s2.profil.balance = 0;
-  await posalji(dogadjaj("evt_pk2_ref", "charge.refunded", povracenaNaplata({ id: "ch_pk2", pi: "pi_pk2", iznos: 4900 })), s2.skladiste);
+  await posalji(dogadjaj("evt_pk2_ref", "charge.refunded", povracenaNaplata(s2, { id: "ch_pk2", pi: "pi_pk2", iznos: 4900 })), s2.skladiste);
   check(
     s2.profil.topup === 0 && s2.profil.balance === 50 - paket.credits,
     `paket potrošen do 50: dopuna 0, dug ${s2.profil.balance} u balansu`,
   );
+  check(
+    s2.preliv.length === 1 && s2.preliv[0]?.izDopune === 50 && s2.preliv[0].izBalansa === paket.credits - 50 &&
+      s2.preliv[0].refId === "povracaj:re_ch_pk2",
+    `paket preliv → red u reviziji (refund_preliv): iz dopune ${s2.preliv[0]?.izDopune}, iz balansa ${s2.preliv[0]?.izBalansa}`,
+  );
+  check(s.preliv.length === 0, "paket bez preliva (dopuna pokriva ceo iznos) → bez reda u reviziji");
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -983,7 +1032,7 @@ const promenaStarter = dogadjaj(
   );
 
   s.fakturePlacanja.set("pi_m", ["in_m"]);
-  await posalji(dogadjaj("evt_m_ref", "charge.refunded", povracenaNaplata({ id: "ch_m", pi: "pi_m", iznos: 5900 })), s.skladiste);
+  await posalji(dogadjaj("evt_m_ref", "charge.refunded", povracenaNaplata(s, { id: "ch_m", pi: "pi_m", iznos: 5900 })), s.skladiste);
   check(
     s.profil.balance === TRIAL_CREDITS && s.profil.topup === ONBOARDING_CREDITS,
     `mesec: povraćaj → −${PLANS.pro.monthlyCredits - TRIAL_CREDITS}, balans ${s.profil.balance}, dopuna ${ONBOARDING_CREDITS} ostaje`,
@@ -1007,9 +1056,9 @@ const promenaStarter = dogadjaj(
   check(s.profil.topup === 25, "downgrade: dopuna preživljava mesečnu dodelu");
 
   s.fakturePlacanja.set("pi_md", ["in_md"]);
-  const r = await posalji(dogadjaj("evt_md_ref", "charge.refunded", povracenaNaplata({ id: "ch_md", pi: "pi_md", iznos: 2900 })), s.skladiste);
+  const r = await posalji(dogadjaj("evt_md_ref", "charge.refunded", povracenaNaplata(s, { id: "ch_md", pi: "pi_md", iznos: 2900 })), s.skladiste);
   check(
-    r.body.ok === true && String(r.body.radnja).startsWith("preskočeno:") && s.profil.balance === PLANS.starter.monthlyCredits && povracaji(s).length === 0,
+    r.body.ok === true && String(r.body.radnja).includes("preskočeno:") && s.profil.balance === PLANS.starter.monthlyCredits && povracaji(s).length === 0,
     `downgrade: povraćaj fakture sa negativnom deltom → ${String(r.body.radnja)}, balans ${s.profil.balance}`,
   );
 }
@@ -1023,7 +1072,7 @@ const promenaStarter = dogadjaj(
   );
   s.profil.balance = PLANS.starter.monthlyCredits - 40;
   s.fakturePlacanja.set("pi_mp", ["in_mp"]);
-  await posalji(dogadjaj("evt_mp_ref", "charge.refunded", povracenaNaplata({ id: "ch_mp", pi: "pi_mp", iznos: 2900 })), s.skladiste);
+  await posalji(dogadjaj("evt_mp_ref", "charge.refunded", povracenaNaplata(s, { id: "ch_mp", pi: "pi_mp", iznos: 2900 })), s.skladiste);
   check(s.profil.balance === -40, `potrošeno 40 pa povraćaj → dug −40 (${s.profil.balance})`);
 }
 
@@ -1070,7 +1119,7 @@ const promenaStarter = dogadjaj(
       return await s.skladiste.faktureZaPlacanje(pi);
     },
   };
-  const telo = dogadjaj("evt_ip_ref", "charge.refunded", povracenaNaplata({ id: "ch_ip", pi: "pi_ip", iznos: 5900 }));
+  const telo = dogadjaj("evt_ip_ref", "charge.refunded", povracenaNaplata(s, { id: "ch_ip", pi: "pi_ip", iznos: 5900 }));
   const pao = await posalji(telo, nestabilno);
   check(
     pao.status === 500 && s.profil.balance === PLANS.pro.monthlyCredits && !s.dogadjaji.has("evt_ip_ref"),

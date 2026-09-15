@@ -580,6 +580,7 @@ prestao da bude onboarding i postao reklama.
 | V6 | **Poresko pitanje otvoreno.** `naplata-paddle.md` §9 — 19 pitanja, nijedan odgovor. |
 | V7 | **Backup nikad pokrenut** nad pravim `DATABASE_URL`-om. |
 | ~~V8~~ ☑ | **Rešeno u S16.** `naplata-polar.md` → `naplata-paddle.md` sa blokom o prelasku; ispravljen i `naplata-bez-firme.md` §2. |
+| ~~Z4~~ ☑ | **Provereno 16. septembra 2026 (P2, prijava iz sandboxa).** Tačno je da `ref_id` skeniranja nosi timestamp (`kes:RS:grad:nisa:<vreme>`) i da `credit_ledger_grant_idem_idx` ne pokriva `scan` redove — ali taj indeks nikad nije bio brana za skeniranje. Brana je `for update` nad redom profila, koji `spend_credit_and_scan` uzima PRVOM naredbom, pre svake provere: paralelni zahtevi istog korisnika se serijalizuju, pa drugi vidi `search_access` red prvog i vraća `already_paid`, cena 0. **Deterministički `kes:` ref bi bio štetan**: pristup traje 30 dana, posle isteka se ista kombinacija legitimno plaća ponovo, a pod unique indeksom bi taj pošten upis pukao. Dokaz je trka od 20 paralelnih poziva u `pnpm check:f4` (keš grana — grana sa poslom bi potrošila pravu Places kvotu). |
 
 ---
 

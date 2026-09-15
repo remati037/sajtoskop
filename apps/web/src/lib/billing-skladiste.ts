@@ -24,6 +24,7 @@ import type {
   OtisakPretplate,
   RpcIshod,
   StavkaDodele,
+  StripeRefund,
 } from "./billing";
 import { stripe } from "./stripe-server";
 import { adminSupabase } from "./supabase";
@@ -242,6 +243,14 @@ export function supabaseSkladiste(): NaplataSkladiste {
         if (typeof inv === "string") return [inv];
         return inv?.id ? [inv.id] : [];
       });
+    },
+
+    async refundiNaplate(chargeId): Promise<StripeRefund[]> {
+      // Deterministički izvor `re_…` ID-jeva: `charge.refunds` u webhook telu ume
+      // da bude skraćen ili neekspandovan. Pad NIJE tih — bez refund ID-ja nema
+      // ključa idempotencije, pa ruta vraća 500 i Stripe ponavlja.
+      const { data } = await stripe().refunds.list({ charge: chargeId, limit: 100 });
+      return data.map((r) => ({ id: r.id, amount: r.amount, created: r.created, status: r.status }));
     },
 
     async dodeleZaTransakciju(userId, refIds): Promise<StavkaDodele[]> {

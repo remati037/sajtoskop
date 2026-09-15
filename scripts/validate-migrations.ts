@@ -1665,6 +1665,26 @@ async function main(): Promise<void> {
   check((await refund("ref32", "povracaj:ch_k", 10, "kasa"))?.reason === "invalid_kasa", "nepoznata kasa odbijena");
   check((await refund("nema_ga", "povracaj:ch_n", 10, "balance"))?.reason === "no_user", "nepostojeći nalog → no_user");
 
+  // ── [0033] preliv paketa u balans ostavlja red u reviziji ──
+  const preliv = async (ref: string) =>
+    await one<{ n: number; p: Record<string, number> }>(
+      `select count(*)::int as n, min(payload::text)::jsonb as p from admin_audit
+        where action = 'refund_preliv' and target_user = 'ref32' and target_ref = $1`, [ref]);
+
+  await db.exec(`update profiles set credits_balance = 100, credits_topup = 60 where id = 'ref32'`);
+  const saPrelivom = await refund("ref32", "povracaj:re_preliv", 200, "topup");
+  const revizija33 = await preliv("povracaj:re_preliv");
+  check(saPrelivom?.delta === -200 && (await kase("ref32"))?.t === 0, "preliv: 60 iz dopune, 140 iz balansa");
+  check(revizija33?.n === 1 && revizija33.p.iz_dopune === 60 && revizija33.p.iz_balansa === 140 && revizija33.p.trazeno === 200,
+    `preliv → admin_audit 'refund_preliv' sa oba broja (dopuna ${revizija33?.p.iz_dopune}, balans ${revizija33?.p.iz_balansa})`);
+
+  await db.exec(`update profiles set credits_balance = 100, credits_topup = 300 where id = 'ref32'`);
+  await refund("ref32", "povracaj:re_bez_preliva", 200, "topup");
+  check((await preliv("povracaj:re_bez_preliva"))?.n === 0, "paket pokriven dopunom → bez reda u reviziji");
+  await db.exec(`update profiles set credits_balance = 100, credits_topup = 0 where id = 'ref32'`);
+  await refund("ref32", "povracaj:re_pretplata", 50, "balance");
+  check((await preliv("povracaj:re_pretplata"))?.n === 0, "refund pretplate nije preliv → bez reda u reviziji");
+
   // Proba: 10 kredita, jednom po NALOGU (ref `trial:<user>`), ne po pretplati.
   await db.exec(`update profiles set credits_balance = 0 where id = 'w1'`);
   type Tr = { ok: boolean; reason: string };

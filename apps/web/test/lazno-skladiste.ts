@@ -14,7 +14,7 @@
 //
 // Metode koje u produkciji zovu Stripe (`otisakKartice`, `naplatiProbuOdmah`,
 // `naplata`, `faktureZaPlacanje`) ovde su upravljive iz testa: `otisci`,
-// `naplate` i `fakturePlacanja` mape i `probaNaplacena` brojač.
+// `naplate`, `fakturePlacanja` i `refundi` mape i `probaNaplacena` brojač.
 // `ceneStavki` razrešava izmišljene ID-jeve `cenaId(lookup_key)` iz kataloga.
 
 import { kupovinaZaLookupKey } from "@sajtoskop/shared";
@@ -25,6 +25,7 @@ import type {
   NaplataSpora,
   OtisakPretplate,
   StavkaDodele,
+  StripeRefund,
 } from "../src/lib/billing";
 
 export const KORISNIK = "user_test_1";
@@ -49,6 +50,9 @@ export type Knjiga = {
   /** `credit_ledger.details` (0032) — povraćaj upisuje traženo i skinuto po kasi. */
   details?: Record<string, unknown> | null;
 };
+
+/** `admin_audit` red `refund_preliv` (0033): paket je prelio dug u balans. */
+export type Preliv = { refId: string; trazeno: number; izDopune: number; izBalansa: number };
 
 export type Pretplata = {
   userId: string;
@@ -88,6 +92,10 @@ export type Lazno = {
   naplate: Map<string, NaplataSpora>;
   /** `pi_…` → `in_…` fakture koje je to plaćanje platilo (`invoicePayments.list`). */
   fakturePlacanja: Map<string, string[]>;
+  /** `ch_…` → refundi nad tom naplatom (`refunds.list`); test puni pre refunda. */
+  refundi: Map<string, StripeRefund[]>;
+  /** `admin_audit` redovi `refund_preliv` (0033). */
+  preliv: Preliv[];
   /**
    * `grant_credits` — za fiksture koje u produkciji ne stižu kroz webhook
    * (`onboarding` iz `create_profile_with_grant`).
@@ -112,6 +120,8 @@ export function napraviLazno(): Lazno {
   const probaNaplacena: string[] = [];
   const naplate = new Map<string, NaplataSpora>();
   const fakturePlacanja = new Map<string, string[]>();
+  const refundi = new Map<string, StripeRefund[]>();
+  const preliv: Preliv[] = [];
 
   /** `grant_credits` (0026): razlog bira kasu, `ref_id` je ključ idempotencije. */
   function dodeli(reason: string, delta: number, refId: string | null): string {
@@ -233,6 +243,9 @@ export function napraviLazno(): Lazno {
     async faktureZaPlacanje(paymentIntentId) {
       return fakturePlacanja.get(paymentIntentId) ?? [];
     },
+    async refundiNaplate(chargeId) {
+      return refundi.get(chargeId) ?? [];
+    },
     async dodeleZaTransakciju(_userId, refIds): Promise<StavkaDodele[]> {
       return knjiga
         .filter(
@@ -268,6 +281,10 @@ export function napraviLazno(): Lazno {
           ...(ukupno < a.iznos ? { pod: POD } : {}),
         },
       });
+      // [0033] Preliv paketa u balans ostavlja red u reviziji.
+      if (a.kasa === "topup" && izBalansa > 0) {
+        preliv.push({ refId: a.refId, trazeno: a.iznos, izDopune, izBalansa });
+      }
       profil.topup -= izDopune;
       profil.balance -= izBalansa;
       return { ok: true, reason: ukupno === a.iznos ? "applied" : "odseceno", skinuto: ukupno };
@@ -285,6 +302,8 @@ export function napraviLazno(): Lazno {
     probaNaplacena,
     naplate,
     fakturePlacanja,
+    refundi,
+    preliv,
     dodeli,
   };
 }
