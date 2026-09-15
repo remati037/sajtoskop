@@ -1539,6 +1539,48 @@ async function main(): Promise<void> {
     "ista faktura drugi put → already_granted, balans isti");
   check((await faktura("", 450))?.reason === "missing_ref_id", "faktura bez ref-a odbijena");
 
+  // ── [0030] onboarding u dopuni + proba + dodela; pod na povraćaju ──
+  // Prijava iz sandboxa: „452 umesto 450". Balans JE 450 — 2 su dopuna (0026).
+  await db.exec(`select * from create_profile_with_grant('fak0030', 'fak0030@x.rs', ${ONBOARDING_CREDITS}, 'signup:fak0030')`);
+  await one(`select * from apply_trial_start('fak0030', 'sub_fak0030', $1)`, [TRIAL_CREDITS]);
+  const fi = await one<Inv>(`select * from apply_invoice_paid('fak0030', 'in_fak0030', 450)`);
+  let ki = await kase("fak0030");
+  check(fi?.delta === 450 - TRIAL_CREDITS && ki?.b === 450 && ki.t === ONBOARDING_CREDITS,
+    `onboarding + proba → invoice.paid 450: balans ${ki?.b}, dopuna ${ki?.t}, delta ${fi?.delta}`);
+  check((await one<{ ba: number | null }>(
+    `select balance_after as ba from credit_ledger where user_id = 'fak0030' and ref_id = 'in_fak0030'`))?.ba === 450,
+    "monthly_grant pamti balance_after = target (0030)");
+
+  await db.exec(`update profiles set credits_balance = 600 where id = 'fak0030'`);
+  const fd = await one<Inv>(`select * from apply_invoice_paid('fak0030', 'in_inv2', 150)`);
+  ki = await kase("fak0030");
+  check(fd?.delta === -450 && ki?.b === 150 && ki.t === ONBOARDING_CREDITS,
+    `downgrade 600 → 150: delta ${fd?.delta}, balans ${ki?.b}, dopuna netaknuta`);
+
+  type Pov = { ok: boolean; reason: string; balance: number };
+  const povPod = (delta: number, ref: string) =>
+    one<Pov>(`select * from admin_adjust_credits(null, 'fak0030', $1, 'povraćaj', $2, 'povracaj')`, [delta, ref]);
+  await db.exec(`update profiles set credits_balance = -900 where id = 'fak0030'`);
+  const pod1 = await povPod(-500, "povracaj:ch_pod");
+  check(pod1?.reason === "odseceno" && pod1.balance === -1000,
+    `povraćaj ispod poda se odseca, ne puca (−900 − 500 → ${pod1?.balance})`);
+  check((await one<{ d: number }>(
+    `select delta as d from credit_ledger where user_id = 'fak0030' and ref_id = 'povracaj:ch_pod'`))?.d === -100,
+    "u knjizi je stvarno skinuto (−100), ne traženo");
+  const rev = await one<{ p: { delta: number; trazeno: number } }>(
+    `select payload as p from admin_audit where target_user = 'fak0030' and target_ref = 'povracaj:ch_pod'`);
+  check(rev?.p.delta === -100 && rev.p.trazeno === -500, "revizija pamti traženo i skinuto");
+  const pod2 = await povPod(-200, "povracaj:ch_pod#2");
+  check(pod2?.reason === "na_podu" && pod2.balance === -1000, "komad na podu → na_podu, balans isti");
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from credit_ledger where user_id = 'fak0030' and ref_id = 'povracaj:ch_pod#2'`))?.n === 0,
+    "na_podu ne piše red u knjigu (nula ne sme)");
+  check((await povPod(-200, "povracaj:ch_pod#2"))?.reason === "already_applied",
+    "ponovljen komad na podu → already_applied");
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from admin_audit where target_user = 'fak0030' and target_ref = 'povracaj:ch_pod#2'`))?.n === 1,
+    "…i bez drugog reda u reviziji");
+
   // Proba: 10 kredita, jednom po NALOGU (ref `trial:<user>`), ne po pretplati.
   await db.exec(`update profiles set credits_balance = 0 where id = 'w1'`);
   type Tr = { ok: boolean; reason: string };

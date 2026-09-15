@@ -1245,8 +1245,9 @@ Ne menja se: `/cenovnik?plan=pro&ciklus=godisnje` → `citajNameru()` → `Cenov
 | `customer.subscription.deleted` | `SUB_STATE` + `SUB_ENDED` | `apply_subscription(status=canceled)` + `expire_subscription_credits` |
 | `invoice.paid` | `PERIOD_PAID` | `apply_invoice_paid(target = plan.monthlyCredits, ref = in_…)` — **samo** `billing_reason in (subscription_create, subscription_cycle, subscription_update)` i `amount_due >= 0`; mesečni ciklus, ili prva faktura godišnjeg |
 | `invoice.payment_failed` | `PAYMENT_FAILED` | ništa u kreditima; `apply_subscription` će stići kao `updated` sa `past_due`. Loguje se; mejl je P4 |
-| `charge.refunded` | `REFUNDED` | pun refund: skini kredite koje je ta naplata dala (`dodeljenoZaTransakciju` po `invoice` ili `payment_intent`), kroz `admin_adjust_credits(kind=povracaj)`. Delimičan: log + ručno, kao i pre |
-| `charge.dispute.created` | `DISPUTED` | samo log + mejl adminu (P4). Krediti se ne diraju dok Stripe ne odluči (`charge.dispute.closed`, status `lost` → kao refund) |
+| `charge.refunded` | `REFUNDED` | pun refund: fakture tog plaćanja kroz `invoicePayments.list` po `payment_intent` (na `dahlia` naplata nema `invoice`), pa redovi knjige po `in_…` / `pi_…` (`dodeleZaTransakciju`). Mesečna dodela skida **ceo mesec** (`credit_ledger.balance_after`, 0030), paket i redovi pre 0030 svoju deltu (`zaPovracaj`). Kroz `admin_adjust_credits(kind=povracaj)`, odsečeno na pod −1000. Delimičan: log + ručno, kao i pre |
+| `charge.dispute.created` | `DISPUTED` | samo log + mejl adminu (P4). Krediti se ne diraju dok Stripe ne odluči |
+| `charge.dispute.closed` | `DISPUTE_CLOSED` | samo `status = lost`: `charges.retrieve` (spor ne nosi kupca), pa isto kao pun refund, ref `spor:<dp_…>`. Ostali statusi: log |
 
 Sve ostalo → `preskočeno:<tip>`, 200.
 
@@ -1520,7 +1521,7 @@ Preduslovi: `stripe listen` uključen, test ključevi u `.env.local`, kartice `4
 | 5 | Upgrade Starter → Pro (portal) | portal → switch | `subscription.updated` lookup `pro_month`, `profiles.plan = pro`; `invoice.paid` `subscription_update` → `monthly_grant` ref nova `in_`, balans 450 |
 | 6 | Downgrade Pro → Starter | portal → switch | plan se menja tek na `period_end` (schedule); do tada `profiles.plan = pro`; na obnovi `invoice.paid` → balans 150 |
 | 7 | Otkaz pa reaktivacija u istom periodu | portal otkaži, pa „renew" | `cancel_at_period_end` true → false; stanje `otkazan` → `aktivan`; nula novih ledger redova |
-| 8 | Refund pune mesečne naplate | Dashboard → refund `ch_` | `charge.refunded` → `admin_adjust_credits(povracaj)` −(ono što je `in_` dao), `admin_audit` red sa `actor null`, balans može u minus |
+| 8 | Refund pune mesečne naplate | Dashboard → refund `ch_` | `charge.refunded` → `invoicePayments` nađe `in_` → `admin_adjust_credits(povracaj)` −(ceo mesec koji je `in_` postavio, `balance_after`), `admin_audit` red sa `actor null`, balans može u minus do −1000 |
 | 9 | Dupli webhook | `stripe events resend evt_<invoice.paid>` | drugi put: `billing_events` konflikt → `{duplikat:true}`, ledger nepromenjen. Pa obriši red iz `billing_events` i resend: `grant_monthly_credits` vraća `already_granted`, balans isti |
 | 10 | Paket 200 | aktivan nalog, checkout paket | `checkout.session.completed` mode payment → ledger `credit_pack` +200 ref `pi_…`, `credits_topup = 200`, `credits_balance` netaknut; nalog bez plana → checkout vraća 403 |
 | 11 | Komp pozivnica | admin napravi `komp` 30d/300, nov nalog `/pozivnica/KOD` | `profiles.plan = komp`, `komp_expires_at +30d`, ledger `komp_grant` +300 ref `invite:<id>`, `access_invite_redemptions` red, `used_count = 1`; drugi nalog istim kodom → `used_up`; `stanjePristupa` = `komp`; checkout plana → 409 |

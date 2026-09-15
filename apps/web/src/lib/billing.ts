@@ -98,6 +98,17 @@ export type ArgKorekcija = {
   refId: string;
 };
 
+/** Jedan red knjige koji je naplata ostavila — sirovina za povraćaj. */
+export type StavkaDodele = {
+  reason: string;
+  delta: number;
+  /** `credit_ledger.balance_after` (0030); `null` za pakete i redove pre 0030. */
+  balanceAfter: number | null;
+};
+
+/** Ono što Stripe zna o naplati iza spora — spor sam ne nosi kupca. */
+export type NaplataSpora = { customerId: string | null; paymentIntentId: string | null };
+
 /** Ono što skladište zna o kartici iza pretplate — traži mrežu (Stripe). */
 export type OtisakPretplate = {
   /** `payment_method.card.fingerprint`; `null` kad kartice nema (npr. SEPA). */
@@ -107,7 +118,7 @@ export type OtisakPretplate = {
 };
 
 /**
- * Sve što obrada radi nad bazom (i, za dve stvari, nad Stripe-om). Namerno
+ * Sve što obrada radi nad bazom (i, gde mora, nad Stripe-om). Namerno
  * uzak: svaka metoda je jedan upit ili jedan RPC, bez ijedne odluke u sebi —
  * odluke su u `obradiDogadjaj`.
  */
@@ -142,8 +153,12 @@ export interface NaplataSkladiste {
   otisakKartice(subscriptionId: string): Promise<OtisakPretplate | null>;
   /** `subscriptions.update(sub, { trial_end: "now" })` — proba se odmah pretvara u naplatu. */
   naplatiProbuOdmah(subscriptionId: string): Promise<void>;
-  /** Koliko su kredita ovi ref-ovi (`in_…`, `pi_…`) dodelili — osnova za povraćaj. */
-  dodeljenoZaTransakciju(userId: string, refIds: string[]): Promise<number>;
+  /** Kupac i payment_intent naplate (Stripe poziv). `null` kad naplata ne postoji. */
+  naplata(chargeId: string): Promise<NaplataSpora | null>;
+  /** `in_…` fakture koje je ovo plaćanje platilo (Stripe poziv, `invoicePayments`). */
+  faktureZaPlacanje(paymentIntentId: string): Promise<string[]>;
+  /** Redovi knjige pod ovim ref-ovima (`in_…`, `pi_…`) — iznos računa `zaPovracaj`. */
+  dodeleZaTransakciju(userId: string, refIds: string[]): Promise<StavkaDodele[]>;
   korigujKredite(a: ArgKorekcija): Promise<RpcIshod>;
 }
 
@@ -408,13 +423,7 @@ export async function obradiDogadjaj(
     case "charge.dispute.closed": {
       const d = dogadjaj.data.object;
       if (d.status !== "lost") return { ok: true, radnja: `spor zatvoren:${d.status}` };
-      // Izgubljen spor = novac je otišao, kao pun povraćaj.
-      return await skiniDodeljeno(
-        s,
-        { customerId: null, chargeId: id(d.charge), refKandidati: [] },
-        `spor:${d.id}`,
-        `Stripe izgubljen spor ${d.id} nad naplatom ${id(d.charge) ?? "?"}`,
-      );
+      return await izgubljenSpor(d, s);
     }
 
     default:
@@ -652,8 +661,11 @@ async function placenaFaktura(
  * prema iznosu, a srazmera kredita nije jednoznačna — loguje se i rešava iz
  * admin konzole, gde ista funkcija stoji sa iznosom koji čovek unese.
  *
- * Skida se tačno koliko je ta naplata dala, pročitano iz knjige po `in_…`
- * (mesečna dodela) ili `pi_…` (paket), a ne izračunato iz plana.
+ * Iznos se čita iz knjige po `in_…` (mesečna dodela) ili `pi_…` (paket), a ne
+ * računa iz plana u trenutku povraćaja — v. `zaPovracaj`.
+ *
+ * Pod −1000 (`profiles_credits_nonneg`): komad koji bi ga probio SQL odseca
+ * (`odseceno` / `na_podu`, 0030), a neskinuti deo ostaje u reviziji.
  */
 async function povracaj(charge: Stripe.Charge, s: NaplataSkladiste): Promise<Ishod> {
   if (!charge.refunded) {
@@ -664,35 +676,95 @@ async function povracaj(charge: Stripe.Charge, s: NaplataSkladiste): Promise<Ish
     return { ok: true, radnja: "povraćaj delimičan — ručno" };
   }
 
+  const staraFaktura = id((charge as unknown as { invoice?: string | { id: string } | null }).invoice);
   return await skiniDodeljeno(
     s,
     {
       customerId: id(charge.customer),
       chargeId: charge.id,
-      refKandidati: [
-        id((charge as unknown as { invoice?: string | { id: string } | null }).invoice),
-        id(charge.payment_intent),
-      ],
+      refKandidati: await refoviNaplate(s, staraFaktura, id(charge.payment_intent)),
     },
     `povracaj:${charge.id}`,
     `Stripe povraćaj nad naplatom ${charge.id}`,
   );
 }
 
+/**
+ * `charge.dispute.closed` sa `lost` — novac je otišao, kao pun povraćaj.
+ *
+ * Spor ne nosi kupca, pa se naplata čita sa Stripe-a. Do 0030 se ovde slalo
+ * `customerId: null` i bez ijednog ref-a, pa izgubljen spor nikad nije našao
+ * korisnika i nije skinuo nijedan kredit.
+ */
+async function izgubljenSpor(d: Stripe.Dispute, s: NaplataSkladiste): Promise<Ishod> {
+  const chargeId = id(d.charge);
+  const naplata = chargeId ? await s.naplata(chargeId) : null;
+  if (!chargeId || !naplata) {
+    return { ok: false, radnja: "spor", greska: `spor ${d.id}: naplata ${chargeId ?? "—"} nije pronađena` };
+  }
+
+  const pi = id(d.payment_intent) ?? naplata.paymentIntentId;
+  return await skiniDodeljeno(
+    s,
+    { customerId: naplata.customerId, chargeId, refKandidati: await refoviNaplate(s, null, pi) },
+    `spor:${d.id}`,
+    `Stripe izgubljen spor ${d.id} nad naplatom ${chargeId}`,
+  );
+}
+
+/**
+ * Ref-ovi pod kojima je naplata mogla da dodeli kredite: `in_…` i `pi_…`.
+ *
+ * Na pinovanoj `dahlia` naplata NEMA polje `invoice` (uklonjeno 2025-03-31,
+ * uz delimična plaćanja faktura) — veza plaćanje → faktura je `InvoicePayment`.
+ * Bez ovoga povraćaj pretplate nije nalazio `in_…` i nije skidao ništa. Stari
+ * oblik se čita kad postoji, bez Stripe poziva.
+ */
+async function refoviNaplate(
+  s: NaplataSkladiste,
+  staraFaktura: string | null,
+  paymentIntentId: string | null,
+): Promise<string[]> {
+  const fakture = staraFaktura
+    ? [staraFaktura]
+    : paymentIntentId
+      ? await s.faktureZaPlacanje(paymentIntentId)
+      : [];
+  return [...new Set([...fakture, ...(paymentIntentId ? [paymentIntentId] : [])])];
+}
+
+/**
+ * Koliko povraćaj skida za jednu stavku knjige (odluka uz 0030).
+ *
+ * Mesečna dodela: CEO mesec (`balance_after` = target), ne delta. Dodela
+ * POSTAVLJA balans, pa je delta kod downgrade-a negativna (600 → 150 daje −450
+ * i povraćaj ne bi skinuo ništa), a kod probe (10 → 450) bi vratila probne
+ * kredite koje je dodela već pregazila. Vraćen novac znači da krediti tog
+ * meseca ne postoje.
+ *
+ * Paket i redovi pre 0030 (bez `balance_after`): ono što je red dodao, nikad
+ * negativno.
+ */
+export function zaPovracaj(st: StavkaDodele): number {
+  if (st.reason === "monthly_grant" && st.balanceAfter !== null) return Math.max(st.balanceAfter, 0);
+  return Math.max(st.delta, 0);
+}
+
 /** Zajednički deo povraćaja i izgubljenog spora: nađi korisnika, izračunaj, skini u komadima. */
 async function skiniDodeljeno(
   s: NaplataSkladiste,
-  izvor: { customerId: string | null; chargeId: string | null; refKandidati: (string | null)[] },
+  izvor: { customerId: string | null; chargeId: string | null; refKandidati: string[] },
   refOsnova: string,
   beleska: string,
 ): Promise<Ishod> {
-  const refovi = izvor.refKandidati.filter((r): r is string => r !== null);
+  const refovi = izvor.refKandidati;
   const userId = await nadjiKorisnika(s, { customerId: izvor.customerId });
   if (!userId) {
     return { ok: false, radnja: "povraćaj", greska: `${izvor.chargeId ?? refOsnova} nije vezan ni za jedan profil` };
   }
 
-  const dodeljeno = refovi.length > 0 ? await s.dodeljenoZaTransakciju(userId, refovi) : 0;
+  const stavke = refovi.length > 0 ? await s.dodeleZaTransakciju(userId, refovi) : [];
+  const dodeljeno = stavke.reduce((zbir, st) => zbir + zaPovracaj(st), 0);
   if (dodeljeno <= 0) {
     // Naplata koja nikad nije dala kredite (na primer 0 € proba). Nema šta da se
     // vrati i to nije greška.
@@ -702,18 +774,26 @@ async function skiniDodeljeno(
   // `admin_adjust_credits` odbija iznos preko 500 po pozivu, a Advanced plan
   // daje 1.200. Zato se deli na komade sa RAZLIČITIM `ref_id`-jem — isti bi
   // drugi komad proglasio duplikatom i tiho vratio manje nego što treba.
+  //
+  // Komadi posle poda se i dalje šalju: svaki `na_podu` ostavlja red u reviziji
+  // sa traženim iznosom, pa je ceo neskinuti deo vidljiv, ne samo prvi komad.
   let ostatak = dodeljeno;
   let komad = 0;
+  let naPodu = false;
   while (ostatak > 0) {
     const iznos = Math.min(ostatak, MAX_KOREKCIJA);
     const refId = komad === 0 ? refOsnova : `${refOsnova}#${komad + 1}`;
 
     const r = await s.korigujKredite({ userId, delta: -iznos, note: beleska, refId });
     if (!r.ok) return { ok: false, radnja: "povraćaj", greska: r.reason };
+    if (r.reason === "odseceno" || r.reason === "na_podu") naPodu = true;
 
     ostatak -= iznos;
     komad += 1;
   }
 
-  return { ok: true, radnja: `povraćaj -${dodeljeno}` };
+  return {
+    ok: true,
+    radnja: naPodu ? `povraćaj -${dodeljeno}, odsečeno na pod (v. reviziju)` : `povraćaj -${dodeljeno}`,
+  };
 }

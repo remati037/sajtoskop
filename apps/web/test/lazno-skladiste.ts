@@ -3,30 +3,51 @@
 // zamenjuje `@/lib/billing-skladiste`, pa ruta radi nad njim ne znajući to —
 // isto kao što `scripts/lib/next-stubs.ts` zamenjuje Clerk.
 //
-// Ponaša se kao migracija 0025 tačno tamo gde je to bitno za testove: dve
-// kase, razlog bira kasu, `ref_id` je ključ idempotencije, mesečna dodela
-// POSTAVLJA balans (bez rollovera), `stale_ignored` po `event.created`,
-// pražnjenje na kraju pretplate. Sve ostalo (zaključavanje reda, trke, `check`
-// ograničenja) proverava `pnpm check:sql` nad pravom migracijom — ovde bi bilo
-// lažno dvaput.
+// Ponaša se kao migracije 0025, 0026 i 0030 tačno tamo gde je to bitno za
+// testove: dve kase, razlog bira kasu (`credit_pack` i `onboarding` → dopuna),
+// `ref_id` je ključ idempotencije, mesečna dodela POSTAVLJA balans (bez
+// rollovera) i pamti `balance_after`, `stale_ignored` po `event.created`,
+// pražnjenje na kraju pretplate, povraćaj se odseca na pod −1000. Sve ostalo
+// (zaključavanje reda, trke, `check` ograničenja) proverava `pnpm check:sql`
+// nad pravom migracijom — ovde bi bilo lažno dvaput.
 //
-// Metode koje u produkciji zovu Stripe (`otisakKartice`, `naplatiProbuOdmah`)
-// ovde su upravljive iz testa: `otisci` mapa i `probaNaplacena` brojač.
+// Metode koje u produkciji zovu Stripe (`otisakKartice`, `naplatiProbuOdmah`,
+// `naplata`, `faktureZaPlacanje`) ovde su upravljive iz testa: `otisci`,
+// `naplate` i `fakturePlacanja` mape i `probaNaplacena` brojač.
 // `ceneStavki` razrešava izmišljene ID-jeve `cenaId(lookup_key)` iz kataloga.
 
 import { kupovinaZaLookupKey } from "@sajtoskop/shared";
-import type { CenaStavke, NaplataSkladiste, OtisakPretplate } from "../src/lib/billing";
+import type {
+  CenaStavke,
+  NaplataSkladiste,
+  NaplataSpora,
+  OtisakPretplate,
+  StavkaDodele,
+} from "../src/lib/billing";
 
 export const KORISNIK = "user_test_1";
 
 const CENA_PREFIKS = "price_test_";
+
+/** `profiles_credits_nonneg` (0022). */
+const POD = -1000;
 
 /** Izmišljen `price_…` ID za cenu sa datim `lookup_key` — ono što stavka fakture nosi. */
 export function cenaId(lookupKey: string): string {
   return `${CENA_PREFIKS}${lookupKey}`;
 }
 
-export type Knjiga = { userId: string; delta: number; reason: string; refId: string | null };
+export type Knjiga = {
+  userId: string;
+  delta: number;
+  reason: string;
+  refId: string | null;
+  /** `credit_ledger.balance_after` (0030) — samo mesečna dodela ga upisuje. */
+  balanceAfter?: number | null;
+};
+
+/** `admin_audit` za povraćaj: šta je traženo i šta je stvarno skinuto. */
+export type Revizija = { refId: string; trazeno: number; delta: number };
 
 export type Pretplata = {
   userId: string;
@@ -61,6 +82,16 @@ export type Lazno = {
   zapamceniOtisci: Map<string, string>;
   /** Koliko puta je proba pretvorena u naplatu (`trial_end: now`). */
   probaNaplacena: string[];
+  /** `ch_…` → kupac i payment_intent (`charges.retrieve`); test puni pre spora. */
+  naplate: Map<string, NaplataSpora>;
+  /** `pi_…` → `in_…` fakture koje je to plaćanje platilo (`invoicePayments.list`). */
+  fakturePlacanja: Map<string, string[]>;
+  revizija: Revizija[];
+  /**
+   * `grant_credits` — za fiksture koje u produkciji ne stižu kroz webhook
+   * (`onboarding` iz `create_profile_with_grant`).
+   */
+  dodeli: (reason: string, delta: number, refId: string | null) => string;
 };
 
 export function napraviLazno(): Lazno {
@@ -78,14 +109,17 @@ export function napraviLazno(): Lazno {
   const otisci = new Map<string, OtisakPretplate>();
   const zapamceniOtisci = new Map<string, string>();
   const probaNaplacena: string[] = [];
+  const naplate = new Map<string, NaplataSpora>();
+  const fakturePlacanja = new Map<string, string[]>();
+  const revizija: Revizija[] = [];
 
-  /** `grant_credits`: razlog bira kasu, `ref_id` je ključ idempotencije. */
+  /** `grant_credits` (0026): razlog bira kasu, `ref_id` je ključ idempotencije. */
   function dodeli(reason: string, delta: number, refId: string | null): string {
     if (refId && knjiga.some((r) => r.reason === reason && r.refId === refId)) {
       return "already_granted";
     }
     knjiga.push({ userId: KORISNIK, delta, reason, refId });
-    if (reason === "credit_pack") profil.topup += delta;
+    if (reason === "credit_pack" || reason === "onboarding") profil.topup += delta;
     else profil.balance += delta;
     return "granted";
   }
@@ -143,13 +177,14 @@ export function napraviLazno(): Lazno {
       return { ok: true, reason: "saved", granted: 0 };
     },
     async primeniFakturu(a) {
-      // `grant_monthly_credits`: POSTAVLJA balans na cilj, ref je faktura.
+      // `grant_monthly_credits` (0030): POSTAVLJA balans na cilj, ref je faktura,
+      // cilj ostaje u knjizi kao `balance_after`. Dopuna se ne dira.
       if (!a.invoiceId) return { ok: false, reason: "missing_ref_id", granted: 0 };
       if (knjiga.some((r) => r.reason === "monthly_grant" && r.refId === a.invoiceId)) {
         return { ok: true, reason: "already_granted", granted: 0 };
       }
       const delta = a.target - profil.balance;
-      knjiga.push({ userId: a.userId, delta, reason: "monthly_grant", refId: a.invoiceId });
+      knjiga.push({ userId: a.userId, delta, reason: "monthly_grant", refId: a.invoiceId, balanceAfter: a.target });
       profil.balance = a.target;
       return { ok: true, reason: "granted", granted: delta };
     },
@@ -190,7 +225,13 @@ export function napraviLazno(): Lazno {
     async naplatiProbuOdmah(subscriptionId) {
       probaNaplacena.push(subscriptionId);
     },
-    async dodeljenoZaTransakciju(_userId, refIds) {
+    async naplata(chargeId) {
+      return naplate.get(chargeId) ?? null;
+    },
+    async faktureZaPlacanje(paymentIntentId) {
+      return fakturePlacanja.get(paymentIntentId) ?? [];
+    },
+    async dodeleZaTransakciju(_userId, refIds): Promise<StavkaDodele[]> {
       return knjiga
         .filter(
           (r) =>
@@ -198,21 +239,46 @@ export function napraviLazno(): Lazno {
             refIds.includes(r.refId) &&
             (r.reason === "monthly_grant" || r.reason === "subscription_grant" || r.reason === "credit_pack"),
         )
-        .reduce((zbir, r) => zbir + r.delta, 0);
+        .map((r) => ({ reason: r.reason, delta: r.delta, balanceAfter: r.balanceAfter ?? null }));
     },
     async korigujKredite(a) {
       // `admin_adjust_credits` sa `p_kind => 'povracaj'` sme u minus i preskače
-      // proveru „balans bi bio negativan" (0022 §1) — zato ovde nema donjeg praga.
+      // proveru „balans bi bio negativan" (0022 §1), ali ne ispod poda (0030).
       if (knjiga.some((r) => r.reason === "admin" && r.refId === a.refId)) {
         return { ok: true, reason: "already_applied", granted: 0 };
       }
-      knjiga.push({ userId: a.userId, delta: a.delta, reason: "admin", refId: a.refId });
-      profil.balance += a.delta;
-      return { ok: true, reason: "ok", granted: 0 };
+      let delta = a.delta;
+      if (profil.balance + delta < POD) {
+        delta = Math.min(0, POD - profil.balance);
+        if (delta === 0) {
+          if (revizija.some((r) => r.refId === a.refId)) {
+            return { ok: true, reason: "already_applied", granted: 0 };
+          }
+          revizija.push({ refId: a.refId, trazeno: a.delta, delta: 0 });
+          return { ok: true, reason: "na_podu", granted: 0 };
+        }
+      }
+      knjiga.push({ userId: a.userId, delta, reason: "admin", refId: a.refId });
+      revizija.push({ refId: a.refId, trazeno: a.delta, delta });
+      profil.balance += delta;
+      return { ok: true, reason: delta === a.delta ? "ok" : "odseceno", granted: 0 };
     },
   };
 
-  return { skladiste, knjiga, profil, dogadjaji, pretplate, otisci, zapamceniOtisci, probaNaplacena };
+  return {
+    skladiste,
+    knjiga,
+    profil,
+    dogadjaji,
+    pretplate,
+    otisci,
+    zapamceniOtisci,
+    probaNaplacena,
+    naplate,
+    fakturePlacanja,
+    revizija,
+    dodeli,
+  };
 }
 
 // ── ono što ruta vidi ───────────────────────────────────────

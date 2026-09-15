@@ -1,6 +1,6 @@
 // apps/web/src/lib/billing-skladiste.ts
-// `NaplataSkladiste` nad pravom bazom (i nad Stripe-om, za tri metode koje
-// traže mrežu). Jedina implementacija koja postoji u produkciji — druga je mapa
+// `NaplataSkladiste` nad pravom bazom (i nad Stripe-om, za metode koje traže
+// mrežu). Jedina implementacija koja postoji u produkciji — druga je mapa
 // u memoriji, u `apps/web/test/lazno-skladiste.ts`.
 //
 // ── zašto je ovo zaseban fajl, a ne dno `billing.ts` ────────
@@ -17,7 +17,13 @@
 // payload-a, ne iz pregledača.
 
 import "server-only";
-import type { NaplataSkladiste, OtisakPretplate, RpcIshod } from "./billing";
+import type {
+  NaplataSkladiste,
+  NaplataSpora,
+  OtisakPretplate,
+  RpcIshod,
+  StavkaDodele,
+} from "./billing";
 import { stripe } from "./stripe-server";
 import { adminSupabase } from "./supabase";
 
@@ -205,18 +211,49 @@ export function supabaseSkladiste(): NaplataSkladiste {
       });
     },
 
-    async dodeljenoZaTransakciju(userId, refIds) {
-      if (refIds.length === 0) return 0;
+    async naplata(chargeId): Promise<NaplataSpora | null> {
+      // Spor ne nosi kupca. `resource_missing` je trajno stanje (tuđa ili
+      // obrisana naplata) → `null`; sve ostalo baca, ruta vraća 500 i Stripe ponavlja.
+      try {
+        const ch = await stripe().charges.retrieve(chargeId);
+        return {
+          customerId: typeof ch.customer === "string" ? ch.customer : (ch.customer?.id ?? null),
+          paymentIntentId:
+            typeof ch.payment_intent === "string" ? ch.payment_intent : (ch.payment_intent?.id ?? null),
+        };
+      } catch (err) {
+        if ((err as { code?: unknown }).code === "resource_missing") return null;
+        throw err;
+      }
+    },
+
+    async faktureZaPlacanje(paymentIntentId) {
+      // Na `dahlia` naplata nema `invoice`; veza plaćanje → faktura je
+      // `InvoicePayment`. Pad NIJE tih: bez fakture povraćaj pretplate ne bi
+      // skinuo ništa, a to je tiha greška u novčanoj putanji.
+      const { data } = await stripe().invoicePayments.list({
+        payment: { type: "payment_intent", payment_intent: paymentIntentId },
+        limit: 10,
+      });
+      return data.flatMap((p) => {
+        const inv = p.invoice;
+        if (typeof inv === "string") return [inv];
+        return inv?.id ? [inv.id] : [];
+      });
+    },
+
+    async dodeleZaTransakciju(userId, refIds): Promise<StavkaDodele[]> {
+      if (refIds.length === 0) return [];
       const { data, error } = await db
         .from("credit_ledger")
-        .select("delta")
+        .select("reason, delta, balance_after")
         .eq("user_id", userId)
         .in("ref_id", refIds)
         .in("reason", ["monthly_grant", "subscription_grant", "credit_pack"])
-        .returns<{ delta: number }[]>();
+        .returns<{ reason: string; delta: number; balance_after: number | null }[]>();
 
       if (error) throw new Error(`credit_ledger: ${error.message}`);
-      return (data ?? []).reduce((zbir, r) => zbir + r.delta, 0);
+      return (data ?? []).map((r) => ({ reason: r.reason, delta: r.delta, balanceAfter: r.balance_after }));
     },
 
     async korigujKredite(a) {
@@ -234,7 +271,8 @@ export function supabaseSkladiste(): NaplataSkladiste {
       });
       if (error) throw new Error(`admin_adjust_credits: ${error.message}`);
       // Ova funkcija vraća `balance` umesto `granted`; `prviRed` će za `granted`
-      // dati 0 i to je tačno — povraćaj ne dodeljuje ništa.
+      // dati 0 i to je tačno — povraćaj ne dodeljuje ništa. Od 0030 `reason`
+      // ume da bude `odseceno` ili `na_podu` (pod −1000), oba sa `ok = true`.
       return prviRed(data, "prazan odgovor");
     },
   };

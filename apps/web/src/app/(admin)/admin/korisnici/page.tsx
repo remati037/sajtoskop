@@ -236,17 +236,18 @@ export default async function Page({
                       <td className="py-2.5">
                         <StanjeBedz pristup={r.pristup} />
                       </td>
-                      {/* Prikazano stanje kredita je ZBIR obe kase (§1.4); iz
-                          paketa u zagradi, jer to je deo koji NE ističe i jedini
-                          razlog zbog kog nalog bez pretplate i dalje radi. */}
+                      {/* Dve kase odvojeno (§1.4): iz pretplate, pa dopuna. Ne
+                          zbir — sortira se po `credits_balance`, a zbir pročitan
+                          kao balans je već jednom izgledao kao pogrešna mesečna
+                          dodela (450 + 2 dopune → „452"). Zbir je u detalju. */}
                       <td className="py-2.5 text-right num">
-                        {r.credits_balance + r.credits_topup}
+                        {r.credits_balance}
                         {r.credits_topup > 0 && (
                           <span
                             className="ml-1 text-[11px] text-fg-faint"
-                            title="Od toga iz paketa — ne ističe"
+                            title="Dokupljeni i krediti dobrodošlice — ne ističu"
                           >
-                            (+{r.credits_topup})
+                            +{r.credits_topup}
                           </span>
                         )}
                       </td>

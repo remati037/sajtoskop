@@ -351,6 +351,8 @@ export type CreditLedgerRow = {
   delta: number;
   reason: CreditReason;
   ref_id: string | null;
+  /** Stanje `credits_balance` posle stavke — samo `monthly_grant`, od 0030; osnova povraćaja. */
+  balance_after: number | null;
   created_at: string;
 };
 

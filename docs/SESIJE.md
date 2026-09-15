@@ -4090,3 +4090,49 @@ rečenica iz §2.3 „`/pretraga` crta objašnjenje umesto forme" više ne važi
 - [ ] Promena cene sa `transfer_lookup_key` (§14): stara cena ostaje bez `lookup_key`, pa bi
       fakture postojećih pretplatnika na staroj ceni bile `preskočeno`. Pre prve promene cene
       rešiti (npr. `price.metadata.plan` kao rezerva).
+
+### Popravka posle S30 — povraćaj skida ceo mesec, faktura sa plaćanja, spor, pod
+
+**15. septembra 2026.** Prijava iz sandboxa: onboarding +2, proba +10, „Aktiviraj odmah" → Pro,
+„balans 452, delta 440, očekivano 450 / 438". Dijagnoza „0025 sabira umesto da postavlja" nije
+tačna: `apply_invoice_paid` → `grant_monthly_credits` (0004) POSTAVLJA `credits_balance`. Onboarding
+krediti su od `0026` u `credits_topup`, pa je balans pre fakture 10, a posle 450 + 2 dopune; 452 je
+zbir iz liste u konzoli. Provereno nad svim migracijama u PGlite-u.
+
+Usput nađeno i ispravljeno (odluke odobrene):
+
+1. **Povraćaj pretplatne fakture skida ceo mesec, ne deltu.** Delta je `target − balans_pre`, pa je
+   povraćaj posle downgrade-a (600 → 150, delta −450) skidao 0 i ostavljao 150 kredita, a posle
+   probe vraćao 10 probnih. `0030`: `credit_ledger.balance_after`, upisuje ga `grant_monthly_credits`
+   (= target); `billing.ts` → `zaPovracaj`. Redovi bez `balance_after` (pre 0030) i paketi:
+   `max(delta, 0)`.
+2. **`charge.refunded` za pretplatu nije nalazio fakturu.** Na `2026-08-26.dahlia` `Charge` nema
+   `invoice`; kod ga je čitao kroz `as unknown`, pa je `in_…` bio `null` i povraćaj pretplate nije
+   skidao ništa. Sada `NaplataSkladiste.faktureZaPlacanje(pi)` → `invoicePayments.list` (Stripe
+   poziv; pad je 500 i Stripe ponavlja). Stari oblik se i dalje čita kad postoji.
+3. **Izgubljen spor nikad nije skidao kredite** — `skiniDodeljeno` je dobijao `customerId: null` i
+   nijedan ref, pa je padao na „nije vezan ni za jedan profil". Sada `NaplataSkladiste.naplata(ch)`
+   → `charges.retrieve` (kupac, `payment_intent`), pa ista putanja kao povraćaj.
+4. **Pod −1000.** Povraćaj potrošenog Advanced meseca (−1.200) je udarao u
+   `profiles_credits_nonneg`, RPC pucao, Stripe ponavljao tri dana. `0030`: `admin_adjust_credits`
+   za `povracaj` odseca komad na pod (`odseceno`); komad na podu ne piše knjigu (`na_podu`), samo
+   reviziju. Traženo i skinuto su u `admin_audit.payload`. Obična korekcija nepromenjena.
+5. **Lista u konzoli** prikazuje `credits_balance` i dopunu odvojeno (`450 +2`), ne zbir — sortira
+   se ionako po `credits_balance`. Detalj korisnika je već imao obe kase.
+6. **Lažno skladište** je `onboarding` slalo u balans (0026 ga šalje u dopunu) — ispravljeno, uz
+   `balance_after`, pod, `naplate` i `fakturePlacanja`.
+
+Worker `monthly-grant` (godišnji i komp) već ide kroz `grant_monthly_credits` — SET, od 0030 i sa
+`balance_after`. Nije menjan.
+
+**Razišlo se sa zahtevom:** tražena `0026_ispravka_invoice_paid.sql` nije napravljena — `0026` je
+zauzet, a SET semantika je već bila tačna; migracija je `0030_povracaj_po_dodeli.sql`. Traženi
+brojevi (delta 438; povraćaj → 0 skidanjem delte) ne mogu zajedno; testovi drže deltu 440 i
+povraćaj → 0 po pravilu iz tačke 1.
+
+**Ostaje na meni:**
+
+- [ ] Primeniti `0030` na Supabase pre deploya.
+- [ ] Ručni prolaz §12 #8 u sandboxu: refund `ch_` pretplatne fakture → balans spušten za ceo mesec,
+      red u reviziji sa `actor null`. Potvrditi da `invoicePayments.list` po `pi_` vraća `in_…`.
+- [ ] Endpoint u Stripe panelu mora da prima `charge.dispute.closed` (dopisano u §6.1).
