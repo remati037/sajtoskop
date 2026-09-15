@@ -4277,3 +4277,19 @@ ostali `already_paid` sa cenom 0, da u knjizi stoji jedan `scan` red i da `sum(d
 Test gađa KEŠ granu namerno — grana koja upisuje `scan` posao bi ostavila posao koji živ worker
 pokupi i plati pravom Places kvotom. `pnpm check:sql` ovo ne može da pokaže, jer PGlite ima jednu
 konekciju. Zabeleženo i u `docs/LANSIRANJE.md` kao `Z4`.
+
+**Usput: `pnpm check:f4` je bio crven od S28, iz zastarelih tvrdnji.** Prvo pokretanje posle dodate
+trke nad skeniranjem palo je na četiri provere, sve u testovima starijim od `0026`. Uzrok je jedan:
+`makeProfile` puni profil kroz `create_profile_with_grant`, a od `0026` razlog `onboarding` ide u
+`credits_topup`, ne u `credits_balance`.
+
+- **IDOR test** je žrtvi merio samo balans (`0`), iako je njenih 5 kredita netaknuto u dopuni.
+  Sada se gleda zbir obe kase, za žrtvu i za napadača.
+- **Test mesečne dodele** je svih 25 otključavanja plaćao iz dopune, pa je balans pre dodele bio 0
+  umesto 5, `delta` pun iznos (30) umesto razlike (25), a `sum(delta) = 34` je bio zbir OBE kase.
+  Sada se 30 kredita seed-uje kroz samu `grant_monthly_credits` — dakle u kasu koju dodela i
+  postavlja — pa test ponovo meri ono zbog čega postoji („bez rollovera", „delta je razlika");
+  završna invarijanta poredi `sum(delta)` sa zbirom obe kase.
+
+Nijedan pad nije bio u proizvodu i nijedan nije imao veze sa povraćajem. Tvrdnje nisu dirane od
+10. avgusta (F4), a `0026` je stigao 12. septembra. Posle popravke: `Sve prošlo`.

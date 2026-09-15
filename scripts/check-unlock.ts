@@ -302,14 +302,22 @@ async function checkBodyUserIdIgnored(
 
   check(res.status === 200, `zahtev prolazi, telo se ne poštuje  (status: ${res.status})`);
 
-  const balZrtve = await balance(db, zrtva);
-  check(balZrtve === 5, `žrtvi nije skinut kredit  (stanje: ${balZrtve})`);
+  // `makeProfile` puni kroz `create_profile_with_grant`, a od 0026 razlog
+  // `onboarding` ide u `credits_topup` — zato zbir obe kase, ne samo balans.
+  const zrtvaKase = await kase(db, zrtva);
+  check(
+    zrtvaKase.b + zrtvaKase.t === 5,
+    `žrtvi nije skinut kredit  (balans ${zrtvaKase.b}, dopuna ${zrtvaKase.t})`,
+  );
 
   const unlocksZrtve = await countRows(db, "unlocks", zrtva);
   check(unlocksZrtve === 0, `žrtva nema nijedan unlock  (dobijeno: ${unlocksZrtve})`);
 
-  const balNapadaca = await balance(db, napadac);
-  check(balNapadaca === 0, `kredit je skinut sa sesije, ne sa tela  (stanje: ${balNapadaca})`);
+  const napadacKase = await kase(db, napadac);
+  check(
+    napadacKase.b + napadacKase.t === 0,
+    `kredit je skinut sa sesije, ne sa tela  (balans ${napadacKase.b}, dopuna ${napadacKase.t})`,
+  );
 
   const unlocksNapadaca = await countRows(db, "unlocks", napadac);
   check(unlocksNapadaca === 1, `unlock je upisan napadaču  (dobijeno: ${unlocksNapadaca})`);
@@ -386,7 +394,18 @@ async function checkMonthlyGrant(db: SupabaseClient): Promise<string> {
   naslov("Mesečna dodela — reset bez rollovera");
 
   const user = `user_f4grant_${Date.now()}`;
-  await makeProfile(db, user, 30);
+  // Profil bez ijednog kredita, pa se 30 upisuje u `credits_balance` kroz samu
+  // mesečnu dodelu. `makeProfile` bi ih od 0026 stavio u `credits_topup`
+  // (razlog `onboarding`), a `grant_monthly_credits` POSTAVLJA balans i dopunu
+  // ne gleda — sa kreditima u dopuni test ne bi merio ni „bez rollovera" ni
+  // „delta je razlika", jer bi balans pre dodele uvek bio 0.
+  await makeProfile(db, user, 0);
+  const { error: seedErr } = await db.rpc("grant_monthly_credits", {
+    p_user: user,
+    p_target: 30,
+    p_ref_id: `seed-${Date.now()}`,
+  });
+  if (seedErr) throw new Error(`Punjenje balansa nije uspelo: ${seedErr.message}`);
 
   const mesec = `test-${Date.now()}`;
 
@@ -448,7 +467,11 @@ async function checkMonthlyGrant(db: SupabaseClient): Promise<string> {
     .eq("user_id", user)
     .returns<{ delta: number }[]>();
   const zbir = (rows ?? []).reduce((s, r) => s + r.delta, 0);
-  check(zbir === posle, `sum(delta) = credits_balance  (${zbir} = ${posle})`);
+  const posleKase = await kase(db, user);
+  check(
+    zbir === posleKase.b + posleKase.t,
+    `sum(delta) = balans + dopuna  (${zbir} = ${posleKase.b} + ${posleKase.t})`,
+  );
 
   return user;
 }
