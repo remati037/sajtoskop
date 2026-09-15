@@ -4136,3 +4136,42 @@ povraćaj → 0 po pravilu iz tačke 1.
 - [ ] Ručni prolaz §12 #8 u sandboxu: refund `ch_` pretplatne fakture → balans spušten za ceo mesec,
       red u reviziji sa `actor null`. Potvrditi da `invoicePayments.list` po `pi_` vraća `in_…`.
 - [ ] Endpoint u Stripe panelu mora da prima `charge.dispute.closed` (dopisano u §6.1).
+
+### Popravka posle S30 — otkaz kroz portal se čita iz `cancel_at`
+
+**15. septembra 2026.** Otkaz u Customer Portalu nije upisivao `cancel_at_period_end`, pa `/krediti`
+nije pokazivao `otkazan`. Na pinovanoj `2026-08-26.dahlia` Stripe otkaz na kraju perioda šalje kao
+`cancel_at` (datum), a `cancel_at_period_end` ostavlja `false`. Potvrđeno na
+`sub_1UFw0zLPkOiFcSNRrTPOUmb7` i događaju `evt_1UG3hv…`: `cancel_at 1792073219` (= `current_period_end`
+stavke), `cancel_at_period_end false`, `canceled_at 1789506962`, `status active`.
+
+1. **`0031_cancel_at.sql`** — `subscriptions.cancel_at` (sirova vrednost, izvor istine);
+   `apply_subscription` + `p_cancel_at` (default `null`, stari 13-argumentni potpis obrisan);
+   upis bez `coalesce`, pa reaktivacija (`cancel_at: null`) briše oba polja. `admin_users_page` vraća
+   `sub_cancel_at` i `sub_cancel_at_period_end`.
+2. **`billing.ts` → `otkazKrajemPerioda`** — `cancel_at_period_end === true` (stariji objekti) ili
+   `cancel_at <= current_period_end`. `cancel_at` posle kraja tekućeg perioda: zastavica `false`,
+   datum upisan. Računica je samo u TS-u; baza upisuje.
+3. **`stanjePristupa`** — `otkazan` = `canceled` ili izvedena zastavica ili `cancelAt !== null`.
+   **`canceledAt` više ne ulazi u odluku**: Stripe ga postavlja već pri zakazivanju, a da li ga briše
+   na „Renew" nije potvrđeno u sandboxu (nijedan događaj reaktivacije). Novo polje `trajeDo`
+   (`cancel_at ?? punDo`) — datum na baneru i na `/krediti`. `punDo` (granica pristupa) nepromenjen.
+4. Konzola: lista i detalj čitaju `cancel_at`; red „Otkazana" u detalju samo uz stanje `otkazan`.
+
+Worker `monthly-grant` nije menjan: čita `status = 'active'`, `ciklus = 'year'`,
+`current_period_end > now()` — ni `cancel_at_period_end` ni `canceled_at`. §10 ne isključuje godišnju
+pretplatu koja se gasi; plaćena je do kraja perioda.
+
+**Razišlo se sa zahtevom:** tražena `0027_cancel_at.sql` je `0031` (0027–0030 zauzeti). Pravilo
+„`cancel_at_period_end === true || cancel_at != null`" iz zahteva protivreči trećem testu
+(`cancel_at` van perioda → `false`); u bazi važi uže pravilo iz tačke 2, a `stanjePristupa` čita
+`cancel_at != null` kao `otkazan` bez obzira na period.
+
+**Ostaje na meni:**
+
+- [ ] Primeniti `0031` na Supabase pre deploya.
+- [ ] Postojeći redovi sa zakazanim otkazom imaju `cancel_at = null` dok ne stigne sledeći
+      `subscription.updated`: `stripe events resend evt_1UG3hv…` (i isto za svaki takav u live-u).
+- [ ] Ručni prolaz §12 #7 u sandboxu: portal otkaži → `/krediti` „otkazana, traje do <datum>";
+      portal „Renew" → `cancel_at` i zastavica prazni, stanje `aktivan`. Zabeležiti da li Stripe tada
+      briše i `canceled_at`.

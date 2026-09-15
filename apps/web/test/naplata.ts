@@ -15,7 +15,8 @@
 //     baze uopšte stigne.
 //
 // Scenariji iz naplata-stripe.md §12, kao fiksture: 1 (kupovina bez probe),
-// 2 (proba → plaćeno), 3 (proba otkazana), 8 (refund), 9 (dupli webhook),
+// 2 (proba → plaćeno), 3 (proba otkazana), 7 (otkaz kroz `cancel_at` i
+// reaktivacija, 0031), 8 (refund), 9 (dupli webhook),
 // 10 (paket), 12 (prvi mesec gratis). Plus: pogrešan potpis, nema korisnika,
 // `komp` iz webhooka, redosled događaja, plan sa fakture (downgrade kroz
 // schedule, proracija, faktura van kataloga), prolazna greška, povraćaj skida
@@ -144,7 +145,9 @@ function pretplata(o: {
   lookupKey: string;
   periodEnd?: number;
   trialEnd?: number | null;
+  /** Odsutno = polje se ne šalje (oblik sa `dahlia` ga za otkaz ne postavlja). */
   cancelAtEnd?: boolean;
+  cancelAt?: number | null;
   canceledAt?: number | null;
   metadata?: Record<string, string> | null;
 }) {
@@ -153,7 +156,8 @@ function pretplata(o: {
     object: "subscription",
     customer: "cus_test_1",
     status: o.status,
-    cancel_at_period_end: o.cancelAtEnd ?? false,
+    ...(o.cancelAtEnd === undefined ? {} : { cancel_at_period_end: o.cancelAtEnd }),
+    cancel_at: o.cancelAt ?? null,
     canceled_at: o.canceledAt ?? null,
     trial_end: o.trialEnd ?? null,
     metadata: o.metadata === undefined ? { user_id: KORISNIK, kind: "subscription" } : o.metadata,
@@ -375,6 +379,50 @@ function sesija(o: {
     s.skladiste,
   );
   check(s.profil.balance === 3, "3: drugi deleted za istu pretplatu → already_applied, balans netaknut");
+}
+
+// ═══════════════════════════════════════════════════════════
+// 7. OTKAZ KROZ PORTAL NA `dahlia`, PA REAKTIVACIJA (§12 #7, 0031)
+// ═══════════════════════════════════════════════════════════
+// Oblik sa žive pretplate u sandboxu (sub_1UFw0zLPkOiFcSNRrTPOUmb7): `cancel_at`
+// = kraj perioda, `cancel_at_period_end` se ne postavlja, `canceled_at` = klik,
+// status i dalje `active`.
+
+{
+  const s = napraviLazno();
+  const kraj = T0 + 30 * DAN;
+  const osnova = { status: "active", lookupKey: PLAN_PRICES.pro.month.lookupKey, periodEnd: kraj };
+  await posalji(dogadjaj("evt_7_sub", "customer.subscription.created", pretplata(osnova)), s.skladiste);
+  const knjigaPre = s.knjiga.length;
+
+  const otkaz = await posalji(
+    dogadjaj("evt_7_otkaz", "customer.subscription.updated", pretplata({ ...osnova, cancelAt: kraj, canceledAt: T0 + 2 * DAN }), T0 + 2 * DAN),
+    s.skladiste,
+  );
+  let p = s.pretplate.get("sub_test_1");
+  check(otkaz.body.ok === true && p?.cancelAtPeriodEnd === true, "7: cancel_at = period_end, cancel_at_period_end odsutno → cancel_at_period_end true");
+  check(p?.cancelAt === new Date(kraj * 1000).toISOString(), "7: cancel_at upisan sirov");
+  check(p?.status === "active", "7: canceled_at postavljen, status ostaje active");
+
+  // Portal → Renew: Stripe šalje `cancel_at: null`.
+  await posalji(
+    dogadjaj("evt_7_renew", "customer.subscription.updated", pretplata({ ...osnova, cancelAt: null, canceledAt: null }), T0 + 3 * DAN),
+    s.skladiste,
+  );
+  p = s.pretplate.get("sub_test_1");
+  check(p?.cancelAtPeriodEnd === false && p.cancelAt === null, "7: reaktivacija (cancel_at: null) → false i null");
+
+  // `cancel_at` posle kraja TEKUĆEG perioda: nije „kraj perioda", ali se pamti.
+  const kasnije = kraj + 90 * DAN;
+  await posalji(
+    dogadjaj("evt_7_kasnije", "customer.subscription.updated", pretplata({ ...osnova, cancelAt: kasnije, canceledAt: T0 + 4 * DAN }), T0 + 4 * DAN),
+    s.skladiste,
+  );
+  p = s.pretplate.get("sub_test_1");
+  check(p?.cancelAtPeriodEnd === false, "7: cancel_at van tekućeg perioda → izvedeni boolean false");
+  check(p?.cancelAt === new Date(kasnije * 1000).toISOString(), "7: cancel_at van perioda ipak upisan");
+
+  check(s.knjiga.length === knjigaPre, "7: otkaz i reaktivacija ne pišu knjigu");
 }
 
 // ═══════════════════════════════════════════════════════════

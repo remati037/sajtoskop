@@ -1493,6 +1493,32 @@ async function main(): Promise<void> {
     `select cancel_at_period_end as c from subscriptions where stripe_subscription_id = 'sub_1'`))?.c === true,
     "cancel_at_period_end se upisuje");
 
+  // [0031] `cancel_at` je sirova Stripe vrednost; reaktivacija (`null`) briše oba polja.
+  // Poziv imenovanim argumentima, kao PostgREST.
+  const applyCancelAt = (created: string, cancelAt: string | null, cancelAtEnd: boolean) =>
+    one<SubSaved>(
+      `select * from apply_subscription(
+         p_user => 'w1', p_subscription_id => 'sub_1', p_customer_id => 'cus_1',
+         p_status => 'active', p_plan => 'pro', p_ciklus => 'month', p_lookup_key => '${PRO_MESECNO}',
+         p_period_end => now() + interval '30 days', p_trial_end => null,
+         p_cancel_at_end => $1, p_canceled_at => $2::timestamptz,
+         p_event_created => $2::timestamptz, p_country => 'RS', p_cancel_at => $3::timestamptz)`,
+      [cancelAtEnd, created, cancelAt]);
+  type Otkaz = { c: boolean; ca: string | null; cd: string | null; st: string };
+  const otkazRed = () => one<Otkaz>(
+    `select cancel_at_period_end as c, cancel_at::text as ca, canceled_at::text as cd, status as st
+     from subscriptions where stripe_subscription_id = 'sub_1'`);
+
+  check((await one<{ n: number }>(`select count(*)::int as n from pg_proc where proname = 'apply_subscription'`))?.n === 1,
+    "apply_subscription ima jedan potpis (stari 13-argumentni obrisan)");
+  const saCancelAt = await applyCancelAt("2026-09-02T11:00:00Z", "2026-10-02T10:00:00Z", true);
+  let otk = await otkazRed();
+  check(saCancelAt?.reason === "saved" && otk?.c === true && otk.ca !== null && otk.st === "active",
+    "cancel_at se upisuje, status ostaje active");
+  await applyCancelAt("2026-09-02T12:00:00Z", null, false);
+  otk = await otkazRed();
+  check(otk?.c === false && otk.ca === null, "reaktivacija (cancel_at null) briše cancel_at i cancel_at_period_end");
+
   // `canceled` ne dira `profiles.plan` (§1.5: otkazano radi do kraja perioda).
   await applySub("canceled", "2026-09-03T10:00:00Z", null);
   check((await one<{ plan: string }>(`select plan from profiles where id = 'w1'`))?.plan === "pro",
@@ -2188,6 +2214,9 @@ async function main(): Promise<void> {
     `select * from admin_users_page('b1@',null,null,'created_at','desc',25,0)`)).rows[0];
   check(redBeta?.id === "beta1" && redBeta.komp_expires_at !== null && "sub_trial_end" in redBeta,
     "lista vraća komp_expires_at, plan_expires_at, sub_trial_end i obe kase");
+  // [0031] Konzola računa stanje istom funkcijom kao kapija — treba joj zakazan otkaz.
+  check("sub_cancel_at" in (redBeta ?? {}) && "sub_cancel_at_period_end" in (redBeta ?? {}),
+    "lista vraća sub_cancel_at i sub_cancel_at_period_end");
   // [0026] Mera uspeha onboardinga se čita po nalogu ili nikako (LANSIRANJE §1.8).
   check("onboarding_done_at" in (redBeta ?? {}) && "onboarding_skipped_at" in (redBeta ?? {}),
     "lista vraća onboarding_done_at i onboarding_skipped_at");

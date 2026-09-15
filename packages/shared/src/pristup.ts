@@ -27,6 +27,15 @@
 //     nekadašnjeg komentara „šest stanja" (naplata-stripe.md §7.1, B3).
 //   · `otkazan` se čita i iz `cancel_at_period_end` — Stripe tako javlja
 //     otkazivanje zakazano za kraj perioda, a status ostaje `active`/`trialing`.
+//
+// ── [0031] `cancel_at` ──────────────────────────────────────
+//   · Na `2026-08-26.dahlia` portal otkaz šalje kao `cancel_at` (datum), a
+//     `cancel_at_period_end` ostavlja `false`. Zakazan otkaz je `cancelAt !== null`
+//     (ili izvedena zastavica), a „traje do" na ekranu je `trajeDo` = `cancel_at`.
+//   · `canceled_at` više NE ulazi u odluku. Stripe ga postavlja već pri
+//     zakazivanju, dok je status `active`; da li ga briše na reaktivaciji nije
+//     potvrđeno, a stanje bi posle „Renew" ostalo `otkazan`. Da pretplata ne radi
+//     zna samo `status`.
 
 import { DEFAULT_PLAN, GRACE_DAYS, PLANS, type PlanId } from "./plans";
 
@@ -109,8 +118,11 @@ export type PretplataZaPristup = {
   currentPeriodEnd: string | null;
   /** Kraj probe. `null` kad probe nema ili je prošla. */
   trialEnd: string | null;
-  /** Otkazivanje zakazano za kraj perioda — status ostaje `active`/`trialing`. */
+  /** Otkazivanje zakazano za kraj perioda — status ostaje `active`/`trialing`. Izvedeno iz `cancelAt` (0031). */
   cancelAtPeriodEnd: boolean;
+  /** Stripe `cancel_at` — datum zakazanog otkaza, izvor istine (0031). `null` posle reaktivacije. */
+  cancelAt: string | null;
+  /** Trenutak klika na „otkaži". Samo za prikaz — odluka ga ne čita (v. [0031] gore). */
   canceledAt: string | null;
 };
 
@@ -172,9 +184,14 @@ export type Pristup =
       stanje: "otkazan";
       pun: true;
       cita: true;
-      /** „Pretplata traje do <ovaj datum>." Nikad `null` — zato je i zasebno stanje. */
+      /** Kraj plaćenog perioda — granica pristupa, isto kao u ostalim stanjima. */
       punDo: string;
       citanjeDo: string;
+      /**
+       * „Pretplata traje do <ovaj datum>." Stripe `cancel_at` kad ga ima (0031),
+       * inače `punDo`. Nikad `null` — zato je i zasebno stanje.
+       */
+      trajeDo: string;
     })
   | (Zajednicko & {
       stanje: "dopuna";
@@ -311,20 +328,21 @@ export function stanjePristupa(
 
     // Otkazana pretplata koja još traje NIJE grace (§1.5): korisnik je platio
     // period do kraja i sme sve, samo mu baner kaže do kad. Stripe to javlja na
-    // tri načina — `status = 'canceled'` posle `customer.subscription.deleted`,
-    // `cancel_at_period_end = true` kad je otkazivanje zakazano za kraj perioda
-    // (status ostaje `active` ili `trialing`), i `canceled_at` uz oba. Sva tri
-    // znače isto korisniku, pa se i čitaju isto. Otkazana PROBA (`trialing` +
-    // `cancel_at_period_end`) je zato `otkazan` sa `punDo = trial_end`, ne
-    // `proba` — naplata-stripe.md §7.1.
+    // dva načina — `status = 'canceled'` posle `customer.subscription.deleted`,
+    // i zakazan otkaz dok status ostaje `active` ili `trialing`: `cancel_at`
+    // (dahlia) ili `cancel_at_period_end = true` (stariji objekti). Oba znače
+    // isto korisniku, pa se i čitaju isto. `canceled_at` NE — v. [0031] gore.
+    // Otkazana PROBA (`trialing` + zakazan otkaz) je zato `otkazan` sa
+    // `punDo = trial_end`, ne `proba` — naplata-stripe.md §7.1.
     const otkazana =
       pretplata !== null &&
       (pretplata.status === "canceled" ||
         pretplata.cancelAtPeriodEnd ||
-        pretplata.canceledAt !== null);
+        pretplata.cancelAt !== null);
 
     if (otkazana) {
-      return { stanje: "otkazan", pun: true, cita: true, planLimita: plan, punDo, citanjeDo };
+      const trajeDo = pretplata?.cancelAt ?? punDo;
+      return { stanje: "otkazan", pun: true, cita: true, planLimita: plan, punDo, citanjeDo, trajeDo };
     }
 
     // Proba: pretplata postoji, kartica je uzeta, prva naplata je osmog dana.

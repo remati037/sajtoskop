@@ -262,7 +262,7 @@ console.log("\npaket traži pristup");
 
   /** Najmanji profil koji daje traženo stanje. */
   const stanje = (id: StanjeId) => {
-    const bez = { trialEnd: null, cancelAtPeriodEnd: false };
+    const bez = { trialEnd: null, cancelAtPeriodEnd: false, cancelAt: null };
     switch (id) {
       case "komp":
         return stanjePristupa(
@@ -273,7 +273,7 @@ console.log("\npaket traži pristup");
       case "proba":
         return stanjePristupa(
           { plan: "starter", kompExpiresAt: null, planExpiresAt: zaDana(7), creditsTopup: 0 },
-          { status: "trialing", currentPeriodEnd: zaDana(7), trialEnd: zaDana(7), cancelAtPeriodEnd: false, canceledAt: null },
+          { status: "trialing", currentPeriodEnd: zaDana(7), trialEnd: zaDana(7), cancelAtPeriodEnd: false, cancelAt: null, canceledAt: null },
           SADA,
         );
       case "aktivan":

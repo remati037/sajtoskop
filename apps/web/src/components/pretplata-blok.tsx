@@ -409,13 +409,13 @@ function Recenica({
     case "otkazan":
       return pretplata?.status === "trialing" ? (
         <>
-          Proba otkazana, traje do <span className="num">{formatDatum(pristup.punDo)}</span>.
+          Proba otkazana, traje do <span className="num">{formatDatum(pristup.trajeDo)}</span>.
           Kartica se neće naplatiti, a do tada radi sve kao i do sada.
         </>
       ) : (
         <>
           Pretplata je otkazana i neće se obnoviti, ali traje do{" "}
-          <span className="num">{formatDatum(pristup.punDo)}</span>. Do tog datuma radi sve kao i
+          <span className="num">{formatDatum(pristup.trajeDo)}</span>. Do tog datuma radi sve kao i
           do sada.
         </>
       );

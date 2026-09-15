@@ -52,7 +52,7 @@ import { formatDatum } from "./ui-tekst";
 export const citajPretplatu = cache(async (userId: string): Promise<PretplataZaPristup | null> => {
   const { data, error } = await adminSupabase()
     .from("subscriptions")
-    .select("status, current_period_end, trial_end, cancel_at_period_end, canceled_at")
+    .select("status, current_period_end, trial_end, cancel_at_period_end, cancel_at, canceled_at")
     .eq("user_id", userId)
     .order("current_period_end", { ascending: false, nullsFirst: false })
     .limit(1)
@@ -61,6 +61,7 @@ export const citajPretplatu = cache(async (userId: string): Promise<PretplataZaP
       current_period_end: string | null;
       trial_end: string | null;
       cancel_at_period_end: boolean;
+      cancel_at: string | null;
       canceled_at: string | null;
     }>();
 
@@ -76,6 +77,7 @@ export const citajPretplatu = cache(async (userId: string): Promise<PretplataZaP
     currentPeriodEnd: data.current_period_end,
     trialEnd: data.trial_end,
     cancelAtPeriodEnd: data.cancel_at_period_end,
+    cancelAt: data.cancel_at,
     canceledAt: data.canceled_at,
   };
 });

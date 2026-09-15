@@ -58,6 +58,7 @@ export type Pretplata = {
   periodEnd: string | null;
   trialEnd: string | null;
   cancelAtPeriodEnd: boolean;
+  cancelAt: string | null;
   canceledAt: string | null;
   /** `event.created` poslednjeg PRIMENJENOG događaja — brana za `stale_ignored`. */
   updatedAt: string;
@@ -167,7 +168,9 @@ export function napraviLazno(): Lazno {
         lookupKey: a.lookupKey ?? prethodna?.lookupKey ?? null,
         periodEnd: a.periodEnd ?? prethodna?.periodEnd ?? null,
         trialEnd: a.trialEnd,
+        // Bez `??` na prethodnu: reaktivacija šalje `cancel_at: null` i briše (0031).
         cancelAtPeriodEnd: a.cancelAtPeriodEnd,
+        cancelAt: a.cancelAt,
         canceledAt: a.canceledAt,
         updatedAt: a.eventCreated,
       });

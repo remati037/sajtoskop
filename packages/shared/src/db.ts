@@ -170,8 +170,14 @@ export type SubscriptionRow = {
   current_period_end: string | null;
   /** Kraj probe; `null` kad probe nema ili je prošla. */
   trial_end: string | null;
-  /** Otkazivanje zakazano za kraj perioda — status ostaje `active`/`trialing`. */
+  /**
+   * Otkazivanje zakazano za kraj perioda — status ostaje `active`/`trialing`.
+   * Od 0031 IZVEDENO iz `cancel_at` (`billing.ts`, `otkazKrajemPerioda`).
+   */
   cancel_at_period_end: boolean;
+  /** Stripe `cancel_at` (0031) — izvor istine za zakazan otkaz; `null` posle reaktivacije. */
+  cancel_at: string | null;
+  /** Trenutak klika na „otkaži". Postoji i dok je status `active` — nije znak da pretplata ne radi. */
   canceled_at: string | null;
   country_code: string | null;
   created_at: string;
@@ -732,6 +738,9 @@ export type AdminUserRow = {
   sub_period_end: string | null;
   sub_canceled_at: string | null;
   sub_trial_end: string | null;
+  /** 0031 — kapija i konzola čitaju zakazan otkaz iz ova dva, ne iz `sub_canceled_at`. */
+  sub_cancel_at_period_end: boolean | null;
+  sub_cancel_at: string | null;
   created_at: string;
   last_seen_at: string | null;
   /** Onboarding (0026): mera uspeha iz LANSIRANJE §1.8, čitana po nalogu. */

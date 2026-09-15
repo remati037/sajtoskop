@@ -202,7 +202,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                 napomena={`pun pristup + ${GRACE_DAYS} dana grace-a`}
                 mono
               />
-              {detalj.pretplata?.canceledAt && (
+              {/* 0031: `canceled_at` ostaje i dok je pretplata aktivna; red ide
+                  samo uz stanje `otkazan`, datum kraja je u „Pun pristup do". */}
+              {pristup.stanje === "otkazan" && detalj.pretplata?.canceledAt && (
                 <Red
                   naziv="Otkazana"
                   vrednost={formatDatum(detalj.pretplata.canceledAt)}

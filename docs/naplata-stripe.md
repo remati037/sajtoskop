@@ -1389,7 +1389,7 @@ if (pretplata?.status === "trialing") {
 }
 ```
 
-`PretplataZaPristup` dobija `trialEnd: string | null` i `cancelAtPeriodEnd: boolean`. `otkazan` = `status === "canceled" || cancelAtPeriodEnd || canceledAt !== null`. Proba koju je korisnik otkazao pre isteka (`cancel_at_period_end = true`, status i dalje `trialing`) → `otkazan` sa `punDo = trial_end`. `ProfilZaPristup.betaExpiresAt` → `kompExpiresAt`.
+`PretplataZaPristup` dobija `trialEnd: string | null` i `cancelAtPeriodEnd: boolean`. `otkazan` = `status === "canceled" || cancelAtPeriodEnd || cancelAt !== null` (od 0031; `canceledAt` se ne čita — Stripe ga postavlja već pri zakazivanju otkaza). Proba koju je korisnik otkazao pre isteka (`cancel_at_period_end = true`, status i dalje `trialing`) → `otkazan` sa `punDo = trial_end`. `ProfilZaPristup.betaExpiresAt` → `kompExpiresAt`.
 
 `past_due` (kartica pala): ostaje `aktivan` dok `plan_expires_at` nije prošao — Stripe drži `current_period_end` na starom datumu, pa posle ~7 dana Smart Retries-a prelazi u `grace` prirodno. `unpaid`/`incomplete*`: kao da pretplate nema.
 
@@ -1516,11 +1516,11 @@ Preduslovi: `stripe listen` uključen, test ključevi u `.env.local`, kartice `4
 |---|---|---|---|
 | 1 | Kupovina Pro mesečno, bez probe (nalog koji je već imao probu) | checkout 4242 | `subscriptions`: status `active`, plan `pro`, ciklus `month`, `current_period_end ≈ +30d`; `profiles.plan = pro`, `plan_expires_at = period_end`, `stripe_customer_id` popunjen; `credit_ledger`: `monthly_grant` ref `in_…` delta do 450; `billing_events` ima `checkout.session.completed`, `subscription.created`, `invoice.paid` |
 | 2 | Proba → plaćeno | nov nalog, Starter, test clock +8d | dan 0: `status trialing`, `trial_end +7d`, ledger `trial_grant` +10 ref `trial:<user>`, balans 10, NEMA `monthly_grant`; posle sata: `invoice.paid` `subscription_cycle`, ledger `monthly_grant` ref `in_…`, balans **150** (ne 160), status `active`, `plan_expires_at +30d` |
-| 3 | Proba otkazana pre kraja | dan 3 portal → otkaži | `cancel_at_period_end = true`, status `trialing`; `stanjePristupa` = `otkazan`, `punDo = trial_end`; sat +8d → `subscription.deleted`, `expire` ledger −ostatak, balans 0, status `canceled`, stanje `grace` |
+| 3 | Proba otkazana pre kraja | dan 3 portal → otkaži | `cancel_at = trial_end` (dahlia; `cancel_at_period_end` izveden = true), status `trialing`; `stanjePristupa` = `otkazan`, `punDo = trial_end`; sat +8d → `subscription.deleted`, `expire` ledger −ostatak, balans 0, status `canceled`, stanje `grace` |
 | 4 | Kartica pala osmog dana | proba sa `…0341`, sat +8d, pa +8d | dan 8: `invoice.payment_failed` u `billing_events`, status `past_due`, `plan_expires_at` = dan 8 → `grace`; posle retry-a: `deleted`, balans 0 |
 | 5 | Upgrade Starter → Pro (portal) | portal → switch | `subscription.updated` lookup `pro_month`, `profiles.plan = pro`; `invoice.paid` `subscription_update` → `monthly_grant` ref nova `in_`, balans 450 |
 | 6 | Downgrade Pro → Starter | portal → switch | plan se menja tek na `period_end` (schedule); do tada `profiles.plan = pro`; na obnovi `invoice.paid` → balans 150 |
-| 7 | Otkaz pa reaktivacija u istom periodu | portal otkaži, pa „renew" | `cancel_at_period_end` true → false; stanje `otkazan` → `aktivan`; nula novih ledger redova |
+| 7 | Otkaz pa reaktivacija u istom periodu | portal otkaži, pa „renew" | `cancel_at` postavljen → `null`, izvedeni `cancel_at_period_end` true → false; stanje `otkazan` → `aktivan`; nula novih ledger redova |
 | 8 | Refund pune mesečne naplate | Dashboard → refund `ch_` | `charge.refunded` → `invoicePayments` nađe `in_` → `admin_adjust_credits(povracaj)` −(ceo mesec koji je `in_` postavio, `balance_after`), `admin_audit` red sa `actor null`, balans može u minus do −1000 |
 | 9 | Dupli webhook | `stripe events resend evt_<invoice.paid>` | drugi put: `billing_events` konflikt → `{duplikat:true}`, ledger nepromenjen. Pa obriši red iz `billing_events` i resend: `grant_monthly_credits` vraća `already_granted`, balans isti |
 | 10 | Paket 200 | aktivan nalog, checkout paket | `checkout.session.completed` mode payment → ledger `credit_pack` +200 ref `pi_…`, `credits_topup = 200`, `credits_balance` netaknut; nalog bez plana → checkout vraća 403 |

@@ -118,6 +118,7 @@ export function supabaseSkladiste(): NaplataSkladiste {
         p_canceled_at: a.canceledAt,
         p_event_created: a.eventCreated,
         p_country: null,
+        p_cancel_at: a.cancelAt,
       });
       if (error) throw new Error(`apply_subscription: ${error.message}`);
       return prviRed(data, "prazan odgovor");

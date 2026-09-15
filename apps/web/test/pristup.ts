@@ -71,11 +71,11 @@ const ZAKLJUCAN = stanje({ kompExpiresAt: zaDana(-40) });
 const DOPUNA = stanje({ kompExpiresAt: zaDana(-40), creditsTopup: 25 });
 const PROBA = stanje(
   { plan: "starter", planExpiresAt: zaDana(7) },
-  { status: "trialing", currentPeriodEnd: zaDana(7), trialEnd: zaDana(7), cancelAtPeriodEnd: false, canceledAt: null },
+  { status: "trialing", currentPeriodEnd: zaDana(7), trialEnd: zaDana(7), cancelAtPeriodEnd: false, cancelAt: null, canceledAt: null },
 );
 const OTKAZANA_PROBA = stanje(
   { plan: "starter", planExpiresAt: zaDana(5) },
-  { status: "trialing", currentPeriodEnd: zaDana(5), trialEnd: zaDana(5), cancelAtPeriodEnd: true, canceledAt: null },
+  { status: "trialing", currentPeriodEnd: zaDana(5), trialEnd: zaDana(5), cancelAtPeriodEnd: true, cancelAt: zaDana(5), canceledAt: null },
 );
 
 check(

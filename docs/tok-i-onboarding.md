@@ -177,9 +177,9 @@ Sve odluke o stanju donosi `stanjePristupa()` (sedam stanja). Ovde je šta koris
 | | |
 |---|---|
 | Vidi | Portal (srpski ako Stripe ima prevod, inače engleski): „Cancel plan“ → razlog (Stripe skuplja, §8 iz 01) → potvrda. Portal kaže „Your plan will be canceled on 17.10.2026“. Povratak (`return_url`) → `/krediti`: `pretplata-blok` naslov **„Pretplata otkazana, traje do 17.10.2026“**, tekst „Do tada radi sve. Posle toga imaš još 30 dana da izvezeš svoje prospekte i pipeline. Predomislio si se? Vrati plan kroz portal.“ Baner `otkazan` (plavi, postojeći). |
-| Baza | `customer.subscription.updated` (`cancel_at_period_end = true`) → `apply_subscription` → `subscriptions.cancel_at_period_end`, `canceled_at`; `profiles.plan_expires_at` ostaje `current_period_end`. `stanjePristupa` = `otkazan`, `pun = true`. Krediti netaknuti. |
+| Baza | `customer.subscription.updated` (`cancel_at = current_period_end`; na `dahlia` `cancel_at_period_end` ostaje `false`) → `apply_subscription` → `subscriptions.cancel_at`, izvedeni `cancel_at_period_end`, `canceled_at`; `profiles.plan_expires_at` ostaje `current_period_end`. `stanjePristupa` = `otkazan`, `pun = true`. Krediti netaknuti. |
 | Na kraju perioda | `customer.subscription.deleted` → `apply_subscription(canceled)` + `expire_subscription_credits` (ledger `expire`, `credits_balance = 0`; `credits_topup` ostaje). Stanje: `dopuna` ako je kupio paket, inače `grace` 30 dana. |
-| Reaktivacija u periodu | Portal „Renew plan“ → `updated` sa `cancel_at_period_end = false` → `aktivan`, nula novih ledger redova. |
+| Reaktivacija u periodu | Portal „Renew plan“ → `updated` sa `cancel_at: null` → oba polja se brišu → `aktivan`, nula novih ledger redova. |
 | Otkazana proba | `trialing` + `cancel_at_period_end` → `otkazan` sa `punDo = trial_end`. Baner: „Proba otkazana, traje do <datum>. Kartica se neće naplatiti.“ Na `trial_end` Stripe šalje `deleted` → probni krediti istek → `grace`. |
 | Pođe po zlu | Portal sesija bez `stripe_customer_id` → `404` na `POST /api/billing/portal` → dugme kaže „Nemaš pretplatu“. Korisnik otkaže pa obriše nalog → §2.5. |
 

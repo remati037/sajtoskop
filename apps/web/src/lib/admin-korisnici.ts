@@ -60,15 +60,15 @@ export type UpitKorisnika = {
  * ako je računica jedna (LANSIRANJE §1.5).
  */
 export function pristupIzReda(r: AdminUserRow): Pristup {
-  // `cancel_at_period_end` lista ne nosi — otkazivanje zakazano za kraj
-  // perioda Stripe javlja i kroz `canceled_at`, koji lista ima, pa stanje ostaje
-  // tačno; detalj korisnika čita pun red.
+  // [0031] Lista nosi `sub_cancel_at` i `sub_cancel_at_period_end` — zakazan
+  // otkaz se čita iz njih, ne iz `canceled_at`, isto kao u kapiji.
   const pretplata: PretplataZaPristup | null = r.sub_status
     ? {
         status: r.sub_status,
         currentPeriodEnd: r.sub_period_end,
         trialEnd: r.sub_trial_end,
-        cancelAtPeriodEnd: false,
+        cancelAtPeriodEnd: r.sub_cancel_at_period_end ?? false,
+        cancelAt: r.sub_cancel_at,
         canceledAt: r.sub_canceled_at,
       }
     : null;
@@ -131,7 +131,7 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
       >(),
     db
       .from("subscriptions")
-      .select("user_id, status, current_period_end, trial_end, cancel_at_period_end, canceled_at")
+      .select("user_id, status, current_period_end, trial_end, cancel_at_period_end, cancel_at, canceled_at")
       // Merodavna je ona koja traje najduže — isti izbor kao u `citajPretplatu()`.
       .order("current_period_end", { ascending: false, nullsFirst: false })
       .limit(MAX_ZA_FILTER_STANJA)
@@ -142,6 +142,7 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
           current_period_end: string | null;
           trial_end: string | null;
           cancel_at_period_end: boolean;
+          cancel_at: string | null;
           canceled_at: string | null;
         }[]
       >(),
@@ -163,6 +164,7 @@ async function idjeviUStanju(stanje: StanjeId): Promise<string[]> {
       currentPeriodEnd: s.current_period_end,
       trialEnd: s.trial_end,
       cancelAtPeriodEnd: s.cancel_at_period_end,
+      cancelAt: s.cancel_at,
       canceledAt: s.canceled_at,
     });
   }
@@ -429,7 +431,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
     // korisnika iz sesije — ovde se čita TUĐI red.
     db
       .from("subscriptions")
-      .select("status, current_period_end, trial_end, cancel_at_period_end, canceled_at")
+      .select("status, current_period_end, trial_end, cancel_at_period_end, cancel_at, canceled_at")
       .eq("user_id", id)
       .order("current_period_end", { ascending: false, nullsFirst: false })
       .limit(1)
@@ -439,6 +441,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
           current_period_end: string | null;
           trial_end: string | null;
           cancel_at_period_end: boolean;
+          cancel_at: string | null;
           canceled_at: string | null;
         }[]
       >(),
@@ -500,6 +503,7 @@ export async function citajKorisnika(id: string): Promise<DetaljKorisnika | null
         currentPeriodEnd: redPretplate.current_period_end,
         trialEnd: redPretplate.trial_end,
         cancelAtPeriodEnd: redPretplate.cancel_at_period_end,
+        cancelAt: redPretplate.cancel_at,
         canceledAt: redPretplate.canceled_at,
       }
     : null;

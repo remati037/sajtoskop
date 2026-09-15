@@ -52,6 +52,7 @@ function pretplata(over: Partial<PretplataZaPristup> = {}): PretplataZaPristup {
     currentPeriodEnd: null,
     trialEnd: null,
     cancelAtPeriodEnd: false,
+    cancelAt: null,
     canceledAt: null,
     ...over,
   };
@@ -155,13 +156,39 @@ check(
   ).stanje === "otkazan",
   "cancel_at_period_end uz status active se čita kao otkazano",
 );
+// [0031] Oblik sa `dahlia`: `cancel_at` = kraj perioda, zastavica `false`,
+// `canceled_at` = trenutak klika, status `active`.
+{
+  const p = stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(12) }),
+    pretplata({ status: "active", currentPeriodEnd: zaDana(12), cancelAt: zaDana(12), canceledAt: zaDana(-1) }),
+    SADA,
+  );
+  check(p.stanje === "otkazan", "cancel_at uz status active se čita kao otkazano");
+  check(p.stanje === "otkazan" && p.trajeDo === zaDana(12), "„traje do\" je cancel_at");
+}
+check(
+  stanjePristupa(
+    profil({ plan: "starter", planExpiresAt: zaDana(12) }),
+    pretplata({ status: "active", cancelAtPeriodEnd: true }),
+    SADA,
+  ).stanje === "otkazan" &&
+    (stanjePristupa(
+      profil({ plan: "starter", planExpiresAt: zaDana(12) }),
+      pretplata({ status: "active", cancelAtPeriodEnd: true }),
+      SADA,
+    ) as { trajeDo?: string }).trajeDo === zaDana(12),
+  "bez cancel_at „traje do\" pada na kraj perioda",
+);
+// `canceled_at` sam ne znači ništa: Stripe ga postavlja pri zakazivanju, a posle
+// reaktivacije (cancel_at: null) ume da ostane. Status je `active` → `aktivan`.
 check(
   stanjePristupa(
     profil({ plan: "starter", planExpiresAt: zaDana(12) }),
     pretplata({ status: "active", canceledAt: zaDana(-1) }),
     SADA,
-  ).stanje === "otkazan",
-  "canceled_at uz status active se čita kao otkazano",
+  ).stanje === "aktivan",
+  "canceled_at bez cancel_at uz status active → aktivan (reaktivacija)",
 );
 
 check(

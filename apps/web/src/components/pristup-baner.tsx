@@ -225,7 +225,7 @@ export function PristupBaner({
             <>
               <p className="font-medium text-info-text">
                 Proba je otkazana i traje do{" "}
-                <span className="num">{formatDatum(pristup.punDo)}</span>.
+                <span className="num">{formatDatum(pristup.trajeDo)}</span>.
               </p>
               <p className="mt-1 text-fg-muted">
                 Kartica se neće naplatiti. Do tada radi sve; posle toga imaš još mesec dana da
@@ -236,7 +236,7 @@ export function PristupBaner({
             <>
               <p className="font-medium text-info-text">
                 Pretplata je otkazana i traje do{" "}
-                <span className="num">{formatDatum(pristup.punDo)}</span>.
+                <span className="num">{formatDatum(pristup.trajeDo)}</span>.
               </p>
               <p className="mt-1 text-fg-muted">
                 Do tada radi sve kao i do sada. Posle toga imaš još mesec dana da izvezeš svoje

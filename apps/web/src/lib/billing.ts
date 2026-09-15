@@ -62,7 +62,14 @@ export type ArgPretplata = {
   lookupKey: string | null;
   periodEnd: string | null;
   trialEnd: string | null;
+  /** Izveden — `otkazKrajemPerioda()`. Samo za UI; izvor istine je `cancelAt`. */
   cancelAtPeriodEnd: boolean;
+  /** Sirov Stripe `cancel_at` (0031). `null` = otkaz nije zakazan (ili je povučen). */
+  cancelAt: string | null;
+  /**
+   * Trenutak klika na „otkaži", NE kraj pretplate — Stripe ga postavlja već pri
+   * zakazivanju, dok je status `active`. Ništa iz njega ne zaključuje stanje.
+   */
   canceledAt: string | null;
   /** `event.created` — brana od događaja koji stignu van reda. */
   eventCreated: string;
@@ -211,6 +218,24 @@ function tekst(meta: Meta, kljuc: string): string | null {
 /** Unix sekunde → ISO, ili `null`. */
 function iso(sekunde: number | null | undefined): string | null {
   return typeof sekunde === "number" ? new Date(sekunde * 1000).toISOString() : null;
+}
+
+/**
+ * Da li je otkaz zakazan za kraj TEKUĆEG perioda (0031).
+ *
+ * Na `2026-08-26.dahlia` portal otkaz šalje kao `cancel_at = current_period_end`
+ * i `cancel_at_period_end = false`; stariji objekti nose `cancel_at_period_end =
+ * true`. Prihvataju se oba. `cancel_at` posle kraja perioda (zakazan kroz API
+ * za neku kasniju obnovu) NIJE „kraj perioda" — upisuje se, ali zastavica ostaje
+ * `false`. Bez poznatog kraja perioda nema poređenja, pa `cancel_at` sam znači da.
+ */
+export function otkazKrajemPerioda(
+  sub: { cancel_at?: number | null; cancel_at_period_end?: boolean | null },
+  periodEnd: number | null,
+): boolean {
+  if (sub.cancel_at_period_end === true) return true;
+  if (typeof sub.cancel_at !== "number") return false;
+  return periodEnd === null || sub.cancel_at <= periodEnd;
 }
 
 /** `string | { id }` → `string | null`. Stripe polja su ID ili proširen objekat. */
@@ -567,7 +592,8 @@ async function stanjePretplate(
     lookupKey,
     periodEnd: iso(periodEnd),
     trialEnd: iso(sub.trial_end),
-    cancelAtPeriodEnd: sub.cancel_at_period_end,
+    cancelAtPeriodEnd: otkazKrajemPerioda(sub, periodEnd),
+    cancelAt: iso(sub.cancel_at),
     canceledAt: iso(sub.canceled_at),
     eventCreated: new Date(created * 1000).toISOString(),
   });
