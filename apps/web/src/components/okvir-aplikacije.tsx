@@ -15,8 +15,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { UserButton } from "@clerk/nextjs";
-import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Menu, ShieldCheck, X } from "lucide-react";
 import {
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  Coins,
+  InfinityIcon,
+  Menu,
+  ShieldCheck,
+  X,
+} from "lucide-react";
+import {
+  jeNeograniceno,
   smeDaKupiPaket,
   type MotorStanje,
   type Pristup,
@@ -121,6 +131,8 @@ export function OkvirAplikacije({
   children,
 }: Props) {
   const putanja = usePathname();
+  // [0029] Admin: krediti se ne troše, pa se ni ne broje.
+  const neograniceno = jeNeograniceno(pristup);
   const [skupljen, setSkupljen] = useState(false);
   const [mobilni, setMobilni] = useState(false);
 
@@ -151,7 +163,7 @@ export function OkvirAplikacije({
   return (
     <UtisciProvider stanje={stanjeUtisaka} uslovi={usloviUtisaka}>
       <OnboardingProvider pocetno={onboarding}>
-      <PristupProvider pristup={pristup}>
+      <PristupProvider pristup={pristup} uzrokGrace={uzrokGrace}>
       <TooltipProvider delayDuration={200}>
       {/* Blaga aura iza svega. Prazan ekran bez ovoga izgleda kao prazan list. */}
       <div aria-hidden className="pozadina-aure pointer-events-none fixed inset-0 -z-10 opacity-70" />
@@ -170,6 +182,7 @@ export function OkvirAplikacije({
           mesecniKrediti={mesecniKrediti}
           admin={admin}
           smePaket={smeDaKupiPaket(pristup)}
+          neograniceno={neograniceno}
         />
 
         {/* Dugme za skupljanje stoji na ivici trake, u visini zaglavlja, i tu
@@ -214,6 +227,7 @@ export function OkvirAplikacije({
               mesecniKrediti={mesecniKrediti}
               admin={admin}
               smePaket={smeDaKupiPaket(pristup)}
+              neograniceno={neograniceno}
             />
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
@@ -251,7 +265,14 @@ export function OkvirAplikacije({
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border-strong bg-bg-elev px-3 text-xs shadow-sm transition-colors hover:border-fg-muted lg:hidden"
           >
             <Coins className="h-3.5 w-3.5 text-accent-text" />
-            <span className="font-semibold num">{krediti ?? "—"}</span>
+            {neograniceno ? (
+              <>
+                <InfinityIcon className="h-4 w-4" aria-hidden />
+                <span className="sr-only">neograničeno</span>
+              </>
+            ) : (
+              <span className="font-semibold num">{krediti ?? "—"}</span>
+            )}
           </Link>
 
           <PrekidacTemeDugme className="lg:hidden" />
@@ -298,6 +319,7 @@ function SadrzajTrake({
   mesecniKrediti,
   admin,
   smePaket,
+  neograniceno,
 }: {
   skupljen: boolean;
   putanja: string;
@@ -306,6 +328,8 @@ function SadrzajTrake({
   admin: boolean;
   /** Sme li nalog da kupi paket — određuje kuda vodi poziv na dokupljivanje. */
   smePaket: boolean;
+  /** [0029] Admin nalog — krediti se ne troše. */
+  neograniceno: boolean;
 }) {
   return (
     <>
@@ -356,6 +380,7 @@ function SadrzajTrake({
           mesecni={mesecniKrediti}
           skupljen={skupljen}
           smePaket={smePaket}
+          neograniceno={neograniceno}
         />
 
         {skupljen ? (
@@ -543,12 +568,52 @@ function KarticaKredita({
   mesecni,
   skupljen,
   smePaket,
+  neograniceno,
 }: {
   krediti: number | null;
   mesecni: number;
   skupljen: boolean;
   smePaket: boolean;
+  neograniceno: boolean;
 }) {
+  // [0029] Admin: broj bi lagao (krediti se ne troše), a poziv na dokupljivanje
+  // bio bi ponuda nalogu koji ništa ne plaća. Isti okvir, bez trake i bez linka.
+  if (neograniceno) {
+    return skupljen ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            href="/krediti"
+            aria-label="Krediti: neograničeno"
+            className="flex flex-col items-center gap-0.5 rounded-lg border border-border-strong bg-bg-elev py-2 text-center transition-colors hover:border-fg-muted"
+          >
+            <Coins className="h-4 w-4 text-accent-text" />
+            <InfinityIcon className="h-3.5 w-3.5" aria-hidden />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">Neograničeni krediti — admin nalog</TooltipContent>
+      </Tooltip>
+    ) : (
+      <div className="rounded-xl border border-border-strong bg-bg-elev shadow-sm">
+        <Link href="/krediti" className="block rounded-xl p-3 transition-colors hover:bg-bg-hover">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
+              <Coins className="h-3.5 w-3.5 text-accent-text" />
+              Krediti
+            </span>
+            <span className="flex items-center">
+              <InfinityIcon className="h-4 w-4" aria-hidden />
+              <span className="sr-only">neograničeno</span>
+            </span>
+          </div>
+          <p className="mt-2 text-[11px] leading-tight text-fg-muted">
+            Admin nalog: skeniranje i otključavanje ne troše kredite.
+          </p>
+        </Link>
+      </div>
+    );
+  }
+
   const imaDodelu = mesecni > 0;
   const procenat =
     krediti === null || !imaDodelu ? 0 : Math.min(100, Math.round((krediti / mesecni) * 100));

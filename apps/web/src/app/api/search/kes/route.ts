@@ -11,7 +11,7 @@
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
-import { citajPristup, odbijenica } from "@/lib/pristup";
+import { citajPristup, odbijenicaCitanja } from "@/lib/pristup";
 import { listaKesa } from "@/lib/search-cache";
 import type { KesStavka } from "@/lib/search-types";
 
@@ -26,12 +26,12 @@ export async function GET(): Promise<Response> {
     return NextResponse.json({ greska: "Nisi prijavljen." }, { status: 401 });
   }
 
-  // [S19] Ista kapija kao na `/api/search`: registar besplatnih pretraga je deo
-  // ekrana pretrage, a pretraga je ono što `grace` nalog ne sme (§1.5). Podatka
-  // o firmama ovde nema, ali bi lista koja radi ispod forme koja ne radi bila
-  // samo zbunjujuća.
-  const { pristup, pretplata } = await citajPristup();
-  const odbijen = odbijenica(pristup, "pretraga", pretplata);
+  // [S19 → posle S30] Kapija ČITANJA, ne trošenja. Registar nosi i plaćene
+  // pristupe, a `grace` nalog svoje plaćene liste i dalje otvara (v. kapiju u
+  // `/api/search`) — bez registra ekran ne bi znao koje su plaćene. Neplaćene
+  // kombinacije ekran u tom stanju ne nudi. Podatka o firmama ovde nema.
+  const { pristup } = await citajPristup();
+  const odbijen = odbijenicaCitanja(pristup);
   if (odbijen) return odbijen;
 
   try {

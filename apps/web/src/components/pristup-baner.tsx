@@ -158,17 +158,20 @@ export function PristupBaner({
                 )}
               </p>
             ) : uzrokGrace === "besplatni" ? (
-              // §1.12, posle oba kredita dobrodošlice.
+              // §1.12, posle oba kredita dobrodošlice. [posle S30] Prvo ono što
+              // se desilo (kredita nema), pa šta NE radi, pa šta ostaje — bez
+              // prodaje u istoj rečenici; put dalje je link desno.
               <p className="text-fg-muted">
-                <span className="font-medium text-warn-text">Besplatni krediti su potrošeni.</span>{" "}
-                {citanjeDo && (
+                <span className="font-medium text-warn-text">Nemaš više kredita.</span>{" "}
+                Nove pretrage, skeniranja i otključavanja ne rade
+                {citanjeDo ? (
                   <>
-                    Do <span className="num">{citanjeDo}</span> možeš da otvaraš svoj prospekt,
-                    poruku i pipeline.{" "}
+                    ; liste i prospekti koje si već otvorio ostaju ti do{" "}
+                    <span className="num">{citanjeDo}</span>.
                   </>
+                ) : (
+                  "."
                 )}
-                Za nove liste i otključavanja treba plan — {TRIAL_DAYS} dana probe, kartica se
-                naplaćuje {redniDan(TRIAL_DAYS + 1)} dana.
               </p>
             ) : (
               // §2.3, „sve ostalo". Izlaz je plan — paket se u grace-u ne kupuje.
@@ -199,7 +202,7 @@ export function PristupBaner({
             <PortalDugme className="shrink-0 self-start">Ažuriraj karticu</PortalDugme>
           ) : uzrokGrace === "besplatni" ? (
             <Link href={PLANOVI_PRO} className={LINK}>
-              Počni probu
+              Pogledaj planove
             </Link>
           ) : (
             <Link href="/cenovnik" className={LINK}>

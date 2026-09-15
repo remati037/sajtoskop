@@ -142,6 +142,9 @@ export function pristupZaProfil(
       // [S28, O3] Registracija je početak grace-a za nalog koji plaćen rok nikad
       // nije imao — v. granu 4 u `stanjePristupa()`.
       createdAt: profile.created_at,
+      // [0029] Admin ne troši kredite, pa mu ni pristup ne zavisi od njih.
+      // Samo uloga iz baze — ista kolona koju čita `spend_credit_and_*`.
+      admin: profile.role === "admin",
     },
     pretplata,
     Date.now(),
@@ -216,11 +219,12 @@ export function odbijenica(
 
   switch (uzrokGrace(pristup, pretplata)) {
     case "besplatni":
-      // §1.12, grana posle oba kredita dobrodošlice.
+      // §1.12, grana posle oba kredita dobrodošlice. Posle S30 prvo „nemaš više
+      // kredita" — to je ono što se desilo; „pristup" čovek bez plana nije ni imao.
       poruka =
-        `${ime} ne radi jer su besplatni krediti potrošeni. ` +
-        `Do ${formatDatum(pristup.citanjeDo ?? new Date().toISOString())} možeš da otvaraš svoj prospekt, poruku i pipeline. ` +
-        "Za nove liste i otključavanja treba plan — 7 dana probe, kartica se naplaćuje osmog dana. Planovi su na /cenovnik.";
+        `${ime} ne radi jer nemaš više kredita. ` +
+        `Liste i prospekti koje si već otvorio ostaju ti do ${formatDatum(pristup.citanjeDo ?? new Date().toISOString())}. ` +
+        "Za nove liste i otključavanja treba plan — planovi su na /cenovnik.";
       break;
 
     case "naplata":

@@ -198,6 +198,25 @@ export async function otkljucajZaUvoz(
   return { ok: true, reason: row.reason };
 }
 
+/**
+ * Je li prospekt već otključan ovom korisniku.
+ *
+ * Postoji zbog kapije u `/api/unlock`: nalog bez punog pristupa sme da ponovo
+ * pročita ono što je već otključao, a ne sme ništa novo. Ne odlučuje o kreditu —
+ * to i dalje radi `spend_credit_and_unlock`. BACA na grešku; ruta pad tumači
+ * kao „ne", dakle protiv prolaza.
+ */
+export async function vecOtkljucan(userId: string, placeId: string): Promise<boolean> {
+  const { count, error } = await adminSupabase()
+    .from("unlocks")
+    .select("place_id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("place_id", placeId);
+
+  if (error) throw new Error(`Provera otključanog nije uspela: ${error.message}`);
+  return (count ?? 0) > 0;
+}
+
 // ═══════════════════════════════════════════════════════════
 // PRODUKCIJSKO SKLADIŠTE
 // ═══════════════════════════════════════════════════════════

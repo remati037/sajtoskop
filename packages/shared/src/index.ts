@@ -213,7 +213,7 @@ export type {
 } from "./pristup";
 export type { UzrokGrace } from "./pristup";
 export { smeDaKupiPaket, STANJA_ZA_PAKET } from "./pristup";
-export { citanjeDoZa, stanjePristupa, uzrokGrace } from "./pristup";
+export { citanjeDoZa, jeNeograniceno, stanjePristupa, uzrokGrace } from "./pristup";
 
 // ── onboarding: četiri koraka, tačke, traka (S30, tok-i-onboarding §4) ─
 export type { HintKljuc, Korak, KorakKljuc, OnboardingKanal } from "./onboarding";

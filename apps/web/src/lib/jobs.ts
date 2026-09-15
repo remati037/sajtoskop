@@ -241,8 +241,23 @@ export async function zivPlacenPosao(args: {
     .returns<{ id: number }[]>();
 
   if (pErr) throw new Error(`Provera plaćenog posla nije uspela: ${pErr.message}`);
+  if ((paid ?? []).length > 0) return jobId;
 
-  return (paid ?? []).length > 0 ? jobId : null;
+  // [0029] Admin posao ne ostavlja trag u knjizi (nula se ne knjiži), ali
+  // `spend_credit_and_scan` i za njega upisuje pristup vezan za posao — isti
+  // dokaz da je posao njegov. Za platioca je ovaj upit suvišan, pa ide tek
+  // kad knjiga ćuti.
+  const { data: pristup, error: aErr } = await db
+    .from("search_access")
+    .select("job_id")
+    .eq("user_id", args.userId)
+    .eq("job_id", jobId)
+    .limit(1)
+    .returns<{ job_id: number }[]>();
+
+  if (aErr) throw new Error(`Provera pristupa uz posao nije uspela: ${aErr.message}`);
+
+  return (pristup ?? []).length > 0 ? jobId : null;
 }
 
 /**

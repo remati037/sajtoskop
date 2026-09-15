@@ -17,7 +17,8 @@
 // Scenariji iz naplata-stripe.md §12, kao fiksture: 1 (kupovina bez probe),
 // 2 (proba → plaćeno), 3 (proba otkazana), 8 (refund), 9 (dupli webhook),
 // 10 (paket), 12 (prvi mesec gratis). Plus: pogrešan potpis, nema korisnika,
-// `komp` iz webhooka, redosled događaja, prolazna greška.
+// `komp` iz webhooka, redosled događaja, plan sa fakture (downgrade kroz
+// schedule, proracija, faktura van kataloga), prolazna greška.
 
 import { registerHooks } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -49,7 +50,7 @@ registerHooks({
   },
 });
 
-const { KORISNIK, napraviLazno, postavi } = await import("./lazno-skladiste");
+const { KORISNIK, cenaId, napraviLazno, postavi } = await import("./lazno-skladiste");
 type NaplataSkladiste = import("../src/lib/billing").NaplataSkladiste;
 
 let fail = 0;
@@ -169,6 +170,24 @@ function pretplata(o: {
   };
 }
 
+/**
+ * Stavka fakture u obliku `dahlia`: nema `price`, samo `pricing.price_details.price`
+ * kao goli ID. `lookup_key` obrada dobija tek kroz `ceneStavki`.
+ */
+function linija(o: { lookupKey: string; iznos: number; proracija?: boolean }) {
+  return {
+    id: `il_test_${o.lookupKey}_${o.iznos}`,
+    object: "line_item",
+    amount: o.iznos,
+    parent: {
+      type: "subscription_item_details",
+      subscription_item_details: { subscription: "sub_test_1", subscription_item: "si_test_1", proration: o.proracija ?? false },
+      invoice_item_details: null,
+    },
+    pricing: { type: "price_details", price_details: { price: cenaId(o.lookupKey), product: "prod_test" }, unit_amount_decimal: null },
+  };
+}
+
 function faktura(o: {
   id: string;
   billingReason: string;
@@ -176,6 +195,9 @@ function faktura(o: {
   subId?: string;
   discount?: boolean;
   metadata?: Record<string, string> | null;
+  /** Cena na stavci — ONO što faktura plaća. Podrazumevano Pro mesečno. */
+  lookupKey?: string;
+  linije?: ReturnType<typeof linija>[];
 }) {
   return {
     id: o.id,
@@ -192,7 +214,11 @@ function faktura(o: {
         metadata: o.metadata === undefined ? { user_id: KORISNIK, plan: "pro", lookup_key: PLAN_PRICES.pro.month.lookupKey } : o.metadata,
       },
     },
-    lines: { object: "list", data: [] },
+    lines: {
+      object: "list",
+      has_more: false,
+      data: o.linije ?? [linija({ lookupKey: o.lookupKey ?? PLAN_PRICES.pro.month.lookupKey, iznos: o.amountDue })],
+    },
   };
 }
 
@@ -287,7 +313,7 @@ function sesija(o: {
     dogadjaj(
       "evt_2_inv1",
       "invoice.paid",
-      faktura({ id: "in_2b", billingReason: "subscription_cycle", amountDue: 2900, metadata: { user_id: KORISNIK, plan: "starter", lookup_key: PLAN_PRICES.starter.month.lookupKey } }),
+      faktura({ id: "in_2b", billingReason: "subscription_cycle", amountDue: 2900, lookupKey: PLAN_PRICES.starter.month.lookupKey, metadata: { user_id: KORISNIK, plan: "starter", lookup_key: PLAN_PRICES.starter.month.lookupKey } }),
       T0 + 8 * DAN,
     ),
     s.skladiste,
@@ -361,7 +387,7 @@ function sesija(o: {
     s.skladiste,
   );
   await posalji(
-    dogadjaj("evt_8_inv", "invoice.paid", faktura({ id: "in_8", billingReason: "subscription_create", amountDue: 11900, metadata: { user_id: KORISNIK, plan: "advanced", lookup_key: PLAN_PRICES.advanced.month.lookupKey } })),
+    dogadjaj("evt_8_inv", "invoice.paid", faktura({ id: "in_8", billingReason: "subscription_create", amountDue: 11900, lookupKey: PLAN_PRICES.advanced.month.lookupKey, metadata: { user_id: KORISNIK, plan: "advanced", lookup_key: PLAN_PRICES.advanced.month.lookupKey } })),
     s.skladiste,
   );
   check(s.profil.balance === PLANS.advanced.monthlyCredits, `8: Advanced daje ${PLANS.advanced.monthlyCredits}`);
@@ -558,6 +584,154 @@ function sesija(o: {
   const s2 = napraviLazno();
   await posalji(dogadjaj("evt_r_inv", "invoice.paid", faktura({ id: "in_r", billingReason: "subscription_create", amountDue: 5900, subId: "sub_jos_nema" })), s2.skladiste);
   check(s2.profil.balance === PLANS.pro.monthlyCredits, "invoice.paid pre subscription.created → dodela ne zavisi od reda u ogledalu");
+}
+
+// ═══════════════════════════════════════════════════════════
+// PLAN SA FAKTURE, NE IZ BAZE (§6.3): downgrade kroz schedule
+// ═══════════════════════════════════════════════════════════
+// Downgrade Pro → Starter na kraju perioda: Stripe šalje `invoice.paid`
+// (`subscription_cycle`, već po ceni `starter_month`) i `subscription.updated`
+// van reda. Metapodaci fakture ostaju `pro` — snimak iz checkout-a.
+
+async function proPretplatnik(s: ReturnType<typeof napraviLazno>) {
+  await posalji(
+    dogadjaj("evt_d_sub", "customer.subscription.created", pretplata({ status: "active", lookupKey: PLAN_PRICES.pro.month.lookupKey })),
+    s.skladiste,
+  );
+  await posalji(
+    dogadjaj("evt_d_inv0", "invoice.paid", faktura({ id: "in_d0", billingReason: "subscription_create", amountDue: 5900 })),
+    s.skladiste,
+  );
+  s.profil.balance = 37;
+}
+
+const obnovaStarter = dogadjaj(
+  "evt_d_inv1",
+  "invoice.paid",
+  faktura({ id: "in_d1", billingReason: "subscription_cycle", amountDue: 2900, lookupKey: PLAN_PRICES.starter.month.lookupKey }),
+  T0 + 30 * DAN,
+);
+const promenaStarter = dogadjaj(
+  "evt_d_upd",
+  "customer.subscription.updated",
+  pretplata({ status: "active", lookupKey: PLAN_PRICES.starter.month.lookupKey, periodEnd: T0 + 60 * DAN }),
+  T0 + 30 * DAN + 1,
+);
+
+{
+  const s = napraviLazno();
+  await proPretplatnik(s);
+  check(s.profil.plan === "pro" && s.pretplate.get("sub_test_1")?.plan === "pro", "downgrade: pre obnove profiles.plan = pro, ogledalo pro");
+
+  const r = await posalji(obnovaStarter, s.skladiste);
+  check(r.status === 200 && r.body.ok === true, "downgrade: invoice.paid subscription_cycle → 200 ok");
+  check(s.profil.plan === "pro", "downgrade: faktura je stigla dok je profiles.plan još pro");
+  check(
+    s.profil.balance === PLANS.starter.monthlyCredits,
+    `downgrade: stavka starter_month → balans ${PLANS.starter.monthlyCredits}, ne ${PLANS.pro.monthlyCredits}`,
+  );
+}
+
+{
+  const normalan = napraviLazno();
+  await proPretplatnik(normalan);
+  await posalji(promenaStarter, normalan.skladiste);
+  await posalji(obnovaStarter, normalan.skladiste);
+
+  const obrnut = napraviLazno();
+  await proPretplatnik(obrnut);
+  await posalji(obnovaStarter, obrnut.skladiste);
+  await posalji(promenaStarter, obrnut.skladiste);
+
+  const stanje = (x: ReturnType<typeof napraviLazno>) =>
+    JSON.stringify({
+      balans: x.profil.balance,
+      plan: x.profil.plan,
+      ogledalo: x.pretplate.get("sub_test_1")?.plan,
+      knjiga: x.knjiga,
+    });
+  check(
+    normalan.profil.balance === PLANS.starter.monthlyCredits && normalan.profil.plan === "starter",
+    `redosled: updated pa invoice.paid → starter, ${PLANS.starter.monthlyCredits}`,
+  );
+  check(stanje(obrnut) === stanje(normalan), "redosled: invoice.paid pre subscription.updated → isti krajnji rezultat");
+}
+
+{
+  // Upgrade sa `always_invoice`: samo proracione stavke, STARI plan prvi po redu.
+  const s = napraviLazno();
+  await posalji(
+    dogadjaj(
+      "evt_u_inv",
+      "invoice.paid",
+      faktura({
+        id: "in_u",
+        billingReason: "subscription_update",
+        amountDue: 1500,
+        linije: [
+          linija({ lookupKey: PLAN_PRICES.starter.month.lookupKey, iznos: -1450, proracija: true }),
+          linija({ lookupKey: PLAN_PRICES.pro.month.lookupKey, iznos: 2950, proracija: true }),
+        ],
+      }),
+    ),
+    s.skladiste,
+  );
+  check(s.profil.balance === PLANS.pro.monthlyCredits, "proracija: samo proracione stavke → plan iz pozitivne (Pro), ne iz prve");
+
+  // Obnova sa proracijama iz prethodnog perioda + redovna stavka novog plana.
+  const s2 = napraviLazno();
+  await posalji(
+    dogadjaj(
+      "evt_u_inv2",
+      "invoice.paid",
+      faktura({
+        id: "in_u2",
+        billingReason: "subscription_cycle",
+        amountDue: 1400,
+        linije: [
+          linija({ lookupKey: PLAN_PRICES.pro.month.lookupKey, iznos: -2950, proracija: true }),
+          linija({ lookupKey: PLAN_PRICES.starter.month.lookupKey, iznos: 1450, proracija: true }),
+          linija({ lookupKey: PLAN_PRICES.starter.month.lookupKey, iznos: 2900 }),
+        ],
+      }),
+    ),
+    s2.skladiste,
+  );
+  check(s2.profil.balance === PLANS.starter.monthlyCredits, "proracija: redovna stavka odlučuje, ne prva po redu (Pro kredit)");
+}
+
+{
+  const s = napraviLazno();
+  s.profil.balance = 12;
+  const tudja = await posalji(
+    dogadjaj("evt_vk", "invoice.paid", faktura({ id: "in_vk", billingReason: "subscription_cycle", amountDue: 1000, lookupKey: "tudja_cena" })),
+    s.skladiste,
+  );
+  check(
+    tudja.status === 200 && tudja.body.ok === true && String(tudja.body.radnja).startsWith("preskočeno") && s.knjiga.length === 0 && s.profil.balance === 12,
+    "faktura bez plana iz kataloga → 200, preskočeno, bez dodele",
+  );
+
+  const paket = await posalji(
+    dogadjaj("evt_vk2", "invoice.paid", faktura({ id: "in_vk2", billingReason: "subscription_cycle", amountDue: 4900, lookupKey: CREDIT_PACKS["dopuna-200"].lookupKey })),
+    s.skladiste,
+  );
+  check(
+    paket.body.ok === true && String(paket.body.radnja).startsWith("preskočeno") && s.knjiga.length === 0,
+    "jednokratna cena (paket) na fakturi pretplate nije plan → preskočeno",
+  );
+}
+
+{
+  const s = napraviLazno();
+  const r = await posalji(
+    dogadjaj("evt_sch", "subscription_schedule.updated", { id: "sub_sched_test", object: "subscription_schedule", subscription: "sub_test_1" }),
+    s.skladiste,
+  );
+  check(
+    r.status === 200 && r.body.radnja === "preskočeno:subscription_schedule.updated" && s.knjiga.length === 0 && s.pretplate.size === 0,
+    "subscription_schedule.updated → preskočeno, ništa ne dira",
+  );
 }
 
 // ═══════════════════════════════════════════════════════════

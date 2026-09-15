@@ -367,6 +367,8 @@ export const kartica = {
   otkljucajBesplatno: "Otključaj · prvi je besplatan",
   otkljucajPlan: "Otključaj · treba plan",
   otkljucajVrati: "Otključaj · vrati pristup",
+  /** [0029] Admin nalog — bez cene, jer kredit ne troši. */
+  otkljucajBezKredita: "Otključaj",
   otkljucajOpis: "Telefon, mejl, sajt, snimci, problemi i poruka. Ne plaća se dvaput.",
   otkljucavam: "Otključavam…",
   potvrdaNaslov: (ime: string) => `Otključaj ${ime}?`,

@@ -50,6 +50,11 @@ type Props = {
   ceka: boolean;
   onPotvrdi: () => void;
   onOdustani: () => void;
+  /**
+   * [0029] Admin: krediti se ne troše. Modal i dalje postoji — potvrđuje
+   * Google poziv, koji je stvaran novac i za admina — ali bez cene u kreditima.
+   */
+  neograniceno?: boolean;
 };
 
 /** „2 kredita", nikad „2 kredit". Jedna funkcija za naslov, dugme i tabelu. */
@@ -73,11 +78,17 @@ const POTVRDA_GLAGOL: Record<SkeniranjeRazlog, string> = {
   kes: "Otvori",
 };
 
-export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props) {
+export function SkeniranjeModal({
+  predlog,
+  ceka,
+  onPotvrdi,
+  onOdustani,
+  neograniceno = false,
+}: Props) {
   if (!predlog) return null;
 
   const { razlog } = predlog;
-  const dovoljno = predlog.creditsLeft >= predlog.cost;
+  const dovoljno = neograniceno || predlog.creditsLeft >= predlog.cost;
   const posle = predlog.creditsLeft - predlog.cost;
   const datum = predlog.lastScannedAt ? formatDatum(predlog.lastScannedAt) : null;
 
@@ -93,7 +104,13 @@ export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props)
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {RADNJA[razlog]} košta <span className="num">{kredita(predlog.cost)}</span>
+            {neograniceno ? (
+              RADNJA[razlog]
+            ) : (
+              <>
+                {RADNJA[razlog]} košta <span className="num">{kredita(predlog.cost)}</span>
+              </>
+            )}
           </DialogTitle>
           <DialogDescription>
             {predlog.cityLabel} · {predlog.nicheLabel} ·{" "}
@@ -151,22 +168,31 @@ export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props)
               {predlog.dubinaLabela} · do {predlog.maxRezultata}
             </dd>
 
-            <dt className="text-fg-muted">
-              Cena{" "}
-              <span className="text-[11px]">
-                ({predlog.cost} {plural(predlog.cost, "stranica", "stranice", "stranica")})
-              </span>
-            </dt>
-            <dd className="num text-right font-medium">{kredita(predlog.cost)}</dd>
+            {!neograniceno && (
+              <>
+                <dt className="text-fg-muted">
+                  Cena{" "}
+                  <span className="text-[11px]">
+                    ({predlog.cost} {plural(predlog.cost, "stranica", "stranice", "stranica")})
+                  </span>
+                </dt>
+                <dd className="num text-right font-medium">{kredita(predlog.cost)}</dd>
 
-            <dt className="text-fg-muted">Imaš</dt>
-            <dd className="num text-right font-medium">{predlog.creditsLeft}</dd>
+                <dt className="text-fg-muted">Imaš</dt>
+                <dd className="num text-right font-medium">{predlog.creditsLeft}</dd>
 
-            <dt className="text-fg-muted">Posle skeniranja</dt>
-            <dd className="num text-right font-medium">{dovoljno ? posle : "—"}</dd>
+                <dt className="text-fg-muted">Posle skeniranja</dt>
+                <dd className="num text-right font-medium">{dovoljno ? posle : "—"}</dd>
+              </>
+            )}
           </dl>
 
-          {!dovoljno ? (
+          {neograniceno ? (
+            <p className="text-xs text-fg-muted">
+              Admin nalog — krediti se ne troše. Dnevni limit skeniranja i Google budžet važe i
+              dalje.
+            </p>
+          ) : !dovoljno ? (
             <p className="text-xs text-danger">
               Nemaš dovoljno kredita za ovu dubinu
               {predlog.cost > 1 ? " — probaj plići izbor" : ""}. Ono što si već platio otvara
@@ -191,7 +217,11 @@ export function SkeniranjeModal({ predlog, ceka, onPotvrdi, onOdustani }: Props)
           </Button>
           <Button type="button" variant="primary" onClick={onPotvrdi} disabled={ceka || !dovoljno}>
             <Ikona className="h-4 w-4" />
-            {ceka ? "Pokrećem…" : `${POTVRDA_GLAGOL[razlog]} za ${kredita(predlog.cost)}`}
+            {ceka
+              ? "Pokrećem…"
+              : neograniceno
+                ? POTVRDA_GLAGOL[razlog]
+                : `${POTVRDA_GLAGOL[razlog]} za ${kredita(predlog.cost)}`}
           </Button>
         </div>
       </DialogContent>

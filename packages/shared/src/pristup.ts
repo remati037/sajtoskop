@@ -73,6 +73,18 @@ export type ProfilZaPristup = {
    * `createdAt` više gore bila promena bez ijedne posledice osim rizika.
    */
   createdAt: string | null;
+  /**
+   * `profiles.role = 'admin'` (0029). Adminu skeniranje i otključavanje ne troše
+   * kredite — `spend_credit_and_*` ga propuštaju bez naplate — pa mu nijedno
+   * stanje osim punog pristupa ne sme da crta „nemaš plan" ili „kredita nema".
+   *
+   * Namerno SAMO uloga iz baze, bez `ADMIN_BOOTSTRAP_IDS`: o kreditima odlučuje
+   * SQL, a on env ne vidi. Nalog koji je admin samo po env-u bi inače ovde
+   * dobio neograničen pristup, a u bazi `insufficient_credits`.
+   *
+   * `undefined` = nije admin.
+   */
+  admin?: boolean;
 };
 
 /**
@@ -137,6 +149,8 @@ export type Pristup =
       /** `null` = neograničen komp. */
       punDo: string | null;
       citanjeDo: string | null;
+      /** [0029] Admin nalog — krediti se ne troše. Čita se kroz `jeNeograniceno()`. */
+      admin?: true;
     })
   | (Zajednicko & {
       stanje: "proba";
@@ -237,6 +251,7 @@ export function citanjeDoZa(punDo: string | null): string | null {
  * `feedback-motor.ts`).
  *
  * Redosled provera JESTE deo odluke:
+ *   0. admin (0029) — pun pristup bez roka, bez obzira na plan i kredite
  *   1. neograničen komp — jedini slučaj bez ijednog datuma
  *   2. pun pristup po datumu — komp / otkazan / proba / aktivan
  *   3. `credits_topup > 0` — dopuna PRETIČE grace, jer je kupljen paket
@@ -252,6 +267,22 @@ export function stanjePristupa(
 ): Pristup {
   const plan = planId(profil.plan);
   const jeKomp = plan === "komp";
+
+  // 0. Admin (0029). Stanje je `komp` jer se admin tako i ponaša — nema banera,
+  //    dnevni limiti su Advanced — a `admin: true` je ono po čemu UI zna da
+  //    kredita za njega nema. Novo, osmo stanje bi značilo novu granu u svakom
+  //    `switch`-u po `stanje`, a razlika je samo u novčaniku, ne u pristupu.
+  if (profil.admin === true) {
+    return {
+      stanje: "komp",
+      pun: true,
+      cita: true,
+      planLimita: "komp",
+      punDo: null,
+      citanjeDo: null,
+      admin: true,
+    };
+  }
 
   // 1. Neograničen komp: `plan = 'komp'` uz prazan rok (0025). Kapija ga ne dira.
   if (jeKomp && profil.kompExpiresAt === null) {
@@ -405,6 +436,17 @@ export function uzrokGrace(
   if (pretplata?.status === "past_due") return "naplata";
   if (pretplata === null && pristup.punDo === null) return "besplatni";
   return "istekao";
+}
+
+/**
+ * Nalog kome skeniranje i otključavanje ne troše kredite (admin, 0029).
+ *
+ * Jedino mesto na kome UI to pita: brojač kredita, dugme „Otključaj", traka
+ * cene i modal skeniranja. Neograničen KOMP nije ovo — komp ima kredite i
+ * troši ih.
+ */
+export function jeNeograniceno(pristup: Pristup | null): boolean {
+  return pristup?.stanje === "komp" && pristup.admin === true;
 }
 
 /** Stanja iz kojih se paket kredita sme kupiti. Jedini spisak, nema drugog. */

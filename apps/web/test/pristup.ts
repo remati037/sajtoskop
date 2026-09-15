@@ -141,7 +141,7 @@ const izvor = (ruta: string) =>
   readFileSync(path.join(webSrc, "app/api", ruta, "route.ts"), "utf8");
 
 /** Rute koje TROŠE — moraju da zovu `odbijenica`. */
-for (const ruta of ["search", "unlock", "uvoz", "search/kes", "poruke/ai"]) {
+for (const ruta of ["search", "unlock", "uvoz", "poruke/ai"]) {
   const kod = izvor(ruta);
   check(
     /\bodbijenica\(/.test(kod) && kod.includes("citajPristup"),
@@ -149,8 +149,24 @@ for (const ruta of ["search", "unlock", "uvoz", "search/kes", "poruke/ai"]) {
   );
 }
 
-/** Rute koje ČITAJU — kapija sme da padne samo na zaključanom nalogu. */
-for (const ruta of ["export", "pipeline", "poruke"]) {
+// [posle S30] Bez punog pristupa se plaćeno i dalje servira: `/api/search`
+// odbija tek kad plaćenog nema, `/api/unlock` pušta već otključan prospekt.
+check(
+  /samoPlaceno && pay/.test(izvor("search")) && /if \(samoPlaceno\)/.test(izvor("search")),
+  "/api/search: `pay` pada odmah, čitanje tek kad plaćenog nema",
+);
+check(
+  /vecOtkljucan\(/.test(izvor("unlock")) && /ponovi !== true/.test(izvor("unlock")),
+  "/api/unlock: bez punog pristupa samo već otključan, bez `ponovi`",
+);
+
+/**
+ * Rute koje ČITAJU — kapija sme da padne samo na zaključanom nalogu.
+ *
+ * [posle S30] `search/kes` je ovde, ne gore: registar nosi plaćene pristupe, a
+ * bez njega ekran u grace-u ne zna koje liste sme da otvori.
+ */
+for (const ruta of ["export", "pipeline", "poruke", "search/kes"]) {
   const kod = izvor(ruta);
   check(/\bodbijenicaCitanja\(/.test(kod), `/api/${ruta} zove kapiju za čitanje`);
   check(

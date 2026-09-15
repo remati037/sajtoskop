@@ -1,5 +1,5 @@
 // apps/web/src/lib/billing-skladiste.ts
-// `NaplataSkladiste` nad pravom bazom (i nad Stripe-om, za dve metode koje
+// `NaplataSkladiste` nad pravom bazom (i nad Stripe-om, za tri metode koje
 // traže mrežu). Jedina implementacija koja postoji u produkciji — druga je mapa
 // u memoriji, u `apps/web/test/lazno-skladiste.ts`.
 //
@@ -17,7 +17,6 @@
 // payload-a, ne iz pregledača.
 
 import "server-only";
-import type { PaidPlanId } from "@sajtoskop/shared";
 import type { NaplataSkladiste, OtisakPretplate, RpcIshod } from "./billing";
 import { stripe } from "./stripe-server";
 import { adminSupabase } from "./supabase";
@@ -30,8 +29,6 @@ function prviRed(data: unknown, fallback: string): RpcIshod {
   if (!red || typeof red.ok !== "boolean") return { ok: false, reason: fallback, granted: 0 };
   return { ok: red.ok, reason: red.reason ?? "", granted: red.granted ?? red.delta ?? 0 };
 }
-
-const PLACENI: readonly string[] = ["starter", "pro", "advanced"];
 
 export function supabaseSkladiste(): NaplataSkladiste {
   const db = adminSupabase();
@@ -90,14 +87,14 @@ export function supabaseSkladiste(): NaplataSkladiste {
       return data?.id ?? null;
     },
 
-    async planPoPretplati(subscriptionId) {
-      const { data, error } = await db
-        .from("subscriptions")
-        .select("plan")
-        .eq("stripe_subscription_id", subscriptionId)
-        .maybeSingle<{ plan: string | null }>();
-      if (error) throw new Error(`subscriptions(plan): ${error.message}`);
-      return data?.plan && PLACENI.includes(data.plan) ? (data.plan as PaidPlanId) : null;
+    async ceneStavki(priceIds) {
+      // Stavka fakture na `dahlia` nosi samo `price_…` ID; `lookup_key` i
+      // `recurring` su na ceni. Pad NIJE tih: bez cene nema odluke o kreditima,
+      // pa skladište baca, ruta vraća 500 i Stripe ponavlja.
+      const cene = await Promise.all(priceIds.map((id) => stripe().prices.retrieve(id)));
+      return new Map(
+        cene.map((c) => [c.id, { lookupKey: c.lookup_key ?? null, recurring: c.recurring !== null }]),
+      );
     },
 
     async primeniPretplatu(a) {
@@ -185,8 +182,8 @@ export function supabaseSkladiste(): NaplataSkladiste {
     },
 
     async otisakKartice(subscriptionId): Promise<OtisakPretplate | null> {
-      // Jedini Stripe poziv u obradi webhooka, i jedini koji sme da padne tiho:
-      // otisak je zaštita od farmi proba, ne deo ispravnosti naplate.
+      // Jedini Stripe poziv u obradi webhooka koji sme da padne tiho: otisak je
+      // zaštita od farmi proba, ne deo ispravnosti naplate.
       try {
         const sub = await stripe().subscriptions.retrieve(subscriptionId, {
           expand: ["default_payment_method"],

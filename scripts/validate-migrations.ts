@@ -2326,6 +2326,49 @@ async function main(): Promise<void> {
     "utisak bez konteksta se upisuje isto kao pre",
   );
 
+  // ── [0029] admin ne troši kredite ───────────────────────
+  console.log("\n0029: admin bez kredita");
+  await db.exec(`
+    insert into profiles (id, email, credits_balance, credits_topup, role)
+      values ('adm','adm@x.rs',0,0,'admin'), ('neadm','neadm@x.rs',0,0,'user');
+    insert into businesses (place_id, city_slug, name) values ('adm_p1','nis','Admin firma');
+    select record_scan('RS','subotica','admin-kes',25,null,false,3);
+  `);
+  const admKnjiga = async () =>
+    (await one<{ n: number }>(`select count(*)::int as n from credit_ledger where user_id = 'adm'`))?.n;
+  const admKase = async () =>
+    await one<{ b: number; t: number }>(
+      `select credits_balance as b, credits_topup as t from profiles where id = 'adm'`);
+
+  check((await one<Rpc>(`select * from spend_credit_and_unlock('neadm','adm_p1')`))?.reason ===
+    "insufficient_credits", "obican nalog sa 0 kredita i dalje → insufficient_credits");
+  check((await one<Rpc>(`select * from spend_credit_and_unlock('adm','adm_p1')`))?.reason === "unlocked",
+    "admin sa 0 kredita → unlocked");
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from unlocks where user_id = 'adm' and place_id = 'adm_p1'`))?.n === 1,
+    "admin: red u unlocks postoji");
+  check((await one<Rpc>(`select * from spend_credit_and_unlock('adm','adm_p1')`))?.reason ===
+    "already_unlocked", "admin: isti prospekt drugi put → already_unlocked");
+
+  const admKes = await scan2("adm", "subotica", "admin-kes", 60);
+  check(admKes?.reason === "cached" && admKes.charged === true && admKes.cost === 0 && admKes.job_id === null,
+    `admin nad svežim kešom → cached, cost 0, bez posla (${admKes?.reason}, cost ${admKes?.cost})`);
+  check((await one<{ h: boolean }>(`select has_search_access('adm','RS','subotica','admin-kes',3) as h`))?.h === true,
+    "admin: pristup kešu nastaje kao i za platioca");
+
+  const admNovo = await scan2("adm", "sombor", "admin-novo", 40);
+  check(admNovo?.reason === "charged" && admNovo.charged === true && admNovo.cost === 0 && admNovo.job_id !== null,
+    "admin van keša → posao upisan, charged (dnevni osigurač ostaje), cost 0");
+  const admDupli = await scan2("adm", "sombor", "admin-novo", 40);
+  check(admDupli?.reason === "already_paid" && admDupli.job_id === admNovo?.job_id,
+    "admin dupli klik dok posao živi → isti posao, bez druge naplate");
+
+  const admStanje = await admKase();
+  check(admStanje?.b === 0 && admStanje.t === 0, "admin: obe kase ostaju na nuli");
+  check((await admKnjiga()) === 0, "admin: nijedna stavka u knjizi");
+  check((await one<{ refunded: number }>(`select * from refund_scan($1, 0)`, [admNovo?.job_id]))?.refunded === 0,
+    "refund_scan adminu nema šta da vrati");
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",

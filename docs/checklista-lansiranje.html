@@ -1,0 +1,193 @@
+<title>Sajtoskop — checklista do lansiranja</title>
+<style>
+  @page { size: A4; margin: 14mm 14mm 16mm; }
+  :root { --ink: #16181d; --muted: #5b6270; --line: #d9dce2; --box: #16181d; --tag: #eef0f3; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding-block: 24px; padding-inline: 16px;
+    background: #fff; color: var(--ink);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10pt; line-height: 1.38; font-weight: 400;
+  }
+  strong, h1, h2, h3, .warn { font-weight: 600; }
+  main { max-width: 820px; margin: 0 auto; }
+  header { border-bottom: 2px solid var(--ink); padding-bottom: 8px; margin-bottom: 14px; }
+  h1 { font-size: 17pt; margin: 0 0 2px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 9.5pt; }
+  .redosled { margin: 10px 0 4px; font-size: 9.5pt; }
+  .redosled ol { margin: 4px 0 0; padding-left: 18px; }
+  section { margin-top: 14px; break-inside: auto; }
+  h2 {
+    font-size: 11.5pt; font-weight: 600; margin: 0 0 6px; padding: 3px 0;
+    border-bottom: 1px solid var(--line); break-after: avoid;
+  }
+  h2 .kad { font-weight: 400; color: var(--muted); font-size: 9pt; margin-left: 6px; }
+  h3 { font-size: 10pt; font-weight: 600; margin: 8px 0 3px; color: var(--muted); break-after: avoid; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    position: relative; padding: 3px 0 3px 22px; break-inside: avoid;
+    border-bottom: 1px dotted var(--line);
+  }
+  li::before {
+    content: ""; position: absolute; left: 2px; top: 6px;
+    width: 11px; height: 11px; border: 1.4px solid var(--box); border-radius: 2px;
+  }
+  li.info::before { display: none; }
+  li.info { padding-left: 2px; color: var(--muted); }
+  .n { color: var(--muted); font-size: 9pt; }
+  code {
+    font: 8.8pt/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--tag); padding: 0 3px; border-radius: 3px; overflow-wrap: anywhere;
+  }
+  pre {
+    font: 8.6pt/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--tag); padding: 5px 7px; margin: 3px 0 1px; border-radius: 3px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .warn { font-weight: 600; }
+  .gotovo { margin-top: 16px; padding: 7px 9px; border: 1px solid var(--line); font-size: 9pt; color: var(--muted); break-inside: avoid; }
+  .gotovo strong { color: var(--ink); }
+  @media print {
+    body { padding: 0; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+
+<main>
+  <header>
+    <h1>Sajtoskop — checklista do lansiranja</h1>
+    <div class="sub">Stanje na 15. septembar 2026 · kod zaključno sa S30 + popravka Clerk webhooka (<code>dfb52a7</code>) · migracije <code>0013</code>–<code>0028</code> puštene</div>
+    <p class="redosled"><strong>Redosled:</strong> 1. Odmah (§0) → 2. Stripe test i env (§1–2) → 3. Ručni prolazi (§3) → 4. Worker redeploy pre 30.9. → 5. Landing (§5) → 6. Pravno (§6) → 7. Live i otvaranje (§7)</p>
+  </header>
+
+  <section>
+    <h2>0. Odmah <span class="kad">posle čišćenja baze 14.9.</span></h2>
+    <ul>
+      <li><strong>Vercel:</strong> <code>ADMIN_BOOTSTRAP_IDS</code> = <code>user_3JJyI4kd3cAGtkbGtudwZOTrRJs</code> → Redeploy</li>
+      <li><strong>Clerk → Production → Webhooks:</strong> endpoint <code>https://app.sajtoskop.com/api/webhooks/clerk</code> pretplaćen na <code>user.created</code>, <code>user.updated</code>, <code>user.deleted</code></li>
+      <li><strong>Test brisanja:</strong> probni nalog na <code>app.sajtoskop.com</code> → obriši ga u Clerk-u (Production) → profil nestao iz baze, u reviziji red kaskade sa <code>ok = true</code></li>
+      <li><strong>Worker redeploy na Hetzneru — pre 30.9.</strong> (mesečna dodela kredita):
+        <pre>ssh marko@&lt;IP&gt;
+cd ~/sajtoskop &amp;&amp; git pull
+docker compose -f apps/worker/docker-compose.yml up -d --build
+docker compose -f apps/worker/docker-compose.yml logs -f --tail=50
+grep -c subscriptions apps/worker/src/jobs/monthly-grant.ts   # mora &gt; 0</pre>
+      </li>
+      <li><strong>Keš:</strong> 15–20 svežih kombinacija „Brzo" — sada je sveža samo 1 od 22, pa čarobnjak ne nudi ništa. <span class="warn">15–20 Places poziva</span> (u besplatnoj kvoti)</li>
+      <li><strong>Lokalni <code>.env</code>:</strong> <code>ADMIN_BOOTSTRAP_IDS</code> još nosi stari dev ID — zameni kad budeš radio lokalno</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>1. Stripe — test mod <span class="n">R39 · R43 · R44</span></h2>
+    <ul>
+      <li>CLI: <code>brew install stripe/stripe-cli/stripe</code>, pa <code>stripe login</code></li>
+      <li><strong>Katalog</strong> (EUR, <code>lookup_key</code>): <code>starter_month</code> €29 · <code>starter_year</code> €290 · <code>pro_month</code> €59 · <code>pro_year</code> €590 · <code>advanced_month</code> €119 · <code>advanced_year</code> €1.190 · <code>pack_75</code> €19 · <code>pack_200</code> €49</li>
+      <li><strong>Kupon</strong> „Prvi mesec gratis": 100 %, <code>once</code>, bez promotion koda</li>
+      <li><strong>Podešavanja (§2.2):</strong> descriptor <code>SAJTOSKOP</code> · Smart Retries 4× / 7 dana → cancel · <strong>svi Stripe mejlovi OFF</strong> · podsetnik pred kraj probe OFF · Radar: kartica na &gt; 2 kupca u 24 h</li>
+      <li><strong>Customer Portal (§8):</strong> bez pauze · <code>always_invoice</code> za upgrade · downgrade na kraj perioda · linkovi na <code>/uslovi</code>, <code>/privatnost</code>, <code>/povracaj</code></li>
+      <li><strong>Webhook endpoint</strong> sa događajima iz §6.1, API verzija <code>2026-08-26.dahlia</code></li>
+      <li><strong>R44 — odluka:</strong> godišnji kupac sa pozivnicom dobija prvi mesec? (ako da → drugi kupon, <code>amount_off</code>)</li>
+      <li><code>pnpm stripe:doktor</code> prolazi</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>2. Env promenljive <span class="n">R40 · R42</span></h2>
+    <h3>Lokalno — korenski <code>.env</code></h3>
+    <ul>
+      <li>Obriši: <code>NEXT_PUBLIC_PADDLE_CLIENT_TOKEN</code>, <code>NEXT_PUBLIC_PADDLE_ENV</code>, <code>PADDLE_API_KEY</code>, <code>PADDLE_WEBHOOK_SECRET</code>, <code>PADDLE_BETA_DISCOUNT_ID</code></li>
+      <li>Dodaj: <code>STRIPE_SECRET_KEY</code> (<code>sk_test_</code>) · <code>STRIPE_WEBHOOK_SECRET</code> (iz <code>stripe listen</code>) · <code>STRIPE_COUPON_FIRST_MONTH</code> · <code>NEXT_PUBLIC_APP_URL=http://localhost:3000</code> · <code>CRON_SECRET</code> (<code>openssl rand -base64 32</code>) · opciono <code>NEXT_PUBLIC_SELLER_NAME</code></li>
+    </ul>
+    <h3>Vercel</h3>
+    <ul>
+      <li>Paddle promenljive obrisane</li>
+      <li>Stripe: <strong>Preview = test</strong> ključevi, <strong>Production = live</strong>; <code>whsec_</code> nikad isti u oba</li>
+      <li><code>NEXT_PUBLIC_APP_URL=https://app.sajtoskop.com</code> · <code>NEXT_PUBLIC_LANDING_URL=https://www.sajtoskop.com</code></li>
+      <li><code>CRON_SECRET</code> (bez njega digest i nedeljni izveštaj ne rade)</li>
+      <li><code>PLACES_MONTHLY_BUDGET_EUR</code> = 100 pre petog pretplatnika — <strong>ista vrednost i na workeru</strong></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>3. Ručni prolazi <span class="kad">izlaz u docs/SESIJE.md</span></h2>
+    <ul>
+      <li><strong>S25 — §12 scenariji</strong> (lokalno, <code>stripe listen</code>): #1 Pro mesečno · #2 proba → plaćeno (test clock) · #10 paket 200 · #12 prvi mesec gratis · D10 (keš → <code>search_access</code>, „Duboko" nad malim gradom → povraćaj razlike). Posle svakog zalepi <code>credit_ledger</code></li>
+      <li>S25 — ostali scenariji: #3–9 (otkaz probe, pad kartice, upgrade, downgrade, reaktivacija, refund, dupli webhook), #11, #13, #14</li>
+      <li><strong>S26:</strong> (a) checkout → „Proba je počela" · (b) „Aktiviraj odmah" + kartica <code>4000 0000 0000 0341</code> · (c) otkaz kroz portal · (d) snimci <code>/cenovnik</code> i <code>/krediti</code>, obe teme, 390 px</li>
+      <li><strong>S27:</strong> komp pozivnica (#11) · prvi mesec (#12) · tri poruke o grešci uživo · vizuelno <code>/pozivnica/[code]</code> i <code>/admin/pozivnice</code></li>
+      <li><strong>S28 / C6:</strong> brisanje naloga sa živom test pretplatom → pretplata <code>canceled</code> <em>pre</em> nego što profil nestane</li>
+      <li><strong>S29:</strong> <code>PROVERA-VIZUELNA.md</code> §7e + 3 snimka (NPS 390 px, panel „Kontekst", admin NPS)</li>
+      <li><strong>S30:</strong> §7f — tri prolaza (bez kartice, proba, komp) · <code>api_budget</code> pre i posle (mora biti isti) · SQL iz §4.9 · kartica u 5 stanja</li>
+      <li><strong>R27:</strong> životni ciklus (komp → rok u prošlosti → grace → +31 dan → zaključano)</li>
+      <li><strong>R28:</strong> puna vizuelna provera, obe teme, telefon ≤ 390 px</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>4. Baza i operativa</h2>
+    <ul>
+      <li><strong>R24:</strong> <code>pnpm check:f4</code> nad pravom bazom (novčana putanja menjana u 0022, 0023, 0025, 0026)</li>
+      <li><strong>R25:</strong> <code>scripts/backup.sh</code> + cron + <code>rclone</code> na Hetzneru → <strong>jednom stvarno obnovi bazu</strong></li>
+      <li><strong>R15:</strong> Anthropic spend limit (Billing → Spend limits)</li>
+      <li><strong>R23:</strong> <code>podrska@sajtoskop.com</code> — pošalji probni mejl, proveri da stiže</li>
+      <li><strong>R14:</strong> Resend panel — domen „Verified"</li>
+      <li><strong>R22:</strong> Sentry projekat + DSN (web i worker)</li>
+      <li><strong>R29</strong> (povremeno): <code>curl -X POST -H "x-cron-secret: $CRON_SECRET" https://app.sajtoskop.com/api/cron/utisci-slike</code></li>
+      <li>Nedeljno: tempo <code>api_budget</code> naspram broja aktivnih pretplata</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>5. Landing — van repoa <span class="n">R35 · R36</span></h2>
+    <ul>
+      <li><strong>R35 — krediti se ne poklapaju:</strong> landing piše 100 / 300 / 800, aplikacija daje <strong>150 / 450 / 1200</strong>. Proveri i pakete (75 / 200) i cene</li>
+      <li><strong>R36:</strong> CTA za plan → <code>https://app.sajtoskop.com/cenovnik?plan=pro&amp;ciklus=godisnje</code> (slug, nikad Stripe ID) · link za prijavu</li>
+      <li>Pravne strane → linkovi na <code>app.sajtoskop.com/uslovi</code>, <code>/privatnost</code>, <code>/povracaj</code>; ukloni sopstvene kopije na landingu (<code>/povracaj</code> je 404)</li>
+      <li>Strana <code>/bot</code> (worker je navodi u User-Agentu, sada 404)</li>
+      <li><code>sitemap.xml</code> na <code>www</code> oblik</li>
+      <li>Prompt za landing repo: <code>docs/prompt-landing-veze.md</code></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>6. Pravno i poresko</h2>
+    <ul>
+      <li><strong>R17:</strong> politika povraćaja — rok i prag potrošenih kredita</li>
+      <li><strong>R19:</strong> 23 <code>&lt;POPUNITI&gt;</code> markera — <code>/uslovi</code> 7 · <code>/privatnost</code> 10 · <code>/povracaj</code> 6</li>
+      <li><strong>R18 — preformuliši pitanje knjigovođi:</strong> Stripe <em>nije</em> merchant of record; prodavac je Remati LLC, Stripe Tax isključen. Šta to znači za PDV prema kupcima iz Srbije i EU? Traži pisani odgovor</li>
+      <li>Stripe <strong>live aktivacija</strong> naloga za Remati LLC</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>7. Produkcija i otvaranje</h2>
+    <ul>
+      <li>Stripe <strong>live</strong>: katalog, kupon, portal, podešavanja, webhook <code>https://app.sajtoskop.com/api/billing/webhook</code></li>
+      <li>Vercel Production: live ključevi → odmah otvori <code>/cenovnik</code> + <code>pnpm stripe:doktor</code> sa live ključem</li>
+      <li><strong>Prava kupovina</strong> pravom karticom na svom nalogu → povraćaj</li>
+      <li>R35 ponovo — cene na landingu naspram live kataloga</li>
+      <li><strong>R45:</strong> Vladin komp nalog (pozivnica, link ručno)</li>
+      <li><strong>R30:</strong> prvih 20 ljudi kroz pozivnice (<code>komp</code> ili <code>prvi_mesec</code>)</li>
+      <li><strong>R31:</strong> prvih 5 lično — bez javne objave dok 5 ne prođe kroz alat bez tvoje pomoći</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>8. Za sesiju sa Claude-om <span class="kad">nije ručno, ali nije urađeno</span></h2>
+    <ul>
+      <li>Sentry — web i worker, scrub PII (stara S26)</li>
+      <li>Kanarinci + pet metrika aktivacije (stara S25)</li>
+      <li>Tekstovi: <code>/uslovi</code> pominje „betu" · <code>/dashboard</code> kaže „u kešu je besplatno"</li>
+      <li>Mejlovi na <code>invoice.payment_failed</code> i <code>charge.dispute.created</code> (P4)</li>
+      <li>Test koji drži da Clerk webhook čita <code>svix-id</code> iz zaglavlja</li>
+      <li><code>docs/LANSIRANJE.md</code> §7 prepisati — i dalje opisuje Paddle</li>
+      <li>Dugoročno: posebna Supabase baza za lokalni razvoj</li>
+    </ul>
+  </section>
+
+  <div class="gotovo">
+    <strong>Već urađeno (14.–15. 9.):</strong> migracije 0013–0028 na Supabase-u · bucket <code>feedback</code> · DNS i domen <code>app.sajtoskop.com</code> · Clerk live instanca · baza očišćena (ostali firme, auditi, keš, snimci, waitlist, <code>api_budget</code>) · jedini nalog <code>user_3JJyI4kd3cAGtkbGtudwZOTrRJs</code> sa ulogom <code>admin</code> · Clerk webhook popravljen i potvrđen u bazi.
+    <br><strong>Otpalo prelaskom na Stripe:</strong> R3, R4, R7, R8, R21 (Paddle KYC), R26 (Paddle kartice), R34, kupon <code>BETA2026</code>, <code>paddle:doktor</code>.
+  </div>
+</main>

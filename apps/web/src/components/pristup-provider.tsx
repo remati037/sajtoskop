@@ -32,7 +32,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Coins, Timer } from "lucide-react";
-import { smeDaKupiPaket, type Pristup } from "@sajtoskop/shared";
+import { smeDaKupiPaket, type Pristup, type UzrokGrace } from "@sajtoskop/shared";
 import { formatDatum } from "@/lib/ui-tekst";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -87,9 +87,12 @@ type Razlog = "istek" | "krediti";
 
 export function PristupProvider({
   pristup,
+  uzrokGrace = null,
   children,
 }: {
   pristup: Pristup | null;
+  /** [posle S30] Zašto je nalog u grace-u — naslov modala po uzroku. */
+  uzrokGrace?: UzrokGrace | null;
   children: React.ReactNode;
 }) {
   const [razlog, setRazlog] = useState<Razlog | null>(null);
@@ -118,7 +121,12 @@ export function PristupProvider({
   return (
     <Ctx.Provider value={api}>
       {children}
-      <ModalPristupa razlog={razlog} pristup={pristup} zatvori={() => setRazlog(null)} />
+      <ModalPristupa
+        razlog={razlog}
+        pristup={pristup}
+        uzrok={uzrokGrace}
+        zatvori={() => setRazlog(null)}
+      />
     </Ctx.Provider>
   );
 }
@@ -140,16 +148,22 @@ export function PristupProvider({
 function ModalPristupa({
   razlog,
   pristup,
+  uzrok,
   zatvori,
 }: {
   razlog: Razlog | null;
   pristup: Pristup | null;
+  uzrok: UzrokGrace | null;
   zatvori: () => void;
 }) {
   if (razlog === null) return null;
 
   const jeIstek = razlog === "istek";
-  const Ikona = jeIstek ? Timer : Coins;
+  // [posle S30] Nalog bez plana koji je potrošio kredite dobrodošlice nije
+  // „izgubio pristup" — nikad ga nije ni kupio. Ono što se desilo je da kredita
+  // nema, i to je rečenica koju čita.
+  const bezKredita = !jeIstek || uzrok === "besplatni";
+  const Ikona = bezKredita ? Coins : Timer;
   const smePaket = smeDaKupiPaket(pristup);
 
   return (
@@ -158,11 +172,15 @@ function ModalPristupa({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Ikona className="h-4 w-4 shrink-0 text-fg-muted" aria-hidden />
-            {jeIstek ? "Pristup ti je istekao" : "Ostao si bez kredita"}
+            {!jeIstek
+              ? "Ostao si bez kredita"
+              : uzrok === "besplatni"
+                ? "Nemaš više kredita"
+                : "Pristup ti je istekao"}
           </DialogTitle>
           <DialogDescription>
             {jeIstek
-              ? "Pretraga, skeniranje i otključavanje su stali."
+              ? "Nove pretrage, skeniranja i otključavanja ne rade."
               : "Skeniranje i otključavanje troše kredite."}
           </DialogDescription>
         </DialogHeader>
@@ -170,15 +188,20 @@ function ModalPristupa({
         <div className="space-y-3 px-5 py-4 text-sm leading-relaxed text-fg-muted">
           {jeIstek && pristup && pristup.stanje === "grace" ? (
             <p>
-              Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> i dalje možeš da
-              otvaraš svoje prospekte, vodiš pipeline i izvezeš oba CSV-a. Posle tog datuma ni to
-              — ali se ništa ne briše.
+              Liste i prospekti koje si već otvorio ostaju ti do{" "}
+              <span className="num">{formatDatum(pristup.citanjeDo)}</span> — zajedno sa porukama,
+              pipeline-om i izvozom. Posle tog datuma ni to, ali se ništa ne briše.
             </p>
           ) : (
             <p>Sve što si već otključao ostaje ti i dalje, zajedno sa pipeline-om.</p>
           )}
 
-          {smePaket ? (
+          {jeIstek && uzrok === "besplatni" ? (
+            <p>
+              Za nove liste i otključavanja treba{" "}
+              <strong className="font-semibold text-fg">plan</strong>.
+            </p>
+          ) : smePaket ? (
             <p>
               Dva puta dalje: <strong className="font-semibold text-fg">veći plan</strong>, ako ti
               se ovo ponavlja svakog meseca, ili{" "}
@@ -195,16 +218,22 @@ function ModalPristupa({
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-border px-5 py-3 sm:flex-row sm:justify-end">
-          {smePaket && (
+          {smePaket ? (
             <Button variant="ghost" asChild>
               <Link href="/cenovnik#paketi" onClick={zatvori}>
                 Dokupi kredite
               </Link>
             </Button>
+          ) : (
+            // Obaveštenje, ne zid: čovek je možda upravo otvorio listu koju je
+            // platio poslednjim kreditom i hoće da je gleda.
+            <Button variant="ghost" onClick={zatvori}>
+              U redu
+            </Button>
           )}
           <Button variant="primary" asChild>
             <Link href="/cenovnik" onClick={zatvori}>
-              {smePaket ? "Pogledaj planove" : "Uzmi plan"}
+              {smePaket || uzrok === "besplatni" ? "Pogledaj planove" : "Uzmi plan"}
             </Link>
           </Button>
         </div>

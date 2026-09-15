@@ -30,6 +30,7 @@ import { ArrowRight, Coins, Wallet } from "lucide-react";
 import {
   formatEur,
   sledecaDodelaKredita,
+  jeNeograniceno,
   smeDaKupiPaket,
   TRIAL_DAYS,
   uzrokGrace,
@@ -84,6 +85,8 @@ export function PretplataBlok({
   // Odluka 26.8.: paket traži aktivan plan, komp ili probu. Ko ne sme, ne dobija dugme
   // koje bi ga odvelo u `403` — dobija ono koje ga vodi na planove.
   const smePaket = smeDaKupiPaket(pristup);
+  // [0029] Admin nalog: ni plan ni paket nemaju šta da mu ponude.
+  const neograniceno = jeNeograniceno(pristup);
   const naplataPala = pretplata?.status === "past_due";
   // [S30, §2.3] Isti izvor uzroka kao baner u okviru aplikacije.
   const uzrok = uzrokGrace(pristup, pretplata);
@@ -109,7 +112,9 @@ export function PretplataBlok({
               </>
             ) : (
               <>
-                <span className="text-lg font-semibold tracking-tight">{imePlana(plan)}</span>
+                <span className="text-lg font-semibold tracking-tight">
+                  {neograniceno ? "Admin nalog" : imePlana(plan)}
+                </span>
                 {ciklus && <span className="text-sm text-fg-muted">· {ciklus}</span>}
               </>
             )}
@@ -123,19 +128,21 @@ export function PretplataBlok({
             šta nalog SME: dopunu, ili plan koji dopunu otključava. Sve ostalo
             je sekundarno — i „Aktiviraj odmah", iako naplaćuje. */}
         <div className="flex shrink-0 flex-wrap items-start gap-2">
-          <Button asChild variant="primary">
-            <Link href={smePaket ? "/cenovnik#paketi" : "/cenovnik"}>
-              {smePaket ? "Dokupi kredite" : "Pogledaj planove"}
-              <ArrowRight aria-hidden />
-            </Link>
-          </Button>
+          {!neograniceno && (
+            <Button asChild variant="primary">
+              <Link href={smePaket ? "/cenovnik#paketi" : "/cenovnik"}>
+                {smePaket ? "Dokupi kredite" : "Pogledaj planove"}
+                <ArrowRight aria-hidden />
+              </Link>
+            </Button>
+          )}
           {pristup?.stanje === "proba" && aktivacija && <AktivirajOdmah aktivacija={aktivacija} />}
           {imaStripeKupca ? (
             <PortalDugme>{pretplata ? "Upravljaj pretplatom" : "Računi i kartica"}</PortalDugme>
           ) : (
             // Bez Stripe kupca portal nema šta da otvori. Drugi „Pogledaj
             // planove" stoji samo kad primarno dugme nudi nešto drugo.
-            smePaket && (
+            smePaket && !neograniceno && (
               <Button asChild variant="secondary">
                 <Link href="/cenovnik">Pogledaj planove</Link>
               </Button>
@@ -194,12 +201,12 @@ export function PretplataBlok({
             {uzrok === "besplatni" ? (
               // [S30, §1.12] Posle oba kredita dobrodošlice.
               <>
-                <span className="font-medium">Besplatni krediti su potrošeni.</span>{" "}
+                <span className="font-medium">Nemaš više kredita.</span>{" "}
                 <span className="text-fg-muted">
                   {pristup.citanjeDo && (
                     <>
-                      Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da
-                      otvaraš svoj prospekt, poruku i pipeline.{" "}
+                      Liste i prospekti koje si već otvorio ostaju ti do{" "}
+                      <span className="num">{formatDatum(pristup.citanjeDo)}</span>.{" "}
                     </>
                   )}
                   Za nove liste i otključavanja treba plan — {TRIAL_DAYS} dana probe, kartica se
@@ -357,6 +364,11 @@ function Recenica({
         <>
           Komp pristup do <span className="num">{formatDatum(pristup.punDo)}</span>. Do tada radi
           sve; posle toga imaš još mesec dana da izvezeš svoj rad.
+        </>
+      ) : pristup.admin ? (
+        <>
+          Skeniranje i otključavanje ne troše kredite. Dnevni limiti su kao na Advanced planu, a
+          Google budžet važi i dalje.
         </>
       ) : (
         <>Komp pristup, neograničeno. Krediti stižu svakog meseca dok komp traje.</>

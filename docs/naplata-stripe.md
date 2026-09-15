@@ -1343,9 +1343,25 @@ if (!["subscription_create", "subscription_cycle", "subscription_update"].includ
 // Proba: prva faktura je 0 €, billing_reason = subscription_create — NE dodeljuje plan kredite;
 // proba ima svojih 10 iz TRIAL_STARTED. Dodela plana stiže osmog dana kao subscription_cycle.
 if (inv.billing_reason === "subscription_create" && inv.amount_due === 0 && !gratisMesec(inv)) return { ok: true, radnja: "proba počela, bez dodele" };
-const plan = planIzFakture(inv);   // lines[0].price.lookup_key → kupovinaZaLookupKey
+const plan = await planIzFakture(inv, s);   // stavke fakture → cena → lookup_key → kupovinaZaLookupKey
+if (!plan) return { ok: true, radnja: "preskočeno:faktura van kataloga" };   // + console.warn
 await s.primeniFakturu({ userId, invoiceId: inv.id, target: PLANS[plan].monthlyCredits });
 ```
+
+`target` se računa **isključivo iz stavki same fakture** — nikad iz `profiles.plan`, `subscriptions.plan`
+ni metapodataka pretplate. Kod downgrade-a na kraju perioda Stripe pravi subscription schedule, pa
+`invoice.paid` (`subscription_cycle`, već po novoj ceni) i `customer.subscription.updated` (novi
+`lookup_key`) stižu van reda; ako faktura stigne prva, ogledalo još drži stari plan i korisnik bi
+platio Starter a dobio Pro kredite. Metapodaci su snimak iz checkout-a i portal ih ne menja.
+
+- Na `2026-08-26.dahlia` stavka **nema `price`** — nosi `pricing.price_details.price` kao goli
+  `price_…` ID (webhook ne proširuje). `lookup_key` i `recurring` se čitaju sa cene
+  (`prices.retrieve`, `NaplataSkladiste.ceneStavki`); pad tog poziva je 500 i Stripe ponavlja.
+- Uzima se stavka sa **ponavljajućom cenom iz našeg kataloga**. Proracija (upgrade) daje stavke
+  obe cene — negativnu za neiskorišćen stari plan i pozitivnu za novi — pa se prvo traži redovna
+  stavka (`parent.subscription_item_details.proration = false`), a ako je nema, pozitivna
+  proraciona. Dva različita plana na istom nivou → `preskočeno`.
+- `subscription_schedule.*` se ne prima; `preskočeno` je ispravno ponašanje za njih.
 
 `gratisMesec(inv)` = `inv.discount?.coupon?.id === STRIPE_COUPON_FIRST_MONTH` ili `inv.total_discount_amounts.length > 0` — gratis mesec ima `amount_due = 0` ali **jeste** plaćen period i dobija kredite.
 
@@ -1353,7 +1369,7 @@ await s.primeniFakturu({ userId, invoiceId: inv.id, target: PLANS[plan].monthlyC
 
 - **Gruba brana**: `billing_events.event_id = evt_…`, pre obrade (postojeće).
 - **Fina brana**: `credit_ledger` ref: `in_…` za mesečnu dodelu, `pi_…` za paket, `trial:<user>` za probu, `expire:<sub>` za pražnjenje. Dupla isporuka bilo kog događaja ne dodeljuje dvaput ni kad gruba brana zakaže.
-- **Van reda**: Stripe ne garantuje redosled. Tipičan slučaj: `customer.subscription.created` stigne pre `checkout.session.completed`, ili `subscription.updated` (trialing→active) pre `invoice.paid`. Rešenja: (1) korisnik se nalazi iz metapodataka koje NOSI SVAKI događaj, pa nijedan ne zavisi od prethodnog; (2) `apply_subscription` odbija događaj sa `event.created` starijim od poslednjeg primenjenog (`stale_ignored`); (3) `invoice.paid` ne zavisi od reda u `subscriptions` — traži korisnika i preko `customer`; (4) `checkout.session.completed` za pretplatu ne radi ništa novčano.
+- **Van reda**: Stripe ne garantuje redosled. Tipičan slučaj: `customer.subscription.created` stigne pre `checkout.session.completed`, ili `subscription.updated` (trialing→active) pre `invoice.paid`. Rešenja: (1) korisnik se nalazi iz metapodataka koje NOSI SVAKI događaj, pa nijedan ne zavisi od prethodnog; (2) `apply_subscription` odbija događaj sa `event.created` starijim od poslednjeg primenjenog (`stale_ignored`); (3) `invoice.paid` ne zavisi od reda u `subscriptions` — traži korisnika i preko `customer`, a plan (`target`) čita sa stavke fakture, nikad iz `profiles.plan` (§6.3; downgrade kroz schedule šalje fakturu po novoj ceni pre `subscription.updated`); (4) `checkout.session.completed` za pretplatu ne radi ništa novčano.
 - **`expire_subscription_credits` samo na `deleted`**, nikad na `updated` sa `canceled` — Stripe šalje `deleted` tačno jednom, na kraju perioda.
 
 ---

@@ -10,13 +10,21 @@
 // ograničenja) proverava `pnpm check:sql` nad pravom migracijom — ovde bi bilo
 // lažno dvaput.
 //
-// Dve metode koje u produkciji zovu Stripe (`otisakKartice`,
-// `naplatiProbuOdmah`) ovde su upravljive iz testa: `otisci` mapa i
-// `probaNaplacena` brojač.
+// Metode koje u produkciji zovu Stripe (`otisakKartice`, `naplatiProbuOdmah`)
+// ovde su upravljive iz testa: `otisci` mapa i `probaNaplacena` brojač.
+// `ceneStavki` razrešava izmišljene ID-jeve `cenaId(lookup_key)` iz kataloga.
 
-import type { NaplataSkladiste, OtisakPretplate } from "../src/lib/billing";
+import { kupovinaZaLookupKey } from "@sajtoskop/shared";
+import type { CenaStavke, NaplataSkladiste, OtisakPretplate } from "../src/lib/billing";
 
 export const KORISNIK = "user_test_1";
+
+const CENA_PREFIKS = "price_test_";
+
+/** Izmišljen `price_…` ID za cenu sa datim `lookup_key` — ono što stavka fakture nosi. */
+export function cenaId(lookupKey: string): string {
+  return `${CENA_PREFIKS}${lookupKey}`;
+}
 
 export type Knjiga = { userId: string; delta: number; reason: string; refId: string | null };
 
@@ -100,9 +108,16 @@ export function napraviLazno(): Lazno {
     async korisnikPoKupcu(id) {
       return profil.customerId === id ? KORISNIK : null;
     },
-    async planPoPretplati(id) {
-      const p = pretplate.get(id)?.plan;
-      return p === "starter" || p === "pro" || p === "advanced" ? p : null;
+    async ceneStavki(ids) {
+      // Kao `prices.retrieve`: `cenaId(lookup_key)` je cena iz kataloga, paketi
+      // nisu ponavljajući. Nepoznat ID nema cenu u mapi.
+      const mapa = new Map<string, CenaStavke>();
+      for (const id of ids) {
+        const kljuc = id.startsWith(CENA_PREFIKS) ? id.slice(CENA_PREFIKS.length) : null;
+        const k = kupovinaZaLookupKey(kljuc);
+        if (k) mapa.set(id, { lookupKey: k.lookupKey, recurring: k.kind === "subscription" });
+      }
+      return mapa;
     },
     async primeniPretplatu(a) {
       // §6.4: stariji `event.created` posle novijeg se ignoriše.

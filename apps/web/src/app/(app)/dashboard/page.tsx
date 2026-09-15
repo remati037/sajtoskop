@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Coins, Gauge, KanbanSquare, ListChecks, Newspaper, Radar, Search } from "lucide-react";
-import { planFor } from "@sajtoskop/shared";
+import { jeNeograniceno, planFor } from "@sajtoskop/shared";
 import { requireSession } from "@/lib/auth";
 import { zahtevajOnboarding } from "@/lib/onboarding";
 import { zahtevajCitanje } from "@/lib/pristup";
@@ -99,6 +99,8 @@ export default async function Page({
     }),
   ]);
   const plan = planFor(profile?.plan);
+  // [0029] Admin: broj kredita i ime plana ništa ne znače — krediti se ne troše.
+  const neograniceno = jeNeograniceno(pristup);
 
   // [S30, §1.8] Treća linija: nov nalog sa pristupom ide u čarobnjak.
   //
@@ -131,17 +133,22 @@ export default async function Page({
               traka stajala na nuli i nad punim novčanikom kupljenih kredita. */}
           <StatKartica
             naslov="Krediti"
-            vrednost={String(profile.credits_balance + profile.credits_topup)}
+            vrednost={
+              neograniceno ? "Neograničeno" : String(profile.credits_balance + profile.credits_topup)
+            }
             podnaslov={
-              profile.credits_topup > 0
-                ? `${profile.credits_balance} iz pretplate · ${profile.credits_topup} dokupljeno`
-                : plan.monthlyCredits > 0
-                  ? `od ${plan.monthlyCredits} mesečno`
-                  : "bez mesečne dodele"
+              neograniceno
+                ? "admin nalog, krediti se ne troše"
+                : profile.credits_topup > 0
+                  ? `${profile.credits_balance} iz pretplate · ${profile.credits_topup} dokupljeno`
+                  : plan.monthlyCredits > 0
+                    ? `od ${plan.monthlyCredits} mesečno`
+                    : "bez mesečne dodele"
             }
             ikona={<Coins />}
+            num={!neograniceno}
             odUkupno={
-              plan.monthlyCredits > 0
+              !neograniceno && plan.monthlyCredits > 0
                 ? [profile.credits_balance, plan.monthlyCredits]
                 : undefined
             }
@@ -151,8 +158,14 @@ export default async function Page({
               S21 bio zakucan na „beta" — tačno dok su svi nalozi bili beta. */}
           <StatKartica
             naslov="Plan"
-            vrednost={imePlana(profile.plan)}
-            podnaslov={pristup ? PODNASLOV_STANJA[pristup.stanje] : "stanje se ne čita"}
+            vrednost={neograniceno ? "Admin" : imePlana(profile.plan)}
+            podnaslov={
+              neograniceno
+                ? "pun pristup, Advanced limiti"
+                : pristup
+                  ? PODNASLOV_STANJA[pristup.stanje]
+                  : "stanje se ne čita"
+            }
             ikona={<Gauge />}
             num={false}
           />

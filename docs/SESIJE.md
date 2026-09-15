@@ -39,6 +39,7 @@ sledeću sesiju.
 | — | *Izmena posle S22: dva domena, onboarding kao faza, O1* | `LANSIRANJE.md` §1.7, §1.8 | — | — | ☑ |
 | S29 | Feedback: NPS, „Fali", citat, prijava greške | `tok-i-onboarding.md` §5 | `0027` | 1 dan | ☑ |
 | S30 | Onboarding + kartica prospekta (dovršava S28) | `tok-i-onboarding.md` §4, §7 | `0028` | 1,5 dana | ☑ (kod) · ručni prolaz ☐ |
+| — | *Popravka posle S30: admin bez kredita, lista posle poslednjeg kredita* | prijava iz upotrebe | `0029` | — | ☑ (kod) · ručni prolaz ☐ |
 
 **Zašto ovaj redosled:** S1 i S2 počinju da skupljaju podatke odmah i ne zavise ni od jednog
 admin ekrana. S6 i S7 zavise — status prijave nema gde da se postavi bez konzole. Dakle:
@@ -3267,7 +3268,8 @@ manje stranica (§14.4); dnevni limit AI varijanti se sprovodi (B1, `claim_ai_re
 - **Delimičan povraćaj ide posle registra i posle grane za prazan rezultat**, ne odmah posle
   `collectAndUpsert` kako prompt kaže — razlog gore (idempotencija `refund_scan`).
 - **`NaplataSkladiste` ima dve metode više od §6.3:** `planPoPretplati` (rezerva za plan kad
-  faktura ne nosi `lookup_key` u metapodacima) i `otisakKartice`/`naplatiProbuOdmah` (jedina dva
+  faktura ne nosi `lookup_key` u metapodacima — **uklonjeno 15. 9. 2026**, v. „Popravka posle
+  S30 — plan za `invoice.paid` sa fakture") i `otisakKartice`/`naplatiProbuOdmah` (jedina dva
   Stripe poziva u obradi, izmešteni iz `billing.ts` da test ostane bez mreže).
 - **`opcije.kuponPrvogMeseca`** se prosleđuje u `obradiDogadjaj` iz rute umesto da `billing.ts`
   čita env — isti razlog.
@@ -4015,3 +4017,76 @@ pogodi nula redova, pa `check:sql` to nije video.
 - Ostala dva koraka `0025` koja dodiruju postojeće redove su provereni i bezbedni: novi
   `credit_ledger_reason_valid` je nadskup liste iz `0024`, a indeks idempotencije dobija samo
   razloge bez postojećih redova (`trial_grant`, `komp_grant`, `expire`).
+
+
+### Popravka posle S30 — admin bez kredita, lista koja nestaje posle poslednjeg kredita
+
+**15. septembra 2026.** Tri prijave iz upotrebe, jedna isporuka.
+
+1. **Admin ima neograničene kredite.** `0029`: `spend_credit_and_unlock` i `spend_credit_and_scan`
+   za `profiles.role = 'admin'` ne proveravaju i ne skidaju kredite i ne pišu knjigu (nula ne sme
+   u `credit_ledger`); `unlocks`, `search_access` i posao nastaju isto kao za platioca. Vraća se
+   `charged = true, cost = 0`, da ruta ne vrati dnevnu rezervaciju — dnevni osigurač (Advanced,
+   120) i Places budžet važe i za admina (odluka). `zivPlacenPosao` za admina prepoznaje posao po
+   `search_access.job_id`. Samo uloga iz baze, ne `ADMIN_BOOTSTRAP_IDS` — SQL env ne vidi.
+2. **Admin ne vidi „nemaš plan" ni „kupi".** `ProfilZaPristup.admin` → grana 0 u
+   `stanjePristupa()`: `komp` bez roka, sa `admin: true`; `jeNeograniceno()` u shared paketu.
+   Nema banera ni modala; bočna traka i čip u zaglavlju pokazuju ∞; dugmad i modal skeniranja su
+   bez cene; kartica otključava bez potvrde; `/krediti` i dashboard bez ponude plana i paketa.
+3. **Poslednji kredit više ne briše listu.** Uzrok: naplata prebaci nalog iz `dopuna` u `grace`,
+   `router.refresh()` ponovo crta `/pretraga`, strana je formu ZAMENJIVALA praznim stanjem, a
+   `/api/search` je odbijao i već plaćen pristup (`403`). Kartica prospekta otključanog poslednjim
+   kreditom je posle analize padala u „Analiza nije stigla", jer je `/api/unlock` odbijao i
+   ponovno čitanje. Sada:
+   - `/api/search` bez punog pristupa servira plaćen pristup i plaćen posao u toku; `pay` i sve
+     neplaćeno → `403` kao pre. `/api/search/kes` ide kroz `odbijenicaCitanja`.
+   - `/api/unlock` bez punog pristupa pušta već otključan prospekt, bez `ponovi`.
+   - `/pretraga` crta isti `PretragaEkran` sa `samoCitanje` (tekst po uzroku): plaćeno se otvara,
+     lista i filtrira; neplaćeno ne otvara modal; „Osveži" i „Skeniraj ponovo" su skriveni.
+   - Baner, modal, `/krediti` i odbijenica kažu **„Nemaš više kredita"** i do kad ostaje ono što
+     je otvoreno, uz jedan link „Pogledaj planove" (odluka). Modal ima i „U redu". Kartica bez
+     kredita otvara modal „Nemaš kredita" i u grace-u, umesto tihog skoka na cenovnik.
+   - Važi za sve uzroke grace-a, ne samo za besplatne kredite (odluka).
+
+**Razišlo se sa `tok-i-onboarding.md`:** tekstovi iz §1.12 i §4.7 („Besplatni krediti su
+potrošeni", „Probao si besplatno. Za dalje treba plan.", link „Počni probu") zamenjeni su gornjim;
+rečenica iz §2.3 „`/pretraga` crta objašnjenje umesto forme" više ne važi.
+
+**Ostaje na meni:**
+
+- [ ] Primeniti `0029` na Supabase pre deploya.
+- [ ] Proveriti da moj nalog ima `profiles.role = 'admin'` u bazi — nalog koji je admin samo po
+      `ADMIN_BOOTSTRAP_IDS` i dalje troši kredite.
+- [ ] Ručni prolaz: nov nalog → oba kredita na listu → lista ostaje, baner i modal „Nemaš više
+      kredita", listanje i filteri rade, neplaćena kombinacija ne nudi modal; admin → skeniranje i
+      otključavanje bez promene balansa. Obe teme, 390 px.
+
+### Popravka posle S30 — plan za `invoice.paid` sa fakture
+
+**15. septembra 2026.** `target` mesečne dodele se više ne čita iz metapodataka pretplate ni iz
+`subscriptions.plan`, nego isključivo sa stavki same fakture (`billing.ts` → `planIzFakture`).
+
+- **Zašto:** downgrade na kraju perioda ide kroz subscription schedule, pa `invoice.paid`
+  (`subscription_cycle`, već po novoj ceni) i `subscription.updated` stižu van reda. Metapodaci su
+  snimak iz checkout-a (portal ih ne menja), a ogledalo kasni → Starter plaćen, Pro krediti dati.
+- **Razišlo se sa zahtevom:** traženo je `inv.lines.data[0]?.price?.lookup_key`. Na pinovanoj
+  `2026-08-26.dahlia` stavka fakture nema `price` — samo `pricing.price_details.price` kao goli
+  `price_…` ID, bez `lookup_key` i `recurring`. Doslovno bi svaka faktura bila `preskočeno`.
+  Zato `NaplataSkladiste.planPoPretplati` (baza) → `ceneStavki(priceIds)` (`prices.retrieve`);
+  pad je 500 i Stripe ponavlja.
+- **Izbor stavke:** ponavljajuća cena iz kataloga; prvo redovna stavka, pa tek pozitivna
+  proraciona (`always_invoice` upgrade nema redovnu). Proracione stavke NOSE cenu plana (i starog,
+  sa negativnim iznosom), pa `recurring != null` sam nije dovoljan. Dva plana → `preskočeno`.
+- Faktura bez prepoznatog plana: `console.warn` + `{ ok: true, radnja: "preskočeno:…" }`, 200
+  (ranije `ok: false`). `subscription_schedule.*` se i dalje ne prima.
+- `test/naplata.ts`: fiksture faktura dobile stavke u obliku `dahlia`; novi scenariji downgrade
+  (`profiles.plan = pro`, faktura `starter_month` → 150), obrnut redosled = normalan, upgrade sa
+  proracijom, faktura van kataloga, `subscription_schedule.updated`.
+
+**Ostaje na meni:**
+
+- [ ] Ručni prolaz §12 #6 (downgrade Pro → Starter, test clock do obnove) — balans 150 i kad
+      `invoice.paid` stigne pre `subscription.updated`.
+- [ ] Promena cene sa `transfer_lookup_key` (§14): stara cena ostaje bez `lookup_key`, pa bi
+      fakture postojećih pretplatnika na staroj ceni bile `preskočeno`. Pre prve promene cene
+      rešiti (npr. `price.metadata.plan` kao rezerva).

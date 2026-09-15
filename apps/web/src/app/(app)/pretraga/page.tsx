@@ -7,30 +7,25 @@
 // klijentskom bundle-u.
 
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Lock } from "lucide-react";
 import {
   CITIES,
   CITY_SLUGS,
+  jeNeograniceno,
   NICHE_SLUGS,
   NICHES,
   nichePriority,
-  TRIAL_CREDITS,
-  TRIAL_DAYS,
   uzrokGrace,
   type NicheGroup,
 } from "@sajtoskop/shared";
 import { requireSession, requireUserId } from "@/lib/auth";
-import { PretragaEkran } from "@/components/pretraga-ekran";
+import { PretragaEkran, type SamoCitanje } from "@/components/pretraga-ekran";
 import type { ComboGroup } from "@/components/combobox";
-import { Button } from "@/components/ui/button";
-import { PortalDugme } from "@/components/portal-dugme";
-import { PraznoStanje, ZaglavljeStranice } from "@/components/ui/stranica";
+import { ZaglavljeStranice } from "@/components/ui/stranica";
 import { zahtevajOnboarding } from "@/lib/onboarding";
 import { zahtevajCitanje } from "@/lib/pristup";
 import { listaKesa } from "@/lib/search-cache";
 import type { KesStavka } from "@/lib/search-types";
-import { formatDatum, GROUP_LABEL, redniDan } from "@/lib/ui-tekst";
+import { formatDatum, GROUP_LABEL } from "@/lib/ui-tekst";
 
 export const dynamic = "force-dynamic";
 
@@ -49,95 +44,51 @@ export default async function Page() {
   // [S30, §1.8] Treća linija: nov nalog sa pristupom ide u čarobnjak.
   zahtevajOnboarding(profile, pristup);
 
-  // Ovo je JEDINI ekran na kome se troše krediti — i pretraga, i skeniranje, i
-  // otključavanje su ovde. Zato je i jedini na kome `grace` menja sadržaj: forma
-  // se ne crta onemogućena, nego zamenjuje objašnjenjem. Onemogućen combobox uz
-  // onemogućeno dugme uz onemogućen prekidač dubine je tri mrtve kontrole i
-  // nijedna rečenica o tome zašto.
+  // ── nalog bez punog pristupa (`grace`) ──────────────────────
+  // Do posle S30 je ovde forma bila ZAMENJENA objašnjenjem. U praksi je to
+  // brisalo listu koju je čovek upravo platio: poslednji kredit prebaci nalog u
+  // `grace`, `router.refresh()` posle naplate ponovo crta ovu stranu, i ekran sa
+  // rezultatima nestane u sekundi u kojoj su stigli.
   //
-  // Server svejedno odbija svaki zahtev (v. `odbijenica()` u `/api/search` i
-  // `/api/unlock`) — ovo je objašnjenje, ne zaštita.
+  // Sada ekran ostaje isti — i to doslovno isti element, da React ne izgubi
+  // stanje liste pri osvežavanju — samo u režimu „samo plaćeno": plaćene liste
+  // se otvaraju, listaju i filtriraju; ništa novo se ne nudi. Server to isto
+  // brani sam (`/api/search`, `/api/unlock`); ovo je objašnjenje, ne zaštita.
+  // Tekst po uzroku (§2.3) računa se ovde, jer uzrok traži pretplatu.
+  let samoCitanje: SamoCitanje | null = null;
   if (pristup && !pristup.pun) {
-    // [S30, §2.3] Tri uzroka istog stanja, tri praznih stanja (§4.7, §2.2).
     const uzrok = uzrokGrace(pristup, pretplata);
-
-    return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <ZaglavljeStranice naslov="Pretraga prospekata" />
-
-        {uzrok === "besplatni" ? (
-          <PraznoStanje
-            ikona={<Lock aria-hidden />}
-            naslov="Probao si besplatno. Za dalje treba plan."
-            opis={
-              <>
-                Lista i prospekt koje si otvorio čekaju te na „Moja lista“
-                {pristup.citanjeDo && (
-                  <>
-                    {" "}
-                    do <span className="num">{formatDatum(pristup.citanjeDo)}</span>
-                  </>
-                )}
-                . Plan počinje sa {TRIAL_DAYS} dana probe i {TRIAL_CREDITS} kredita; kartica se
-                naplaćuje tek {redniDan(TRIAL_DAYS + 1)} dana.
-              </>
-            }
-          >
-            <Button asChild variant="primary">
-              <Link href="/cenovnik?plan=pro&ciklus=mesecno">Počni probu · {TRIAL_DAYS} dana</Link>
-            </Button>
-          </PraznoStanje>
-        ) : uzrok === "naplata" ? (
-          // §2.2: „/pretraga prazno stanje sa istim tekstom" kao baner.
-          <PraznoStanje
-            ikona={<Lock aria-hidden />}
-            naslov="Naplata nije prošla."
-            opis={
-              <>
-                {pristup.punDo && (
-                  <>
-                    Kartica je odbijena <span className="num">{formatDatum(pristup.punDo)}</span>.{" "}
-                  </>
-                )}
-                Ažuriraj karticu i plan se nastavlja
-                {pristup.citanjeDo ? (
-                  <>
-                    ; do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da
-                    čitaš svoje prospekte.
-                  </>
-                ) : (
-                  "."
-                )}
-              </>
-            }
-          >
-            <PortalDugme>Ažuriraj karticu</PortalDugme>
-          </PraznoStanje>
-        ) : (
-          <PraznoStanje
-            ikona={<Lock aria-hidden />}
-            naslov="Pretraga i skeniranje su stali"
-            opis={
-              pristup.stanje === "grace" && pristup.punDo ? (
-                <>
-                  Pristup ti je istekao{" "}
-                  <span className="num">{formatDatum(pristup.punDo)}</span>. Do{" "}
-                  <span className="num">{formatDatum(pristup.citanjeDo)}</span> tvoji prospekti,
-                  pipeline i oba izvoza rade normalno — pretraga, skeniranje i otključavanje ne.
-                </>
-              ) : (
-                "Nalog trenutno nema pristup pretrazi. Otključani prospekti i pipeline su netaknuti."
-              )
-            }
-          >
-            {/* §4.7: jedno dugme. Paket se u grace-u ne kupuje (§2.3). */}
-            <Button asChild variant="primary">
-              <Link href="/cenovnik">Uzmi plan</Link>
-            </Button>
-          </PraznoStanje>
-        )}
-      </div>
+    const ostaje = (
+      <>
+        Liste koje si već platio otvaraš i dalje
+        {pristup.citanjeDo && (
+          <>
+            {" "}
+            do <span className="num">{formatDatum(pristup.citanjeDo)}</span>
+          </>
+        )}{" "}
+        — izaberi ih iz liste ispod.
+      </>
     );
+
+    samoCitanje =
+      uzrok === "besplatni"
+        ? {
+            naslov: "Nemaš više kredita",
+            opis: <>Nove pretrage i otključavanja ne rade. {ostaje}</>,
+            cta: { href: "/cenovnik", label: "Pogledaj planove" },
+          }
+        : uzrok === "naplata"
+          ? {
+              naslov: "Naplata nije prošla",
+              opis: <>Nove pretrage i otključavanja ne rade dok ne ažuriraš karticu. {ostaje}</>,
+              cta: { href: "/krediti", label: "Ažuriraj karticu" },
+            }
+          : {
+              naslov: "Pristup je istekao",
+              opis: <>Nove pretrage i otključavanja ne rade dok ne uzmeš plan. {ostaje}</>,
+              cta: { href: "/cenovnik", label: "Uzmi plan" },
+            };
   }
 
   // Registar keša ide u prvi render, a ne u zahtev iz pregledača: cena mora da
@@ -203,6 +154,9 @@ export default async function Page() {
         // balans značilo bi da modal kaže „nemaš dovoljno" čoveku koji ima
         // kupljen paket — a server bi mu isto skeniranje mirno naplatio.
         pocetniKrediti={(profile?.credits_balance ?? 0) + (profile?.credits_topup ?? 0)}
+        // [0029] Admin: dugmad bez cene, bez „nemaš dovoljno".
+        neograniceno={jeNeograniceno(pristup)}
+        samoCitanje={samoCitanje}
         podrazumevaniGrad={podrazumevaniGrad}
         podrazumevanaNisa={podrazumevanaNisa}
       />

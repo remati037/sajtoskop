@@ -11,8 +11,10 @@
 // Svaka provera koja može da odbije zahtev stoji PRE naplate, i nijedna posle:
 //
 //   1. `requireUserId()`         — bez sesije nema ničega (pravilo 8)
-//   1a. `odbijenica()`           — [S19] istekao pristup: ni keš
+//   1a. `odbijenica()`           — [S19] bez punog pristupa: `pay` odmah pada
 //   2. registar keša + pristup   — plaćen pristup nad svežim kešom → lista, 0 kredita
+//                                  (i bez punog pristupa: plaćeno je plaćeno)
+//   2a. `odbijenica()`           — bez punog pristupa i bez plaćenog: kraj
 //   3. `pay !== true`            — cena se vraća klijentu, kredit se ne dira
 //   4. pre-flight budžet         — SAMO kad će biti Places poziva (keš ga nema)
 //   5. `claim_cache_miss`        — dnevni osigurač po planu, isto samo za Places
@@ -141,12 +143,21 @@ export async function POST(req: Request): Promise<Response> {
 
   const { city, niche, filters, page, pay, force, dubina } = parsed.data;
 
-  // [S19] Kapija pristupa, pre svega ostalog i pre ijednog upita o kešu.
-  // Odbija se i pretraga po kešu, ne samo skeniranje: §1.5 daje `grace` nalogu
-  // „samo čitanje postojećih prospekata", a pretraga je pronalaženje novih.
+  // [S19] Kapija pristupa. Nalog bez punog pristupa (`grace`: potrošeni
+  // besplatni krediti, istekla pretplata, pala kartica) ne sme ništa NOVO — ni
+  // skeniranje, ni pristup kešu koji nije platio (§1.5).
+  //
+  // [posle S30] Ali ono što JE platio vidi do isteka tog pristupa. Do ove izmene
+  // je kapija ovde odbijala sve, pa je čovek koji je poslednjim kreditom platio
+  // listu gledao kako mu ona nestaje na prvom `router.refresh()` — stanje je
+  // prešlo u `grace` u istoj naplati. Zato `pay` pada odmah, a čitanje tek kad
+  // se ispostavi da plaćenog nema (v. `samoPlaceno` niže).
   const { pristup, profile, pretplata } = await citajPristup();
-  const odbijen = odbijenica(pristup, pay ? "skeniranje" : "pretraga", pretplata);
-  if (odbijen) return odbijen;
+  const samoPlaceno = pristup !== null && !pristup.pun;
+  if (samoPlaceno && pay) {
+    const odbijen = odbijenica(pristup, "skeniranje", pretplata);
+    if (odbijen) return odbijen;
+  }
 
   const kontekst: Kontekst = { userId, profile, pristup };
 
@@ -199,6 +210,13 @@ export async function POST(req: Request): Promise<Response> {
       };
 
       return NextResponse.json(await saOnboardingom(body, kontekst, false), { headers: HEADERS });
+    }
+
+    // Ni plaćen pristup ni plaćen posao u toku. Za nalog bez punog pristupa je
+    // ovde kraj: cena koja sledi bila bi ponuda koju ne sme da prihvati.
+    if (samoPlaceno) {
+      const odbijen = odbijenica(pristup, "pretraga", pretplata);
+      if (odbijen) return odbijen;
     }
 
     // ── scan koji je završio a nije se registrovao ───────────

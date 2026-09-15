@@ -29,12 +29,14 @@
 // iz kog `spend_credit_and_scan` izvodi naplatu. Server tu odluku ponovo
 // proverava i on je poslednja reč; ovo je samo da korisnik unapred vidi cenu.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Lock,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -76,6 +78,17 @@ import {
 } from "@/lib/search-types";
 import { daniDo, formatDatum, formatDatumKratko, plural, summaryLine } from "@/lib/ui-tekst";
 
+/**
+ * [posle S30] Nalog bez punog pristupa (`grace`): plaćene liste da, ništa novo.
+ * Tekst po uzroku (§2.3) računa strana — uzrok traži pretplatu, a ona ne ide
+ * u pregledač.
+ */
+export type SamoCitanje = {
+  naslov: string;
+  opis: ReactNode;
+  cta: { href: string; label: string };
+};
+
 type Props = {
   cities: ComboGroup[];
   niches: ComboGroup[];
@@ -88,6 +101,10 @@ type Props = {
   /** [S30, §4.2] Grad i niša iz čarobnjaka — podrazumevana forma, bez pretrage. */
   podrazumevaniGrad?: string | null;
   podrazumevanaNisa?: string | null;
+  /** [0029] Admin: skeniranje i otključavanje ne troše kredite. */
+  neograniceno?: boolean;
+  /** [posle S30] Bez punog pristupa: otvara se samo plaćeno. `null` = pun pristup. */
+  samoCitanje?: SamoCitanje | null;
 };
 
 /** Id combobox-a niše — „Probaj drugu nišu" iz praznog stanja stavlja fokus ovde (§4.7). */
@@ -181,6 +198,8 @@ export function PretragaEkran({
   pocetniKrediti,
   podrazumevaniGrad = null,
   podrazumevanaNisa = null,
+  neograniceno = false,
+  samoCitanje = null,
 }: Props) {
   const router = useRouter();
   const onboarding = useOnboarding();
@@ -225,6 +244,13 @@ export function PretragaEkran({
 
   useEffect(() => setKes(pocetniKes), [pocetniKes]);
   useEffect(() => setKrediti(pocetniKrediti), [pocetniKrediti]);
+
+  /**
+   * Sme li ovaj nalog da plati `cost` — jedno pitanje za svako dugme koje troši.
+   * Bez punog pristupa nikad (server ionako odbija), admin uvek (0029), svi
+   * ostali kad kredita ima dovoljno.
+   */
+  const mozeZa = (cost: number) => !samoCitanje && (neograniceno || krediti >= cost);
 
   // [Faza 4, 4.3] Deljiv link: na puno učitavanje stanje se čita iz URL-a i
   // pretraga se pokreće bez modalnih prozora (plaćena kombinacija samo pokaže
@@ -519,7 +545,11 @@ export function PretragaEkran({
         const skinuto = odgovor.cost ?? cenaDubine(z.dubina);
         const izKesa = odgovor.status === "cache";
         setObavestenje(
-          `Skinuto je ${skinuto} ${plural(skinuto, "kredit", "kredita", "kredita")} za ` +
+          neograniceno
+            ? izKesa
+              ? "Lista je otvorena — admin nalog ne troši kredite."
+              : "Skeniranje je pokrenuto — admin nalog ne troši kredite."
+            : `Skinuto je ${skinuto} ${plural(skinuto, "kredit", "kredita", "kredita")} za ` +
             (izKesa
               ? `pristup iz keša (${DUBINA_OPIS[z.dubina].labela.toLowerCase()}). Lista je odmah tu, 30 dana bez daljih kredita.`
               : `${DUBINA_OPIS[z.dubina].labela.toLowerCase()} skeniranje.`) +
@@ -719,6 +749,9 @@ export function PretragaEkran({
       return;
     }
 
+    // Bez punog pristupa se neplaćeno ne nudi — traka cene kaže zašto.
+    if (samoCitanje) return;
+
     naplata.current = { city, niche, f, page, pay: true, dubina };
     setPredlog({
       razlog:
@@ -739,7 +772,7 @@ export function PretragaEkran({
 
   /** Tekstualno dugme „Osveži" nad kombinacijom koja je i dalje sveža. */
   function ponoviSkeniranje() {
-    if (!city || !niche) return;
+    if (!city || !niche || samoCitanje) return;
     const c = cenaZa(city, niche, dubina);
 
     setObavestenje(null);
@@ -791,6 +824,10 @@ export function PretragaEkran({
       void pretrazi({ city: c, niche: n, f: filters, page: 1, dubina: d });
       return;
     }
+
+    // Bez punog pristupa: grad i niša su izabrani, traka cene kaže da nije
+    // plaćeno — modal sa cenom se ne otvara.
+    if (samoCitanje) return;
 
     naplata.current = { city: c, niche: n, f: filters, page: 1, pay: true, dubina: d };
     setPredlog({
@@ -984,7 +1021,7 @@ export function PretragaEkran({
             // Dugme se gasi tek kad kredita nema za IZABRANU dubinu. Korisnik sa
             // 1 kreditom i „Duboko" nije bez izlaza — prekidač je odmah iznad.
             disabled={
-              ucitava || ceka || (cena !== null && cena.vrsta !== "pristup" && krediti < cena.cost)
+              ucitava || ceka || (cena !== null && cena.vrsta !== "pristup" && !mozeZa(cena.cost))
             }
           >
             <Search className="h-4 w-4" />
@@ -992,14 +1029,22 @@ export function PretragaEkran({
               ? "Tražim…"
               : cena === null || cena.vrsta === "pristup"
                 ? "Pretraži"
-                : `${cena.vrsta === "isteklo" ? "Osveži" : cena.vrsta === "kes" ? "Otvori" : "Skeniraj"} za ${cena.cost} ` +
-                  `${plural(cena.cost, "kredit", "kredita", "kredita")}`}
+                : `${cena.vrsta === "isteklo" ? "Osveži" : cena.vrsta === "kes" ? "Otvori" : "Skeniraj"}` +
+                  (neograniceno
+                    ? ""
+                    : ` za ${cena.cost} ${plural(cena.cost, "kredit", "kredita", "kredita")}`)}
           </Button>
         </form>
 
         <PrekidacDubine vrednost={dubina} promeni={promeniDubinu} disabled={ucitava || ceka} />
 
-        <TrakaCene cena={cena} krediti={krediti} dubina={dubina} />
+        <TrakaCene
+          cena={cena}
+          krediti={krediti}
+          dubina={dubina}
+          neograniceno={neograniceno}
+          samoCitanje={samoCitanje !== null}
+        />
       </Card>
 
       {/* [S29] „Fali" traka postoji na ekranu NAJVIŠE JEDNOM.
@@ -1062,7 +1107,18 @@ export function PretragaEkran({
       )}
 
       {/* [S30, §4.7] „Izaberi grad i nišu" — dok nijedna pretraga nije krenula. */}
-      {data === null && !ucitava && !ceka && !predugo && !greska && (
+      {data === null && !ucitava && !ceka && !predugo && !greska && samoCitanje && (
+        // [posle S30] Bez punog pristupa: umesto poziva na pretragu — zašto ne
+        // ide i gde je ono što je plaćeno. Dugme je `secondary`: primarno ovog
+        // ekrana je „Pretraži" (§7.1), koje i dalje otvara plaćene liste.
+        <PraznoStanje ikona={<Lock />} naslov={samoCitanje.naslov} opis={samoCitanje.opis}>
+          <Button asChild variant="secondary">
+            <Link href={samoCitanje.cta.href}>{samoCitanje.cta.label}</Link>
+          </Button>
+        </PraznoStanje>
+      )}
+
+      {data === null && !ucitava && !ceka && !predugo && !greska && !samoCitanje && (
         <PraznoStanje
           ikona={<Search />}
           naslov="Izaberi grad i nišu"
@@ -1156,18 +1212,26 @@ export function PretragaEkran({
                       Osveženo {formatDatum(data.freshness.scannedAt)} · pristup do{" "}
                       {formatDatumKratko(data.freshness.expiresAt)}
                     </span>
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="sm"
-                      className="h-auto p-0 text-xs"
-                      disabled={ucitava || ceka || krediti < cenaDubine(dubina)}
-                      onClick={ponoviSkeniranje}
-                    >
-                      <RefreshCw className="h-3 w-3" />
-                      Osveži za {cenaDubine(dubina)}{" "}
-                      {plural(cenaDubine(dubina), "kredit", "kredita", "kredita")}
-                    </Button>
+                    {!samoCitanje && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs"
+                        disabled={ucitava || ceka || !mozeZa(cenaDubine(dubina))}
+                        onClick={ponoviSkeniranje}
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        {neograniceno ? (
+                          "Osveži"
+                        ) : (
+                          <>
+                            Osveži za {cenaDubine(dubina)}{" "}
+                            {plural(cenaDubine(dubina), "kredit", "kredita", "kredita")}
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </p>
                 )}
               </div>
@@ -1238,18 +1302,24 @@ export function PretragaEkran({
       )}
 
       {/* Prazna kombinacija koja JESTE skenirana: izlaz je platiti novo skeniranje. */}
-      {imaRezultat && data?.emptyScan && !ceka && (
+      {imaRezultat && data?.emptyScan && !ceka && !samoCitanje && (
         <div className="flex justify-center">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={ucitava || krediti < cenaDubine(dubina)}
+            disabled={ucitava || !mozeZa(cenaDubine(dubina))}
             onClick={ponoviSkeniranje}
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Skeniraj ipak ponovo za {cenaDubine(dubina)}{" "}
-            {plural(cenaDubine(dubina), "kredit", "kredita", "kredita")}
+            {neograniceno ? (
+              "Skeniraj ipak ponovo"
+            ) : (
+              <>
+                Skeniraj ipak ponovo za {cenaDubine(dubina)}{" "}
+                {plural(cenaDubine(dubina), "kredit", "kredita", "kredita")}
+              </>
+            )}
           </Button>
         </div>
       )}
@@ -1267,6 +1337,7 @@ export function PretragaEkran({
 
       <SkeniranjeModal
         predlog={predlog}
+        neograniceno={neograniceno}
         ceka={ucitava}
         onPotvrdi={potvrdiSkeniranje}
         onOdustani={() => {
@@ -1372,10 +1443,16 @@ function TrakaCene({
   cena,
   krediti,
   dubina,
+  neograniceno = false,
+  samoCitanje = false,
 }: {
   cena: Cena | null;
   krediti: number;
   dubina: Dubina;
+  /** [0029] Admin: bez cene u kreditima i bez „nemaš dovoljno". */
+  neograniceno?: boolean;
+  /** [posle S30] Bez punog pristupa: neplaćeno se ne kupuje. */
+  samoCitanje?: boolean;
 }) {
   if (!cena) return null;
 
@@ -1396,20 +1473,40 @@ function TrakaCene({
     );
   }
 
-  const nemaKredita = krediti < cena.cost;
+  // [posle S30] Bez punog pristupa se neplaćeno ne kupuje — traka kaže to, a ne
+  // cenu koju nalog ionako ne sme da plati.
+  if (samoCitanje) {
+    return (
+      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-3 text-xs">
+        <span className="font-medium text-fg">Ova lista nije plaćena</span>
+        <span className="text-fg-muted">
+          Nove liste trenutno ne rade. Ono što si već platio otvara se i dalje.
+        </span>
+      </p>
+    );
+  }
+
+  const nemaKredita = !neograniceno && krediti < cena.cost;
   const uKreditima = `${cena.cost} ${plural(cena.cost, "kredit", "kredita", "kredita")}`;
+  // [0029] Admin ne vidi cenu u kreditima — vidi samo odakle podaci stižu.
+  const kosta = neograniceno ? "ide preko Google-a" : `košta ${uKreditima}`;
+  const imas = neograniceno
+    ? "Admin nalog — krediti se ne troše."
+    : `Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`;
 
   return (
     <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-3 text-xs">
       <span className={cn("font-medium", nemaKredita ? "text-danger" : cena.vrsta === "kes" ? "text-accent-text" : "text-warn-text")}>
         {cena.vrsta === "kes"
-          ? `Iz keša · ${uKreditima} · odmah`
+          ? neograniceno
+            ? "Iz keša · odmah"
+            : `Iz keša · ${uKreditima} · odmah`
           : cena.vrsta === "isteklo"
-            ? `Podaci su stariji od 30 dana — osvežavanje košta ${uKreditima}`
+            ? `Podaci su stariji od 30 dana — osvežavanje ${kosta}`
             : cena.vrsta === "plice"
               ? `U kešu je samo ${cena.kesiranaDubina} ${plural(cena.kesiranaDubina, "stranica", "stranice", "stranica")} — ` +
-                `${DUBINA_OPIS[dubina].labela.toLowerCase()} košta ${uKreditima}`
-              : `Nije u kešu — skeniranje košta ${uKreditima}`}
+                `${DUBINA_OPIS[dubina].labela.toLowerCase()} ${kosta}`
+              : `Nije u kešu — skeniranje ${kosta}`}
       </span>
       <span className="text-fg-muted num">
         {nemaKredita ? (
@@ -1423,13 +1520,15 @@ function TrakaCene({
             </a>
           </>
         ) : cena.vrsta === "kes" ? (
-          `Skenirano ${formatDatum(cena.scannedAt)}. Sve što je u kešu stiže odmah, po istoj ceni — pristup 30 dana. Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`
+          `Skenirano ${formatDatum(cena.scannedAt)}. Sve što je u kešu stiže odmah — pristup 30 dana. ${imas}`
         ) : cena.vrsta === "isteklo" ? (
-          `Poslednje skeniranje: ${formatDatum(cena.scannedAt)}. Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`
+          `Poslednje skeniranje: ${formatDatum(cena.scannedAt)}. ${imas}`
         ) : cena.vrsta === "plice" ? (
-          `Skenirano ${formatDatum(cena.scannedAt)} — podaci nisu stari, samo ih je manje. Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`
+          `Skenirano ${formatDatum(cena.scannedAt)} — podaci nisu stari, samo ih je manje. ${imas}`
+        ) : neograniceno ? (
+          imas
         ) : (
-          `Ako nađemo manje firmi nego što tražiš, razliku vraćamo. Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`
+          `Ako nađemo manje firmi nego što tražiš, razliku vraćamo. ${imas}`
         )}
       </span>
     </p>

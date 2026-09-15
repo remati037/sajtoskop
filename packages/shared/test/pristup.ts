@@ -13,6 +13,7 @@
 import {
   citanjeDoZa,
   GRACE_DAYS,
+  jeNeograniceno,
   ONBOARDING_CREDITS,
   PLANS,
   stanjePristupa,
@@ -394,6 +395,36 @@ check(
   ).punDo === zaDana(20),
   "pun pristup ide do KASNIJEG od dva roka (max, ne poslednji upisan)",
 );
+
+// ── [0029] admin: neograničeni krediti ─────────────────────
+console.log("\nadmin (0029)");
+{
+  const star = zaDana(-400);
+  const admin = stanjePristupa(profil({ plan: "dopuna", createdAt: star, admin: true }), null, SADA);
+  check(
+    admin.stanje === "komp" && admin.pun && admin.punDo === null && admin.planLimita === "komp",
+    "admin bez plana i bez kredita → pun pristup bez roka, Advanced limiti",
+  );
+  check(jeNeograniceno(admin), "admin → jeNeograniceno");
+  check(
+    stanjePristupa(profil({ plan: "dopuna", createdAt: star, admin: false }), null, SADA).stanje ===
+      "zakljucan",
+    "admin: false se ponaša tačno kao pre 0029",
+  );
+  check(
+    !jeNeograniceno(stanjePristupa(profil(), null, SADA)),
+    "neograničen KOMP nije neograničeni krediti",
+  );
+  check(!jeNeograniceno(null), "nepoznato stanje nije neograničeno");
+  check(
+    stanjePristupa(
+      profil({ plan: "starter", planExpiresAt: zaDana(-1), admin: true }),
+      pretplata({ status: "past_due", currentPeriodEnd: zaDana(-1) }),
+      SADA,
+    ).pun,
+    "admin sa palom karticom i dalje ima pun pristup",
+  );
+}
 
 console.log(fail === 0 ? "\nSve prošlo." : `\n${fail} palo.`);
 process.exit(fail === 0 ? 0 : 1);

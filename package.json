@@ -19,7 +19,9 @@
     "dev": "pnpm --filter @sajtoskop/web dev",
     "build": "pnpm --filter @sajtoskop/web build",
     "test": "pnpm -r test",
-    "worker": "pnpm --filter @sajtoskop/worker start"
+    "worker": "pnpm --filter @sajtoskop/worker start",
+    "stripe:seed": "tsx scripts/stripe-seed.ts",
+    "stripe:sat": "tsx scripts/stripe-sat.ts"
   },
   "engines": {
     "node": ">=24"
@@ -27,6 +29,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.4",
     "@types/node": "^24.0.0",
+    "stripe": "^22.6.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },

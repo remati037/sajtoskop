@@ -43,6 +43,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import {
+  jeNeograniceno,
   PLANS,
   type AiSeverity,
   type LeadStatusValue,
@@ -168,6 +169,8 @@ export function KarticaProspekta(props: KarticaProps) {
   const router = useRouter();
   const pristupApi = usePristup();
   const onboarding = useOnboarding();
+  // [0029] Admin: otključavanje ne troši kredit — bez potvrde, bez −1 na čipu.
+  const neograniceno = jeNeograniceno(pristupApi?.pristup ?? null);
 
   const [otkljucavam, setOtkljucavam] = useState(false);
   const [posao, setPosao] = useState<PosaoKartice>(() => ({
@@ -279,7 +282,7 @@ export function KarticaProspekta(props: KarticaProps) {
     // §7.3, korak 3: optimistično — čip kredita odmah −1. Ponovni pokušaj ne
     // troši kredit, pa ga ni ne skida.
     const pre = krediti;
-    if (!ponovi) povratni.current.onKrediti?.(Math.max(0, krediti - 1));
+    if (!ponovi && !neograniceno) povratni.current.onKrediti?.(Math.max(0, krediti - 1));
 
     try {
       const res = await fetch("/api/unlock", {
@@ -335,12 +338,19 @@ export function KarticaProspekta(props: KarticaProps) {
 
   function klikOtkljucaj() {
     onboarding?.zatvori("nema-sajt");
-    if (graceNalog) {
-      router.push("/cenovnik");
+    if (neograniceno) {
+      void otkljucaj();
       return;
     }
+    // [posle S30] Bez kredita je odgovor „nemaš kredita" — i u grace-u, gde je
+    // do sada klik vodio pravo na cenovnik bez ijedne reči. Grace sa kreditima
+    // (pala kartica) i dalje ide na planove: kredita ima, pristupa nema.
     if (krediti <= 0) {
       setModal("plan");
+      return;
+    }
+    if (graceNalog) {
+      router.push("/cenovnik");
       return;
     }
     // §7.3, korak 1: besplatno otključavanje ne otvara modal — trošak za
@@ -355,13 +365,15 @@ export function KarticaProspekta(props: KarticaProps) {
 
   const labelaDugmeta = otkljucavam
     ? kartica.otkljucavam
-    : graceNalog
-      ? kartica.otkljucajVrati
+    : neograniceno
+      ? kartica.otkljucajBezKredita
       : krediti <= 0
         ? kartica.otkljucajPlan
-        : prviBesplatan
-          ? kartica.otkljucajBesplatno
-          : kartica.otkljucaj;
+        : graceNalog
+          ? kartica.otkljucajVrati
+          : prviBesplatan
+            ? kartica.otkljucajBesplatno
+            : kartica.otkljucaj;
 
   return (
     <article

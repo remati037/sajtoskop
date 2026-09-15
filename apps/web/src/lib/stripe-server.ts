@@ -58,7 +58,8 @@ export function stripe(): Stripe {
   klijent = new Stripe(STRIPE_SECRET_KEY, {
     apiVersion: STRIPE_API_VERSION,
     // SDK sam ponavlja mrežne greške; dva pokušaja su dovoljna za checkout i
-    // portal, a webhook ruta ionako ne zove mrežu osim za otisak kartice.
+    // portal, a webhook ruta ionako zove mrežu samo za otisak kartice i cenu
+    // sa stavke fakture.
     maxNetworkRetries: 2,
     // Domen ide kroz `lib/veze.ts`, nikad zakucan (S24; `test/veze.ts` to obara).
     appInfo: { name: "Sajtoskop", url: LANDING_URL },

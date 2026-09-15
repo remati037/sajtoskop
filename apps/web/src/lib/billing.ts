@@ -5,8 +5,8 @@
 // Ovo je novčana putanja i mora da ima testove koji rade bez mreže i bez baze
 // (`apps/web/test/naplata.ts`). Zato je sve što odlučuje ovde, iza jednog
 // interfejsa `NaplataSkladiste`: u produkciji ga popunjava `billing-skladiste.ts`
-// nad Supabase-om (i nad Stripe-om, za dve stvari koje traže mrežu — otisak
-// kartice i prekid probe), u testu mapa u memoriji. Verifikacija potpisa se u
+// nad Supabase-om (i nad Stripe-om, za tri stvari koje traže mrežu — otisak
+// kartice, prekid probe i cenu sa stavke fakture), u testu mapa u memoriji. Verifikacija potpisa se u
 // testu NE lažira — ona je pravi `stripe.webhooks.constructEvent` nad pravim
 // `whsec_` HMAC-om.
 //
@@ -72,9 +72,12 @@ export type ArgFaktura = {
   userId: string;
   /** `in_…` — ključ idempotencije mesečne dodele. */
   invoiceId: string;
-  /** Na koliko se balans POSTAVLJA (`PLANS[plan].monthlyCredits`). */
+  /** Na koliko se balans POSTAVLJA (`PLANS[plan].monthlyCredits`, plan sa stavke fakture). */
   target: number;
 };
+
+/** Ono što obrada treba sa Stripe cene sa stavke fakture. */
+export type CenaStavke = { lookupKey: string | null; recurring: boolean };
 
 export type ArgProba = { userId: string; subscriptionId: string; credits: number };
 
@@ -120,8 +123,12 @@ export interface NaplataSkladiste {
   profilPostoji(userId: string): Promise<boolean>;
   korisnikPoPretplati(subscriptionId: string): Promise<string | null>;
   korisnikPoKupcu(customerId: string): Promise<string | null>;
-  /** Plan iz našeg ogledala — rezerva kad faktura ne nosi `lookup_key`. */
-  planPoPretplati(subscriptionId: string): Promise<PaidPlanId | null>;
+  /**
+   * `price_…` → cena (Stripe poziv). Stavka fakture nosi samo ID cene, a plan se
+   * čita isključivo sa fakture — nikad iz našeg ogledala. ID koga nema u mapi
+   * nije cena koju razumemo.
+   */
+  ceneStavki(priceIds: string[]): Promise<Map<string, CenaStavke>>;
   primeniPretplatu(a: ArgPretplata): Promise<RpcIshod>;
   primeniFakturu(a: ArgFaktura): Promise<RpcIshod>;
   pocniProbu(a: ArgProba): Promise<RpcIshod>;
@@ -264,27 +271,72 @@ function metaIzFakture(inv: Stripe.Invoice): Meta {
   return stari?.metadata ?? null;
 }
 
+/** Stavka fakture svedena na ono što odlučuje o planu. */
+type StavkaFakture = {
+  /** Proširena cena, ili goli `price_…` ID koji skladište tek treba da razreši. */
+  cena: CenaStavke | string | null;
+  proracija: boolean;
+  iznos: number;
+};
+
 /**
- * Koji plan faktura plaća. Redosled: metapodaci pretplate (`lookup_key`, pa
- * `plan`) → `lines[0].price.lookup_key` (stariji API) → naše ogledalo.
+ * Stavka u oba oblika: `pricing.price_details.price` + `parent.*.proration`
+ * (2025-03-31+) ili `price` + `proration` (stariji API).
+ */
+function stavkaIzLinije(linija: Stripe.InvoiceLineItem): StavkaFakture {
+  const stara = linija as unknown as { price?: Stripe.Price | null; proration?: boolean };
+  const p = linija.pricing?.price_details?.price ?? stara.price ?? null;
+  return {
+    cena:
+      typeof p === "string" || p === null
+        ? p
+        : { lookupKey: p.lookup_key ?? null, recurring: p.recurring !== null },
+    proracija:
+      linija.parent?.subscription_item_details?.proration ??
+      linija.parent?.invoice_item_details?.proration ??
+      stara.proration ??
+      false,
+    iznos: linija.amount ?? 0,
+  };
+}
+
+/**
+ * Koji plan faktura plaća — ISKLJUČIVO sa stavki same fakture.
+ *
+ * Ni `profiles.plan`, ni `subscriptions.plan`, ni metapodaci pretplate. Kod
+ * downgrade-a na kraju perioda Stripe pravi subscription schedule, pa
+ * `invoice.paid` (`subscription_cycle`, već po novoj ceni) i
+ * `customer.subscription.updated` (novi `lookup_key`) stižu van reda. Ako
+ * faktura stigne prva, ogledalo još drži stari plan — korisnik bi platio
+ * Starter a dobio Pro kredite. Metapodaci su još gori: to je snimak iz
+ * checkout-a i portal ih nikad ne menja. Faktura je jedino mesto koje zna šta
+ * je stvarno plaćeno.
+ *
+ * Na pinovanoj verziji stavka nosi samo `price_…` ID, bez `lookup_key` i bez
+ * `recurring` — zato `s.ceneStavki`.
+ *
+ * Izbor stavke: ponavljajuća cena iz našeg kataloga. Proracija (upgrade) daje
+ * stavke obe cene — kredit za neiskorišćen stari plan i doplatu za novi — pa
+ * se prvo traži redovna stavka, a tek ako je nema (`always_invoice`),
+ * pozitivna proraciona. Dva različita plana na istom nivou = ne zna se → `null`.
  */
 async function planIzFakture(inv: Stripe.Invoice, s: NaplataSkladiste): Promise<PaidPlanId | null> {
-  const meta = metaIzFakture(inv);
+  const stavke = (inv.lines?.data ?? []).map(stavkaIzLinije);
 
-  const izKljuca = kupovinaZaLookupKey(tekst(meta, "lookup_key"));
-  if (izKljuca?.kind === "subscription") return izKljuca.plan;
+  const ids = [...new Set(stavke.flatMap((x) => (typeof x.cena === "string" ? [x.cena] : [])))];
+  const cene = ids.length > 0 ? await s.ceneStavki(ids) : new Map<string, CenaStavke>();
 
-  const izPlana = tekst(meta, "plan");
-  if (izPlana && PLACENI_PLANOVI.includes(izPlana)) return izPlana as PaidPlanId;
+  const nase = stavke.flatMap((x) => {
+    const c = typeof x.cena === "string" ? cene.get(x.cena) : x.cena;
+    if (!c?.recurring) return [];
+    const k = kupovinaZaLookupKey(c.lookupKey);
+    return k?.kind === "subscription" ? [{ plan: k.plan, proracija: x.proracija, iznos: x.iznos }] : [];
+  });
 
-  for (const stavka of inv.lines?.data ?? []) {
-    const cena = (stavka as unknown as { price?: { lookup_key?: string | null } | null }).price;
-    const k = kupovinaZaLookupKey(cena?.lookup_key);
-    if (k?.kind === "subscription") return k.plan;
-  }
-
-  const subId = subIdIzFakture(inv);
-  return subId ? await s.planPoPretplati(subId) : null;
+  const redovne = nase.filter((x) => !x.proracija);
+  const izbor = redovne.length > 0 ? redovne : nase.filter((x) => x.iznos > 0);
+  const planovi = new Set(izbor.map((x) => x.plan));
+  return planovi.size === 1 ? [...planovi][0]! : null;
 }
 
 /**
@@ -576,7 +628,10 @@ async function placenaFaktura(
 
   const plan = await planIzFakture(inv, s);
   if (!plan) {
-    return { ok: false, radnja: "invoice.paid", greska: `faktura ${inv.id}: nijedna stavka nije iz našeg kataloga` };
+    // Faktura koja ne plaća jedan prepoznat plan (ručna stavka, tuđa cena) —
+    // uredno stanje, ne kvar: ništa se ne dodeljuje i ponavljanje ne pomaže.
+    console.warn(`[stripe-webhook] faktura ${inv.id}: nijedna stavka nije plan iz našeg kataloga — bez dodele`);
+    return { ok: true, radnja: "preskočeno:faktura van kataloga" };
   }
 
   const r = await s.primeniFakturu({ userId, invoiceId: inv.id, target: PLANS[plan].monthlyCredits });

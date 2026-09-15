@@ -20,7 +20,7 @@ import { requireUserId } from "@/lib/auth";
 import { citajPristup, odbijenica } from "@/lib/pristup";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError, UnlockResponse } from "@/lib/search-types";
-import { unlockLead } from "@/lib/unlock";
+import { unlockLead, vecOtkljucan } from "@/lib/unlock";
 import { unlockBodySchema } from "@/lib/unlock-schema";
 
 export const dynamic = "force-dynamic";
@@ -48,11 +48,10 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // [S19] Otključavanje troši kredit, dakle stoji uz pretragu i skeniranje na
-  // listi onoga što `grace` nalog ne sme (§1.5). Kapija ide PRE tela: nema
-  // razloga parsirati zahtev koji ionako ne prolazi.
+  // listi onoga što `grace` nalog ne sme (§1.5). Odluka se čita ovde, a
+  // primenjuje posle tela — v. ispod.
   const { pristup, profile, pretplata } = await citajPristup();
   const odbijen = odbijenica(pristup, "otkljucavanje", pretplata);
-  if (odbijen) return odbijen;
 
   let raw: unknown;
   try {
@@ -68,6 +67,20 @@ export async function POST(req: Request): Promise<Response> {
       400,
       parsed.error.issues.map((i) => `${i.path.join(".") || "telo"}: ${i.message}`),
     );
+  }
+
+  // [posle S30] Nalog bez punog pristupa ne otključava NOVO. Ali kartica istu
+  // rutu zove i za prospekt koji je već otključao — posle završene analize
+  // (§7.4), da pročita pun lead. Taj poziv ne troši ništa (`already_unlocked`
+  // stoji u SQL-u ispred provere kredita), pa prolazi; do ove izmene je kartica
+  // prospekta otključanog poslednjim kreditom padala u „Analiza nije stigla".
+  // `ponovi` ne prolazi: on naručuje nov screenshot i Claude poziv.
+  // Pad provere ide protiv prolaza — tada ostaje odbijenica.
+  if (odbijen) {
+    const samoCitanje =
+      parsed.data.ponovi !== true &&
+      (await vecOtkljucan(userId, parsed.data.placeId).catch(() => false));
+    if (!samoCitanje) return odbijen;
   }
 
   try {
