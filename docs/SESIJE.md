@@ -4293,3 +4293,42 @@ trke nad skeniranjem palo je na četiri provere, sve u testovima starijim od `00
 
 Nijedan pad nije bio u proizvodu i nijedan nije imao veze sa povraćajem. Tvrdnje nisu dirane od
 10. avgusta (F4), a `0026` je stigao 12. septembra. Posle popravke: `Sve prošlo`.
+
+### Popravka posle S30 — skeniranje bez liste vraća kredit samo
+
+**16. septembra 2026.** Dva stanja skeniranja su tražila od korisnika da reši našu grešku:
+poruka „…javi mi broj posla 354 i vraćam ti ga; ne pokreći isto skeniranje ponovo, opet bi se
+naplatilo" (`pretraga-ekran.tsx`) i njena serverska rodica, `503` iz `/api/search`. Tekst je bio
+simptom; uzrok je bio da posao kome `record_scan` padne i dalje završava kao **`done`** — nema pada,
+nema greške, ekran se isprazni, a kredit ostaje potrošen.
+
+1. **`0034_scan_refund.sql`** — razlog `scan_refund` (+ unique indeks `credit_ledger_scan_refund2_idx`),
+   `refund_scan` prepisan: piše `scan_refund:<job_id>`, `details` nosi posao i kombinaciju, **briše**
+   `search_access` kod punog povraćaja (kod delimičnog i dalje spušta `pages`), i upisuje red u
+   `admin_audit` (`scan_refund`, `actor_id` null). Nova `fail_scan_and_refund(job, error)` obara posao
+   i vraća kredit **u jednoj transakciji**; ne ide kroz `fail_job`, jer ponavljanje ovde ne treba —
+   Places pozivi su već potrošeni. Stari oblik (`refund` + `scan:<job>`) i dalje važi kao dokaz da je
+   posao refundiran, pa posao refundiran pre migracije ne dobija drugi povraćaj.
+2. **Worker** — `runScan` na neupisan registar keša zove `failScanAndRefund` i vraća uredan `note`
+   (bacanje bi značilo retry i nove Places pozive; `complete_job` iz 0017 dira samo `running`, pa ne
+   gazi `failed`). `last_error` nosi interni marker `bez_liste:`, po kome ruta bira stanje B umesto E.
+3. **Ponavljanje je dozvoljeno** — `scanBezRegistra` i grana `503` su obrisane. Ista pretraga posle
+   neuspeha se naplaćuje normalno, jer je kredit već vraćen.
+4. **Tekstovi** — `apps/web/src/lib/stanja-skeniranja.ts`, stanja A–F iz `docs/11`, brojevi i imena
+   kao parametri. `job_id` nijedna funkcija ne prima, pa ne može ni da procuri. `JobStatusResponse`
+   dobija `vraceno` (server ga čita iz knjige) — bez toga stanja A, B i E ne bi mogla da imenuju broj.
+5. **Testovi** — `apps/web/test/stanja-skeniranja.ts` (uz doslovne tekstove i tri zabrane: broj posla,
+   interni pojmovi, zadatak korisniku); `check:sql` pokriva svih pet traženih scenarija.
+
+**Razišlo se sa zahtevom, pa rešeno u istoj sesiji:** stanje D je upućivalo na ekran „Moje pretrage",
+koji ne postoji — u `(app)` su `dashboard`, `krediti`, `lista`, `pipeline`, `pretraga`, `utisci`.
+Mesto na koje se mislilo je blok **„Tvoji pristupi"** na dnu `/pretraga` (`kes-lista.tsx`): plaćene
+kombinacije koje se otvaraju bez novih kredita. Rečenica sada glasi „listu ćeš naći u „Tvoji
+pristupi", na dnu ove strane" — bez reči „keš", koja je interni pojam (pravilo 2). Ispravljeno i u
+`docs/11`; test tvrdi i da nov tekst upućuje na taj blok i da stari ekran više ne pominje.
+
+**Ostaje na meni:**
+
+- [ ] Primeniti `0034` na Supabase pre deploya (worker zove `fail_scan_and_refund`).
+- [ ] Ručno: oboriti jedan scan u sandboxu (`update job_queue set status='running'` pa
+      `select fail_scan_and_refund(<id>, 'bez_liste: test')`) i potvrditi stanje B na ekranu.

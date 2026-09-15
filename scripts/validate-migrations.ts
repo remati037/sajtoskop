@@ -2171,6 +2171,74 @@ async function main(): Promise<void> {
   check((await one<{ b: number }>(`select credits_balance as b from profiles where id='k2'`))?.b === 8,
     "refund_scan(job, 0) vraća sve (2 od 2)");
 
+  // ── [0034] skeniranje bez liste vraća kredit samo ────────
+  console.log("\n0034 — scan_refund / fail_scan_and_refund");
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('sr1','sr1@x.rs',10)`);
+
+  const knjigaScan = async (u: string, reason: string) =>
+    (await one<{ n: number; zbir: number }>(
+      `select count(*)::int as n, coalesce(sum(delta),0)::int as zbir from credit_ledger
+        where user_id = $1 and reason = $2`, [u, reason]));
+
+  // 1. Upis u keš padne posle naplate → posao pada, kredit se vraća, pristupa nema.
+  const bezListe = await scan2("sr1", "vrsac", "bez-registra", 40);
+  check(bezListe?.reason === "charged" && bezListe.cost === 2, `naplaćeno 2 za skeniranje (${bezListe?.cost})`);
+  const fsr = await one<{ refunded: number }>(
+    `select * from fail_scan_and_refund($1, 'bez_liste: registar keša nije upisan')`, [bezListe?.job_id]);
+  check(fsr?.refunded === 1, "fail_scan_and_refund vraća jednom platiocu");
+  check((await one<{ st: string; err: string }>(
+    `select status as st, last_error as err from job_queue where id = $1`, [bezListe?.job_id]))?.st === "failed",
+    "posao je obeležen palim u istoj transakciji");
+  const sr1k = await knjigaScan("sr1", "scan_refund");
+  check(sr1k?.n === 1 && sr1k.zbir === 2, `knjiga ima jedan scan_refund red na +2 (${sr1k?.n} redova, ${sr1k?.zbir})`);
+  check((await one<{ b: number }>(`select credits_balance as b from profiles where id='sr1'`))?.b === 10,
+    "balans vraćen na pređašnjih 10");
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from search_access where user_id='sr1' and city_slug='vrsac'`))?.n === 0,
+    "search_access red je obrisan — pristupa bez liste nema");
+  const revScan = await one<{ p: Record<string, unknown> }>(
+    `select payload as p from admin_audit where action='scan_refund' and target_user='sr1'`);
+  check(revScan?.p.job_id === bezListe?.job_id && revScan.p.vraceno === 2,
+    "admin_audit nosi posao, kombinaciju i vraćen iznos");
+  check((await one<{ d: Record<string, unknown> }>(
+    `select details as d from credit_ledger where user_id='sr1' and reason='scan_refund'`))?.d.job_id === bezListe?.job_id,
+    "job_id živi u details ledger reda, ne u tekstu");
+
+  // 2. Isti posao obrađen dvaput (retry workera ili metla) → JEDAN red.
+  await one(`select * from fail_scan_and_refund($1, 'bez_liste: ponovo')`, [bezListe?.job_id]);
+  await one(`select * from refund_scan($1, 0)`, [bezListe?.job_id]);
+  const sr1k2 = await knjigaScan("sr1", "scan_refund");
+  check(sr1k2?.n === 1 && sr1k2.zbir === 2, `retry ne dodaje drugi red (${sr1k2?.n} redova)`);
+
+  // 3. Ista pretraga ponovo posle povraćaja → naplaćuje se normalno.
+  const ponovoScan = await scan2("sr1", "vrsac", "bez-registra", 40);
+  check(ponovoScan?.reason === "charged" && ponovoScan.cost === 2 && ponovoScan.job_id !== bezListe?.job_id,
+    `ponovljena pretraga se naplaćuje (${ponovoScan?.reason}, cena ${ponovoScan?.cost})`);
+  check((await knjigaScan("sr1", "scan"))?.n === 2, "dva `scan` reda — prvi i ponovljeni, bez duple naplate za isti posao");
+
+  // 4. „Duboko" nad malim gradom: plaćeno 3, stiglo 2 → scan −3 i scan_refund +1.
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('sr2','sr2@x.rs',10)`);
+  const duboko34 = await scan2("sr2", "brus", "advokati", 60);
+  check(duboko34?.cost === 3, `Duboko košta 3 (${duboko34?.cost})`);
+  await one(`select * from refund_scan($1, 2)`, [duboko34?.job_id]);
+  const sr2scan = await knjigaScan("sr2", "scan");
+  const sr2ref = await knjigaScan("sr2", "scan_refund");
+  check(sr2scan?.zbir === -3 && sr2ref?.zbir === 1,
+    `knjiga: scan −3 i scan_refund +1 (${sr2scan?.zbir} / ${sr2ref?.zbir}) — brojevi za stanje A`);
+  check((await one<{ pages: number }>(
+    `select pages from search_access where user_id='sr2' and city_slug='brus'`))?.pages === 2,
+    "delimičan povraćaj spušta pristup na 2 stranice, ne briše ga");
+
+  // 5. Nula rezultata: naplaćeno pa vraćeno u celosti → neto nula (stanje C).
+  await db.exec(`insert into profiles (id, email, credits_balance) values ('sr3','sr3@x.rs',10)`);
+  const prazno34 = await scan2("sr3", "kula", "nema-nikog", 20);
+  await one(`select * from refund_scan($1, 0)`, [prazno34?.job_id]);
+  const sr3 = await one<{ b: number }>(`select credits_balance as b from profiles where id='sr3'`);
+  check(sr3?.b === 10, `nula rezultata → neto nula naplate (balans ${sr3?.b})`);
+  check((await one<{ n: number }>(
+    `select count(*)::int as n from search_access where user_id='sr3' and city_slug='kula'`))?.n === 0,
+    "prazan rezultat ne ostavlja pristup");
+
   // Registracija: profil bez plana i bez kredita. `existing` mora da radi i kad
   // dodele nema — do 0024 se izvodio iz postojanja `monthly_grant` reda.
   console.log("\nS20/S28: registracija dodeljuje kredite dobrodošlice");
@@ -2524,7 +2592,7 @@ async function main(): Promise<void> {
                     "set_api_day_calls", "enqueue_job", "claim_job", "complete_job",
                     "fail_job", "defer_job", "reap_stuck_jobs", "claim_cache_miss",
                     "release_cache_miss", "grant_monthly_credits", "claim_export",
-                    "spend_credit_and_scan", "refund_scan", "record_scan",
+                    "spend_credit_and_scan", "refund_scan", "fail_scan_and_refund", "record_scan",
                     "search_cache_state", "search_cache_overview",
                     "grant_feedback_credits",
                     "apply_subscription", "apply_credit_pack",

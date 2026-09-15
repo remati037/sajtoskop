@@ -190,6 +190,35 @@ export async function refundScan(jobId: number, pagesUsed = 0): Promise<number> 
   return ((data ?? []) as { refunded: number }[])[0]?.refunded ?? 0;
 }
 
+/**
+ * [0034] Posao PADA i kredit se vraća — u jednoj transakciji.
+ *
+ * Za jedini ishod u kome je scan „uspeo" a korisnik ostao bez liste: registar
+ * keša nije upisan. Do 0034 je posao tu završavao kao `done` (nema pada, nema
+ * greške, ekran prazan), pa je web to krpio porukom koja od korisnika traži da
+ * prijavi broj posla i da NE ponavlja pretragu.
+ *
+ * Ne ide kroz `fail_job`: to je brojač pokušaja i retry, a ovde ponavljanje ne
+ * treba — Places pozivi su potrošeni i ponovni pokušaj bi ih platio opet.
+ *
+ * Vraća broj platilaca kojima je kredit vraćen.
+ */
+export async function failScanAndRefund(jobId: number, razlog: string): Promise<number> {
+  const { data, error } = await supabaseAdmin().rpc("fail_scan_and_refund", {
+    p_job_id: jobId,
+    p_error: razlog,
+  });
+
+  if (error) {
+    // Isti razlog kao kod `refundScan`: ovo košta korisnika stvaran kredit, pa
+    // se ne guta u tišini. Metla nad palim poslovima je sledeća brana.
+    console.error(`[db] fail_scan_and_refund(${jobId}) nije uspeo: ${error.message}`);
+    return 0;
+  }
+
+  return ((data ?? []) as { refunded: number }[])[0]?.refunded ?? 0;
+}
+
 // ── napredak posla (Faza 3, 3.2) ───────────────────────────
 
 /**

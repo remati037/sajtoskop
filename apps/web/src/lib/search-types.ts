@@ -275,6 +275,15 @@ export type JobStatusResponse = {
   progress: { found: number; analyzed: number } | null;
   /** Popunjeno samo kad je posao konačno odustao. */
   greska: string | null;
+  /**
+   * [0034] Koliko je kredita OVOM korisniku vraćeno za ovaj posao (`scan_refund`
+   * u knjizi). `0` kad povraćaja nije bilo.
+   *
+   * Stiže sa servera jer stanja A, B i E imenuju tačan broj, a klijent ga ne
+   * može izračunati: cena je mogla da bude 1–3, a povraćaj pun ili delimičan.
+   * Broj posla se pri tom NE šalje kao tekst — ovde je samo iznos.
+   */
+  vraceno: number;
 };
 
 /** Ono što vraća `POST /api/unlock`. */

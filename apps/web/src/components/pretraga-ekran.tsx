@@ -63,6 +63,7 @@ import { PrijaviGresku } from "./prijavi-gresku";
 import { usePristup } from "./pristup-provider";
 import { useUtisci } from "./utisci-provider";
 import { cn } from "@/lib/cn";
+import { stanjeA, stanjeB, stanjeC, stanjeD, stanjeF } from "@/lib/stanja-skeniranja";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -358,6 +359,8 @@ export function PretragaEkran({
   // koji se šalje kad korisnik potvrdi.
   const [predlog, setPredlog] = useState<SkeniranjePredlog | null>(null);
   const naplata = useRef<Zahtev | null>(null);
+  /** [0034] Koliko je poslednje skeniranje naplatilo — prvi broj u stanju A. */
+  const placeno = useRef<number>(0);
   const [obavestenje, setObavestenje] = useState<string | null>(null);
 
   /**
@@ -538,7 +541,15 @@ export function PretragaEkran({
         return;
       }
 
+      // [0034] Stanje F: lista koju korisnik već ima. Nema naplate i nema čekanja.
+      if (!odgovor.charged && odgovor.status === "cache" && !odgovor.emptyScan) {
+        const f = stanjeF();
+        setObavestenje(`${f.naslov} ${f.telo}`);
+      }
+
       if (odgovor.charged) {
+        // Plaćeni iznos pamti se za stanje A — ono imenuje i naplaćeno i vraćeno.
+        placeno.current = odgovor.cost ?? cenaDubine(z.dubina);
         // Iznos dolazi SA SERVERA (`cost`), ne iz lokalnog stanja: iz keša je
         // manji od dubine kad firmi ima manje (§14.4), pa poruka mora da kaže
         // ono što je stvarno skinuto. `dubina` je rezerva za odgovor bez polja.
@@ -567,7 +578,7 @@ export function PretragaEkran({
       const jobId = odgovor.status === "queued" ? odgovor.job?.id : undefined;
 
       if (typeof jobId === "number" && Number.isInteger(jobId) && jobId > 0) {
-        setPosao({ id: jobId, status: "pending", progress: null, greska: null });
+        setPosao({ id: jobId, status: "pending", progress: null, greska: null, vraceno: 0 });
         void pratiPosao(jobId, token, z);
       }
     } catch {
@@ -592,6 +603,9 @@ export function PretragaEkran({
    */
   async function pratiPosao(jobId: number, token: number, z: Zahtev) {
     const kraj = Date.now() + MAX_CEKANJE_MS;
+    // [0034] Koliko je kredita vraćeno za OVAJ posao — server računa iz knjige,
+    // ekran ga samo prenosi u tekst (stanja A, B i E).
+    const vraceno = { current: 0 };
     let krug = 0;
     let poslednjeAnalizirano = -1;
     let mirnihKrugova = 0;
@@ -603,18 +617,26 @@ export function PretragaEkran({
       if (token === pollToken.current) {
         setPosao(null);
 
-        // Posao je završio, a server na isto pitanje i dalje odgovara „ovo
-        // košta" — dakle kombinacija nije završila u kešu. Bez ove poruke ekran
-        // se prosto isprazni: bez tabele, bez greške i bez ijednog traga da je
-        // kredit potrošen. Server ovo hvata i sam (`scanBezRegistra`), ali samo
-        // sat vremena unazad; ovo je poslednja brana da ćutanje ne prođe.
+        // [0034] Posao je završio, a server na isto pitanje i dalje odgovara „ovo
+        // košta": lista nije stigla do korisnika. Kredit je do ovog trenutka VEĆ
+        // vraćen (`fail_scan_and_refund`), pa poruka samo obaveštava — bez broja
+        // posla i bez zabrane ponavljanja. Ranija poruka je tražila oboje.
         if (konacno?.status === "needs_scan") {
-          setGreska(
-            `Skeniranje je završeno, ali lista nije dostupna — kombinacija nije upisana u keš. ` +
-              `Kredit je potrošen. Javi mi broj posla ${jobId} i vraćam ti ga; ` +
-              `ne pokreći isto skeniranje ponovo, opet bi se naplatilo.`,
-          );
+          const b = stanjeB({ vraceno: vraceno.current });
+          setGreska(`${b.naslov} ${b.telo}`);
           setPaoPosao(jobId);
+        }
+
+        // [0034] Stanje A: manje firmi nego što je naplaćeno — razlika je već
+        // vraćena. Brojevi su iz knjige (server), ne iz procene na ekranu.
+        if (konacno && konacno.status !== "needs_scan" && vraceno.current > 0 && konacno.total > 0) {
+          const a = stanjeA({
+            nadjeno: konacno.total,
+            grad: cityLabels[z.city] ?? z.city,
+            placeno: placeno.current,
+            vraceno: vraceno.current,
+          });
+          setObavestenje(a.telo ? `${a.naslov}. ${a.telo}` : a.naslov);
         }
       }
       // Kombinacija je od sada u kešu i besplatna — registar i balans (moguć
@@ -663,8 +685,12 @@ export function PretragaEkran({
       if (token !== pollToken.current) return;
       setPosao(stanje);
 
+      vraceno.current = stanje.vraceno;
+
       if (stanje.greska) {
-        setGreska(`${stanje.greska} Kredit za ovo skeniranje ti je vraćen.`);
+        // Tekst je već sastavljen na serveru iz `stanja-skeniranja` (B ili E) i
+        // sam kaže koliko je vraćeno — ništa se ne dopisuje ovde.
+        setGreska(stanje.greska);
         setPosao(null);
         setPaoPosao(jobId);
         router.refresh();
@@ -685,7 +711,8 @@ export function PretragaEkran({
       }
 
       if (stanje.status === "failed") {
-        setGreska("Skeniranje nije uspelo. Kredit za njega ti je vraćen.");
+        const e = stanjeB({ vraceno: stanje.vraceno });
+        setGreska(stanje.greska ?? `${e.naslov} ${e.telo}`);
         setPosao(null);
         setPaoPosao(jobId);
         router.refresh();
@@ -907,6 +934,12 @@ export function PretragaEkran({
       ? data.summary.noSite + data.summary.social + data.summary.dead + data.summary.ugly + data.summary.ok
       : 0);
   const ceka = posao !== null && !predugo;
+
+  /** [0034] Stanje C — ime niše i grada ulaze kao parametri, ne sklapaju se u JSX-u. */
+  const prazanRezultat = stanjeC({
+    nisa: poslednji ? (nicheLabels[poslednji.niche] ?? poslednji.niche) : "ovu nišu",
+    grad: poslednji ? (cityLabels[poslednji.city] ?? poslednji.city) : "ovom gradu",
+  });
   const imaRezultat = data !== null && data.status !== "needs_scan";
 
   // ── motor pitanja: šta je ovaj ekran dužan da javi ────────
@@ -1082,7 +1115,13 @@ export function PretragaEkran({
           podaci o kojima pita (F11 §2.1). */}
       <UtisakMikro kljuc="tacnost-podataka" />
 
-      {ceka && <TrakaPosla posao={posao} />}
+      {ceka && (
+        <TrakaPosla
+          posao={posao}
+          nisa={poslednji ? (nicheLabels[poslednji.niche] ?? poslednji.niche) : null}
+          grad={poslednji ? (cityLabels[poslednji.city] ?? poslednji.city) : null}
+        />
+      )}
 
       {predugo && (
         <Alert variant="warning">
@@ -1158,17 +1197,18 @@ export function PretragaEkran({
               {/* [S30, §4.7] Tekstovi doslovno. Dugme je `secondary`: primarno
                   dugme ovog ekrana je „Pretraži" iznad (§7.1). */}
               {data.emptyScan ? (
+                // [0034] Stanje C, doslovno iz `stanja-skeniranja.ts`.
                 <PraznoStanje
                   ikona={<Search />}
-                  naslov="Google nema nijednu firmu za ovu kombinaciju"
-                  opis="Kredit ti je vraćen. Probaj širu nišu ili susedni grad — ili mi reci šta si tražio, pa dodam u taksonomiju."
+                  naslov={prazanRezultat.naslov}
+                  opis={prazanRezultat.telo}
                 >
                   <Button
                     type="button"
                     variant="secondary"
                     onClick={() => document.getElementById(NISA_ID)?.focus()}
                   >
-                    Probaj drugu nišu
+                    {prazanRezultat.akcija}
                   </Button>
                 </PraznoStanje>
               ) : (
@@ -1535,19 +1575,28 @@ function TrakaCene({
   );
 }
 
-/** Stanje posla: `pending` → `running` → broj analiziranih. */
-function TrakaPosla({ posao }: { posao: JobStatusResponse | null }) {
+/** Stanje D: skeniranje u toku — `pending` → `running` → broj analiziranih. */
+function TrakaPosla({
+  posao,
+  nisa,
+  grad,
+}: {
+  posao: JobStatusResponse | null;
+  nisa: string | null;
+  grad: string | null;
+}) {
   if (!posao) return null;
 
   const nadjeno = posao.progress?.found ?? 0;
   const analizirano = posao.progress?.analyzed ?? 0;
   const procenat = nadjeno > 0 ? Math.round((analizirano / nadjeno) * 100) : 0;
 
+  // Dok se ne zna broj firmi stoji stanje D iz `stanja-skeniranja.ts`; čim
+  // brojevi krenu, traka govori o njima.
+  const d = stanjeD({ nisa: nisa ?? "firme", grad: grad ?? "izabranom gradu" });
   const tekst =
     nadjeno === 0
-      ? posao.status === "pending"
-        ? "U redu za skeniranje…"
-        : "Tražim firme na Google Maps-u…"
+      ? d.naslov
       : `Nađeno ${nadjeno} ${plural(nadjeno, "prospekt", "prospekta", "prospekata")} · ` +
         `analizirano ${analizirano}`;
 
@@ -1575,10 +1624,7 @@ function TrakaPosla({ posao }: { posao: JobStatusResponse | null }) {
         />
       </div>
 
-      <p className="text-xs text-fg-muted">
-        Skeniranje traje do dva minuta. Posle toga je ova kombinacija u kešu — tebi i svima
-        ostalima besplatna narednih 30 dana.
-      </p>
+      <p className="text-xs text-fg-muted">{d.telo}</p>
     </Card>
   );
 }

@@ -355,7 +355,14 @@ export type CreditReason =
    * Uvek negativan, tačno onoliko koliko je vraćena transakcija upisala u knjigu.
    * `ref_id` je `povracaj:<ch_…>` ili `spor:<dp_…>`, bez sufiksa.
    */
-  | "povracaj";
+  | "povracaj"
+  /**
+   * Povraćaj za skeniranje koje korisniku nije dalo listu (0034): pad posla,
+   * prazan rezultat, neupisan registar keša, ili manje stranica nego plaćeno.
+   * Uvek pozitivan; `ref_id` je `scan_refund:<job_id>`, a `details` nosi posao i
+   * kombinaciju. Stari oblik (`refund` + `scan:<job_id>`) ostaje u knjizi.
+   */
+  | "scan_refund";
 
 export type CreditLedgerRow = {
   id: number;

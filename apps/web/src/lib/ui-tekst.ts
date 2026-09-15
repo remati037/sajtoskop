@@ -53,6 +53,9 @@ export const RAZLOG_KREDITA: Record<CreditReason, string> = {
   // 0032. „Povraćaj" je zauzet za `refund` (kredit vraćen za neuspelo
   // skeniranje) — ovde ide suprotan smer: novac je vraćen, krediti odlaze.
   povracaj: "Vraćen novac",
+  // 0034. Isti smer kao `refund`, ali sopstveni razlog: skeniranje koje nije
+  // dalo listu vraća kredit samo, bez ijedne reči od korisnika.
+  scan_refund: "Vraćeno za skeniranje",
 };
 
 /**

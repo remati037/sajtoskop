@@ -267,74 +267,40 @@ export async function zivPlacenPosao(args: {
 const BEZ_REGISTRA_MINUTA = 60;
 
 /**
- * ID `scan` posla koji je ZAVRŠIO, a kombinacija je i dalje van keša.
+ * [0034] Prefiks u `job_queue.last_error` za scan koji je prošao, ali čija lista
+ * nije stigla do korisnika (registar keša nije upisan).
  *
- * Ugovor `runScan`-a je da svaki uspešan scan upiše red u `search_cache` — i za
- * prazan rezultat. Kad se posao završi kao `done`, a `search_cache_state` i
- * dalje kaže „nije sveže", taj ugovor je pao: podaci možda jesu u `businesses`,
- * ali ih niko ne servira, a naplata se po istoj logici ponavlja svaki put.
- *
- * Baš to se desilo u avgustu 2026 — na Hetzneru je radila stara slika workera
- * koja `record_scan` uopšte nije zvala. Pet skeniranja iste kombinacije, pet
- * skinutih kredita, nijedan rezultat i nijedna greška nigde.
- *
- * Provera je po KOMBINACIJI, ne po platiocu: kad registracija pukne, pukla je
- * za svakoga ko posle naiđe, ne samo za onoga ko je platio prvi put.
- *
- * Pozivalac je dužan da ovo pita samo kad keš NIJE svež — nad svežim kešom je
- * završen scan uredna, očekivana stvar.
+ * Interno i samo za izbor teksta (stanje B umesto E) — ne izlazi iz servera.
+ * Upisuje ga `fail_scan_and_refund` kroz worker (`apps/worker/src/jobs/scan.ts`).
  */
-export async function scanBezRegistra(args: {
-  countryCode: string;
-  city: string;
-  niche: string;
-  /** [S17] Ista dubina koju korisnik traži — plići posao nije ovaj posao. */
-  maxResults: number;
-}): Promise<number | null> {
-  const od = new Date(Date.now() - BEZ_REGISTRA_MINUTA * 60_000).toISOString();
+export const MARKER_BEZ_LISTE = "bez_liste:";
 
+/**
+ * [0034] Koliko je kredita ovom korisniku vraćeno za ovaj posao.
+ *
+ * Zamenjuje `scanBezRegistra`, koja je postojala da ZAUSTAVI ponavljanje
+ * pretrage posle neupisanog registra keša. Od 0034 se kredit vraća automatski,
+ * u istoj transakciji u kojoj posao pada, pa ponavljanje više nije opasno —
+ * nego je jedini ispravan izlaz. Ekranu treba samo iznos, za stanja A, B i E.
+ *
+ * Čita se admin klijentom, ali STROGO za `p_user` koji je prosleđen iz sesije.
+ */
+export async function vracenoZaPosao(userId: string, jobId: number): Promise<number> {
   const { data, error } = await adminSupabase()
-    .from("job_queue")
-    .select("id")
-    .eq("type", "scan")
-    .eq("dedupe_key", scanKey(args.countryCode, args.city, args.niche,
-                              stranicaZaRezultate(args.maxResults)))
-    .eq("status", "done")
-    .gte("finished_at", od)
-    .order("id", { ascending: false })
-    .limit(1)
-    .returns<{ id: number }[]>();
+    .from("credit_ledger")
+    .select("delta")
+    .eq("user_id", userId)
+    .eq("reason", "scan_refund")
+    .eq("ref_id", `scan_refund:${jobId}`)
+    .returns<{ delta: number }[]>();
 
-  // Pad ove provere ne sme da obori pretragu — ona je zaštita, ne funkcija.
+  // Iznos je ukras na poruci; bez njega se poruka i dalje prikazuje.
   if (error) {
-    console.error(`[jobs] provera neregistrovanog scana: ${error.message}`);
-    return null;
+    console.error(`[jobs] čitanje povraćaja za posao ${jobId}: ${error.message}`);
+    return 0;
   }
 
-  const jobId = (data ?? [])[0]?.id;
-  if (jobId === undefined) return null;
-
-  // Završen scan nad nesvežim kešom NE mora da znači pad registracije. Kad scan
-  // ne nađe nijednu firmu, `record_scan` upisuje `last_scanned_at` iz najstarije
-  // poznate firme, pa red postoji a kombinacija je i dalje „istekla" — i to je
-  // ispravno ponašanje (kredit je tada već vraćen kroz `refund_scan`).
-  //
-  // Razliku pravi `last_job_id`: `record_scan` uvek upiše ID posla koji ga je
-  // pozvao. Ako u registru stoji baš ovaj posao, registracija je prošla.
-  const { data: red, error: rErr } = await adminSupabase()
-    .from("search_cache")
-    .select("last_job_id")
-    .eq("country_code", args.countryCode)
-    .eq("city_slug", args.city)
-    .eq("niche_slug", args.niche)
-    .maybeSingle<{ last_job_id: number | null }>();
-
-  if (rErr) {
-    console.error(`[jobs] čitanje registra za neregistrovan scan: ${rErr.message}`);
-    return null;
-  }
-
-  return red?.last_job_id === jobId ? null : jobId;
+  return (data ?? []).reduce((z, r) => z + r.delta, 0);
 }
 
 /**

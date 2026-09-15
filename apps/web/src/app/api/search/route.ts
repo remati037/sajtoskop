@@ -39,7 +39,6 @@ import {
   claimCacheMiss,
   hasSearchAccess,
   releaseCacheMiss,
-  scanBezRegistra,
   spendCreditAndScan,
   zivPlacenPosao,
 } from "@/lib/jobs";
@@ -219,26 +218,11 @@ export async function POST(req: Request): Promise<Response> {
       if (odbijen) return odbijen;
     }
 
-    // ── scan koji je završio a nije se registrovao ───────────
-    // Samo kad keš NIJE svež: ako je za istu kombinaciju maločas završio `scan`
-    // posao, ugovor `runScan`-a je pao i svaki sledeći klik bi bio nova naplata
-    // za isti posao. Zaustavlja se PRE cene i pre naplate.
-    if (!izKesa) {
-      const neregistrovan = await scanBezRegistra({ countryCode: COUNTRY, city, niche, maxResults });
-
-      if (neregistrovan !== null) {
-        console.error(
-          `[api/search] scan #${neregistrovan} završen bez upisa u registar keša ` +
-            `(${COUNTRY}:${city}:${niche}) — naplata zaustavljena`,
-        );
-
-        return greska(
-          "Skeniranje je završeno, ali rezultat nije upisan u keš — greška je na mojoj strani. " +
-            "Kredit NIJE skinut. Ne pokreći isto skeniranje ponovo, javi mi i sređujem ga.",
-          503,
-        );
-      }
-    }
+    // [0034] Ovde je do sada stajala grana koja je ZAUSTAVLJALA ponavljanje kad
+    // je prethodni scan završio bez upisa u registar keša (503, „ne pokreći
+    // ponovo, javi mi"). Obrisana je zajedno sa `scanBezRegistra`: od 0034 takav
+    // posao pada i kredit se vraća u istoj transakciji, pa ponavljanje nije
+    // dupla naplata nego jedini ispravan izlaz — i naplaćuje se normalno.
 
     // ── nije plaćeno: koliko košta ──────────────────────────
     // Prikazano stanje kredita je ZBIR obe kase (0022): potrošnja prazni prvo

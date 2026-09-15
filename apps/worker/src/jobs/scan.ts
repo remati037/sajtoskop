@@ -29,7 +29,7 @@ import {
   stranicaZaRezultate,
 } from "@sajtoskop/shared";
 import { BudgetError } from "../lib/api-budget";
-import { placeIdsNeedingAudit, recordScan, refundScan, upsertBusinesses, zapisiNapredak } from "../lib/db-writes";
+import { failScanAndRefund, placeIdsNeedingAudit, recordScan, refundScan, upsertBusinesses, zapisiNapredak } from "../lib/db-writes";
 import { searchText } from "../lib/places";
 import { enqueueMany } from "../lib/queue";
 import type { JobContext, JobResult } from "./types";
@@ -168,19 +168,31 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     pages: stranica,
   });
 
-  // Skenirano, ali neregistrovano. Za korisnika je to najgori mogući ishod:
-  // posao je „done", pa nema ni pada ni povraćaja, a kombinacija i dalje nije u
-  // kešu — ekran se isprazni i sledeći pokušaj se opet naplati. Posao se ne
-  // obara (ponavljanje = novi Places pozivi), nego se kredit vraća odmah.
-  let vracenoBezRegistra = 0;
+  // Skenirano, ali neregistrovano: kombinacija nije u kešu, pa lista ne postoji
+  // ni za koga. Do 0034 je posao ovde ostajao `done` — nema pada, nema greške,
+  // ekran se isprazni — i web je to krpio porukom koja od korisnika traži broj
+  // posla. Od 0034 posao PADA i kredit se vraća u istoj transakciji, pa ekran
+  // ima šta da prikaže (stanje B) i ponavljanje je dozvoljeno.
   if (!registrovan) {
-    vracenoBezRegistra = await refundScan(ctx.job.id);
-    // `refundScan` vraća BROJ PLATILACA, ne zbir kredita — od S17 iznos po
-    // platiocu nije uvek 1, pa bi „vraćeno N kredita" bio pogrešan broj u logu.
-    ctx.log(
-      `registar keša NIJE upisan — kombinacija ostaje van keša, ` +
-        `kredit vraćen na ${vracenoBezRegistra} naloga`,
+    // Marker je STABILAN i interni: `/api/job/:id` po njemu bira stanje B
+    // („lista nije stigla do tebe") umesto opšteg E („skeniranje nije uspelo").
+    // Sam tekst nikad ne izlazi korisniku — izlazi samo ono iz `stanja-skeniranja`.
+    const vraceno = await failScanAndRefund(
+      ctx.job.id,
+      "bez_liste: registar keša nije upisan",
     );
+    // Vraća BROJ PLATILACA, ne zbir kredita: od S17 iznos po platiocu nije uvek 1.
+    ctx.log(`registar keša NIJE upisan — posao oboren, kredit vraćen na ${vraceno} naloga`);
+
+    // Bacanjem bi posao otišao na retry i platio Google ponovo; `runOne` bi ga
+    // inače zatvorio kao `done` i pregazio `failed` koji je upravo upisan.
+    // Zato uredan izlaz sa porukom — status je već `failed` u bazi.
+    return {
+      note:
+        `${city.label} · ${niche.label}: ${inCity.length} biznisa, ` +
+        `registar keša nije upisan — posao oboren, kredit vraćen na ${vraceno} naloga`,
+      ...(partial && { partial }),
+    };
   }
 
   if (inCity.length === 0) {
@@ -209,7 +221,7 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
   // bi delimičan povraćaj upisan PRE punog (prazan rezultat, neupisan registar)
   // pun povraćaj proglasio duplikatom — korisnik bi ostao bez ostatka.
   let vracenoRazlika = 0;
-  if (registrovan && apiCalls > 0 && apiCalls < stranica) {
+  if (apiCalls > 0 && apiCalls < stranica) {
     vracenoRazlika = await refundScan(ctx.job.id, apiCalls);
     ctx.log(
       `plaćeno ${stranica} ${stranica === 1 ? "stranica" : "stranice"}, Google dao ${apiCalls} — ` +
@@ -240,8 +252,7 @@ export async function runScan(raw: unknown, ctx: JobContext): Promise<JobResult>
     note:
       `${city.label} · ${niche.label}: ${inCity.length} biznisa, ` +
       `${created} za analizu, ${apiCalls} API poziva${partial ? " (parcijalno)" : ""}` +
-      (vracenoRazlika > 0 ? ` — razlika vraćena na ${vracenoRazlika} naloga` : "") +
-      (registrovan ? "" : ` — BEZ REGISTRA KEŠA, kredit vraćen na ${vracenoBezRegistra} naloga`),
+      (vracenoRazlika > 0 ? ` — razlika vraćena na ${vracenoRazlika} naloga` : ""),
     ...(partial && { partial }),
   };
 }
