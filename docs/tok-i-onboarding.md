@@ -1,8 +1,20 @@
-# 02 — Tok korisnika, onboarding, feedback, kartica prospekta
+# Tok korisnika, onboarding, utisci i kartica prospekta
 
-> Datum: 10. septembar 2026. Izvor: `SAJTOSKOP-SUMMARY.md`, `00-MASTER-PLAN-SESIJE.md` §0, `01-stripe-migracija.md`, repo `remati037/sajtoskop` na grani `master` (commit `3d00a67`, „S25: Stripe backend, Paddle removed, paid cache access“) i repo `remati037/sajtoskop-website` (`master`). Odluke D1–D13 i A1–A8 se ne otvaraju.
+> Napisano 10. septembra 2026 kao spec; isporučeno u sesijama **S28–S30**. Tekstovi ekrana
+> ovde su doslovni i test ih na više mesta čuva znak po znak.
 >
 > Skraćenice u celom dokumentu: **L** = `https://www.sajtoskop.com`, **A** = `https://app.sajtoskop.com`.
+>
+> **Gde se kod namerno razišao sa ovim dokumentom** (detalji u `docs/dnevnik-isporuka.md`):
+> - posle poslednjeg kredita (popravka posle S30, `0029`): tekstovi iz §1.12 i §4.7
+>   („Besplatni krediti su potrošeni", „Probao si besplatno. Za dalje treba plan.", link „Počni
+>   probu") zamenjeni su sa „Nemaš više kredita" i linkom „Pogledaj planove"; rečenica iz §2.3
+>   da `/pretraga` crta objašnjenje umesto forme više ne važi — plaćene liste ostaju otvorene;
+> - S30 odstupanja od §4 i §7 (kapija čarobnjaka, `&dubina=brzo`, dugme „Otključaj" nije
+>   primarno, i ostalo) su nabrojana u unosu S30.
+>
+> Odluke D1–D13 i A1–A8 donete su van repoa i ne otvaraju se ponovo. Pominjani `LANSIRANJE.md`,
+> `SESIJE.md`, `PROVERA-VIZUELNA.md` i `F11-utisci-v2.md` obrisani su 16. 9. 2026.
 
 ## 0. Šta je u kodu drugačije nego što plan pretpostavlja, i odluke koje ovaj dokument donosi
 
@@ -816,169 +828,5 @@ kartica.mapa = "Google Maps"
 
 ## 8. Promptovi za Claude Code
 
-Pre svake: `git checkout . && git clean -fd && git pull` (D13); kopiraj ovaj dokument u `docs/tok-i-onboarding.md` i commituj. Svaka sesija počinje sa: „Pročitaj CLAUDE.md, docs/SESIJE.md (poslednje 2 sesije), docs/naplata-stripe.md (§3, §7) i docs/tok-i-onboarding.md. Zatim:“
-
-### K4 — Onboarding + kartica prospekta (S28)
-
-```
-Sesija S28. Cilj: čovek od /welcome do kopirane poruke bez ijednog pitanja, bez ijednog
-Places poziva; kartica prospekta po D12 zamenjuje tabelu. Commit: „S28: onboarding +
-kartica prospekta". Preduslov: K3 mergovan (pozivnice).
-
-Pročitaj docs/tok-i-onboarding.md §0 (C1–C6, O2–O6), §1.8–1.13, §2.3, §2.5, §4 CEO, §7 CEO;
-docs/DIZAJN-SISTEM.md (§7.1 jedno primarno dugme, §8 animacije, tokeni); docs/LANSIRANJE.md
-§1.8 samo zbog konteksta (nadjačan sa §4 ovog dokumenta gde se razlikuju: 2 kredita, ne 1;
-prva lista se plaća 1 kredit iz keša po D10).
-
-FAJLOVI
-1. supabase/migrations/0026_onboarding.sql — doslovno iz §4.3: kolone onboarding_*,
-   grant_credits grana ('credit_pack','onboarding') → credits_topup, create_profile_with_grant
-   sa razlogom 'onboarding', onboarding_mark_step, admin_users_page dobija onboarding_done_at
-   i onboarding_skipped_at (drop + create, obrazac iz S25). Idempotentno, pnpm check:sql dvaput.
-2. packages/shared/src/plans.ts — ONBOARDING_CREDITS = 2. packages/shared/src/pristup.ts — O3:
-   ProfilZaPristup.createdAt; grana 4 računa grace nad kasniji(punDo, createdAt); test u
-   test/pristup.ts (nov nalog, 0 topup → grace 30 dana od registracije; posle → zakljucan).
-   apps/web/src/lib/pristup.ts prosleđuje profile.created_at.
-3. apps/web/src/lib/profile.ts — KREDITI_NA_REGISTRACIJI → ONBOARDING_CREDITS; komentar ažuriran.
-4. packages/shared/src/onboarding.ts — KORACI (§4.5), tekst tačaka, tekst trake, tipovi.
-   packages/shared/src/index.ts re-export.
-5. apps/web/src/lib/onboarding.ts (server-only) — zahtevajOnboarding(profile, pristup):
-   redirect('/pocetak') kad pristup.pun && !done && !skipped. Zove se u /pretraga, /lista,
-   /pipeline, /dashboard, /krediti ODMAH posle zahtevajCitanje(). NE u layout-u.
-6. app/pocetak/page.tsx + components/pocetak-ekran.tsx — čarobnjak §4.2, četiri ekrana,
-   tekstovi doslovno; kombinacije SAMO iz listaKesa() sa fresh=true; agregati po gradu i niši
-   (count, sum noSite); ekran 4 zove POST /api/search {pay:true, dubina:'brzo'} i redirektuje;
-   ?pozivnica=komp red iznad naslova; ?ponovo=1 preselekcija bez dodele; prazan keš ekran.
-   Svoj layout (bez bočne trake), obe teme, ≤390 px, animacija §8, prefers-reduced-motion.
-7. app/api/onboarding/{korak,preskoci,hint}/route.ts — requireUserId, Zod strictObject,
-   rate limit; korak prima SAMO {korak:'poruka'}; ostala tri koraka upisuju rute koje ih rade:
-   api/search (prvi charged/already_paid → onboarding_mark_step 'pretraga'), lib/unlock.ts
-   (prvi unlocks red → 'otkljucavanje'), api/pipeline (prvi lead_status → 'pipeline').
-8. components/onboarding-traka.tsx u bočnoj traci (§4.6) + OnboardingProvider koji stanje
-   dobija iz (app)/layout.tsx i osvežava iz odgovora ruta (steps u odgovoru unlock/search/
-   pipeline/korak — dodaj polje onboardingSteps?: jsonb u te odgovore). Blok „Prvi koraci"
-   na /dashboard se BRIŠE.
-9. components/vodjena-tacka.tsx — balon uz element (§4.5), max jedna, nikad preko modala/
-   posla/pitanja (UtisciProvider.pitanjeOtvoreno), upis u onboarding_hints_seen kroz
-   /api/onboarding/hint; ≤390 px ispod elementa.
-10. components/vodic.tsx — panel iz gornje trake (§4.8), Esc/klik van, „Pokaži mi" vraća tačku,
-    „Ponovi prve korake" → /pocetak?ponovo=1.
-11. components/ui/stranica.tsx — PraznoStanje proširiti (fusnota); sva prazna stanja iz §4.7
-    doslovno na /pretraga, /lista, /pipeline, /utisci i u kartici.
-12. KARTICA: components/kartica-prospekta.tsx po §7 (pet stanja, tekstovi iz §7.8 u
-    lib/ui-tekst.ts pod `kartica`). lib/search-types.ts: LeadBase + ratingCount, hasEmail,
-    nicheLabel, issueCount; UnlockResponse + enrichJobId; lib/public-lead.ts puni ih;
-    lib/unlock.ts vraća job id i ponovo enqueue-uje enrich_full kad audit nema ai_*/screenshot
-    polja (dedupe po place_id). lead-tabela.tsx se BRIŠE; pretraga-ekran.tsx i
-    moja-lista-ekran.tsx crtaju grid kartica; snimak.tsx ostaje kao preklop. Polling
-    §7.4 preko GET /api/job/[id] + POST /api/unlock (alreadyUnlocked). Modal potvrde §7.3,
-    „Ne pitaj me više danas" u sessionStorage. Tab Poziv = viber tekst pod „Šta da kažeš"
-    + tel: dugme, bez AI varijante. Toast „Kopirano. Označi kao kontaktiran?" → /api/pipeline.
-    api/unlock/route.ts: 402 tekst „Nemaš dovoljno kredita." (bez bete) + isti toast u ekranu.
-13. Baneri: pristup-baner.tsx — dopuna bez paketa (§1.12), grace sa uzrokom (§2.3: past_due /
-    besplatni potrošeni / istekao). app/zakljucano/page.tsx — grana bez punDo „Nalog čeka
-    plan" (§1.12). /pretraga prazno stanje grace posle besplatnih kredita.
-14. Pozivnice: /api/pozivnice/prihvati za komp redirektuje na /pocetak?pozivnica=komp (ne
-    /dashboard); /welcome primarno dugme „Napravi prvu listu" → /pocetak, naslov „Proba je
-    počela" / „Plan je aktivan" po sesiji (dopuni ono što je K2 uradio).
-15. app/api/webhooks/clerk/route.ts — C6: pre obrisiProfil, za stripe_customer_id otkaži
-    sve pretplate status in (trialing, active, past_due) (stripe.subscriptions.cancel,
-    prorate:false) i označi customer metadata deleted_user; pad → 500 (Svix ponavlja), profil
-    se ne briše dok Stripe ne prođe. Test u test/clerk-webhook.ts sa lažnim Stripe klijentom.
-16. Testovi: test/pristup.ts (O3), test/onboarding.ts (mark_step kroz validate-migrations:
-    četiri koraka → done_at; nepoznat korak baca; idempotentno), test/kartica.ts (stanje iz
-    podataka: locked/u toku/greška/nema sajt/otključano; LockedLead nema zabranjene ključeve —
-    proveri JSON ključeve, ne tipove), test/unlock.ts (enrichJobId, ponovni enqueue).
-    scripts/validate-migrations.ts: 0026 dvaput, create_profile_with_grant daje 2 u topup.
-
-PRAVILA (CLAUDE.md): 3 (krediti samo kroz RPC — nema nove putanje, onboarding ide kroz
-grant_credits/spend_*), 5 (nula Places poziva u onboardingu — proveri api_budget pre/posle
-prolaza), 8 (userId iz sesije), 9 (LockedLead bez zaključanih ključeva; maska iz null), 11
-(country_code), 16. DIZAJN-SISTEM §7.1, nijedan hex u JSX-u, obe teme, ≤390 px, .num na
-brojevima. Terminologija SUMMARY §9: prospekt, otključaj, skeniranje, kredit, utisak; nikad
-„beta" ni „trial" u UI. Zod 4 strictObject na svakoj novoj ruti. Ako nešto iz §4/§7 ne može
-kako piše — reci tačno šta, ne improvizuj.
-
-GOTOVO
-- pnpm typecheck, pnpm check:sql, pnpm test, pnpm --filter web lint, pnpm build čisti.
-- Ručni prolaz (lokalno, stripe listen): nov nalog bez kartice → /pocetak → lista (1 kredit)
-  → „prvi je besplatan" → kartica u toku → puna → Kopiraj → Kontaktiran → traka „Sva četiri"
-  nestaje; drugi prospekt → „treba plan"; /pretraga → „Probao si besplatno"; /lista i dalje
-  radi; SQL iz §4.9 pokazuje sva četiri koraka. Zatim isti prolaz sa probom (12 kredita) i sa
-  komp pozivnicom (/pocetak?pozivnica=komp).
-- api_budget nepromenjen posle oba prolaza (paste output u SESIJE.md).
-- Brisanje naloga iz Clerk-a sa živom test pretplatom → pretplata u Stripe-u canceled PRE
-  nego što profil nestane (screenshot Stripe eventa u SESIJE.md).
-- Kartica u pet stanja, obe teme, 390 px — screenshoti u docs/PROVERA-VIZUELNA.md.
-- docs/SESIJE.md unos S28; docs/LANSIRANJE.md štiklirati S27 i S28 sa napomenom „po
-  docs/tok-i-onboarding.md".
-```
-
-### K5 — Feedback poboljšanja (S29)
-
-```
-Sesija S29. Cilj: feedback sistem prestaje da govori o beti, dobija NPS, „šta ti fali",
-citat posle potpisa i prijavu greške sa mesta gde nastaje. Commit: „S29: feedback". Preduslov:
-K4 (kartica ima stanje greške i ctx).
-
-Pročitaj docs/tok-i-onboarding.md §5 CEO, docs/F11-utisci-v2.md §2, §3, §6.2, §6.6 (kao
-kontekst — §5.2 ovog dokumenta nadjačava gde se razlikuju), packages/shared/src/
-feedback-katalog.ts CEO, feedback-motor.ts, apps/web/src/lib/feedback.ts,
-components/utisak-dugme.tsx, utisak-kartica.tsx, utisak-mikro.tsx, utisci-provider.tsx,
-app/(admin)/admin/utisci/page.tsx, components/admin-utisak-panel.tsx, app/api/cron/
-utisci-digest/route.ts.
-
-FAJLOVI
-1. packages/shared/src/feedback-katalog.ts — obriši `cena` (i CENA_OPSEZI, medijanaCene,
-   PRAG_CENE_RSD ako ih niko drugi ne koristi — grep); KRAJ_BETE → ROK_PITANJA = "2027-12-31"
-   (svako `do`); dodaj `nps-7` (§5.3 A, doslovno), `fali` (§5.3 C: mikro, tekstPrvi,
-   ponovi 24h, bez uslova, okida ga ekran), treći korak na `prvi-potpisan` (citat: da-ime /
-   da-bez / ne, §5.3 B) sa dopunom placeholder-a; `poruka-kvalitet` okidač = prvo Kopiraj
-   bilo koje poruke (kartica šalje događaj). Šeme Zod za sve. PITANJE_KLJUCEVI se sam ažurira.
-2. packages/shared/src/feedback-motor.ts — treće odbacivanje = 90 dana (ne do kraja bete);
-   test/feedback-motor.ts prilagoditi.
-3. apps/web/src/lib/feedback.ts — trebaPodsetnik: + uslov otkljucano ≥ 1; nagradaDostupna:
-   + pristup.stanje !== 'proba'.
-4. components/utisak-dugme.tsx — zaglavlje „<Ekran>" bez „· beta"; prop `otvoriBug(ctx)` za
-   §5.3 D: kind=bug preselektovan, ctx sa servera (placeId, jobId, route, korak, stanje,
-   greska) — ruta POST /api/feedback prima `ctxKljuc` (placeId/jobId) i sama ČITA ostalo,
-   nikad ne prima plan/stanje iz tela. Link „Prijavi grešku" na: kartica stanje greške,
-   skeniranje-modal greška, toast 402/403/500 unlock i search, /welcome, pretplata-blok
-   past_due.
-5. Prazna stanja: `fali` mikro ispod praznog stanja na /pretraga (filteri), /lista (posle 7
-   dana), combobox niša kad tekst pretraga vrati 0 (ctx.query), /pipeline (posle 7 dana).
-   Događaj ide kroz UtisciProvider.prijavi('fali', ctx) — motor odlučuje, ekran ne.
-6. NPS kartica: utisak-kartica.tsx podržava 11 opcija u redu (≤390 px: 0–5 / 6–10).
-7. app/dashboard/page.tsx — „Beta dnevnik" → „Novo u Sajtoskopu"; grep -ri "beta" apps/web/src
-   mora da vrati 0 u tekstu koji korisnik vidi (komentari smeju).
-8. Migracija 0027_feedback_nps.sql — funkcija admin_nps() (score, n, promoteri, pasivni,
-   detraktori, poslednjih_30_dana) i admin_fali(p_route text default null) (message,
-   count, route, poslednji_put) grupisano po lower(trim(message)). Bez novih tabela.
-9. Admin: /admin/utisci red brojki — medijana cene → NPS (admin_nps); filter sloj + „Fali"
-   (admin_fali lista) i „Citat" (answers->>'citat'); dugme „Kopiraj kao referencu";
-   admin-utisak-panel.tsx blok „Kontekst" iz ctx (placeId → link na /pretraga?…, jobId →
-   status/error iz job_queue, korak, stanje). /admin pregled: kartica NPS.
-10. Cron utisci-digest: dve linije na vrhu (NPS ove nedelje, Fali: N novih).
-11. Testovi: test/feedback-katalog.ts (nps-7 šema 0–10 i odbija 11; fali traži tekst; citat
-    samo posle preporuka=da), test/feedback-motor.ts (90 dana), test/feedback-ruta.ts (telo sa
-    `plan` se ignoriše; ctx se čita sa servera). validate-migrations: 0027 dvaput, admin_nps
-    na praznoj tabeli vraća n=0 bez greške.
-
-PRAVILA: 3 (nagrade samo kroz grant_feedback_credits), 8 (ctx sa servera), 10 (RLS na
-feedback ostaje using(false), čitanje kroz service_role rute), 13/14 (admin 404, admin_audit
-na svaku mutaciju), 16 (pitanje ne postoji dok nije u katalogu). Terminologija: utisak,
-prijava, pitanje (nikad anketa), „Novo u Sajtoskopu". Nijedan hex, obe teme, ≤390 px.
-Nema nove infrastrukture: nijedan nov bucket, cron, servis ni tabela — ako ti se učini da
-treba, stani i reci.
-
-GOTOVO
-- typecheck, check:sql, test, lint, build čisti; grep „beta" u UI tekstu = 0.
-- Ručno: nalog star 7 dana (pomeri created_at u bazi) sa 1 otključanim → NPS kartica na
-  /pretraga, odgovor 9 + tekst → feedback red prompt_key nps-7, answers.ocena=9, bez nagrade;
-  admin_nps() vraća score 100, n 1. Prazan filter → „Šta ti ovde fali?" → tekst → admin_fali.
-  Kartica u stanju greške → „Prijavi grešku" → panel sa bug + ctx.placeId → admin panel blok
-  Kontekst sa linkom i statusom posla. Prvi potpisan → tri koraka → citat=da-ime → filter
-  Citat → „Kopiraj kao referencu".
-- docs/SESIJE.md unos S29; screenshoti u PROVERA-VIZUELNA.md (NPS kartica 390 px, panel bug
-  sa kontekstom, admin NPS).
-```
+Promptovi K4 i K5 izvršeni su u S28–S30 i obrisani odavde 16. 9. 2026 (u git istoriji ovog
+fajla). Landing deo (K7, §3) je gotov prompt u `docs/prompt-landing.md`.

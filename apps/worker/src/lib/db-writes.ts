@@ -51,7 +51,7 @@ export type UpsertBusinessesInput = {
  * [Faza 0, 0.6 — ODLUKA o više niša po biznisu] `place_id` je primarni ključ i
  * svaki biznis ima TAČNO jedan red, pa scan druge niše prepiše
  * `city_slug`/`niche_slug` — biznis nestaje iz prve niše (nalaz N5).
- * Namerno prihvaćeno: „poslednji scan pobeđuje", zapisano u docs/SESIJE.md
+ * Namerno prihvaćeno: „poslednji scan pobeđuje", zapisano u docs/dnevnik-isporuka.md (S8)
  * (S8). Prava podrška za biznis u više niša bi tražila zasebnu tabelu
  * članstva i prepravku pretrage — to je izmena šeme i upita, ne popravka,
  * i ne staje u Fazu 0. Posledica je svesna: biznis koji Google vrati u dve

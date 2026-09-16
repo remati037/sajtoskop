@@ -137,7 +137,7 @@ export const TIERS: Tier[] = [
 // ── paketi kredita ──────────────────────────────────────────
 // Jednokratna kupovina, bez `recurring`. Krediti iz paketa NE ISTIČU i žive u
 // `profiles.credits_topup` — odvojenoj kasi od pretplatnih kredita, koji se
-// resetuju svakog meseca (v. docs/LANSIRANJE.md §1.4 i migraciju 0022).
+// resetuju svakog meseca (v. docs/proizvod-i-arhitektura.md §4 i migraciju 0022).
 //
 // Cena po kreditu je NAMERNO viša nego u pretplati (+31% i +27% naspram Startera):
 // paket je dopuna, ne jeftinija zamena za plan. Trećeg, većeg paketa nema — da bi

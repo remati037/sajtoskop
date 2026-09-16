@@ -1358,7 +1358,7 @@ async function main(): Promise<void> {
 
   // ── S16: novčanik i naplata (migracija 0022) ─────────────
   // Ovo je novčana putanja. Svaka provera ispod odgovara jednoj odluci iz
-  // docs/LANSIRANJE.md §1.3–§1.5; ako se ijedna promeni „usput", pada ovde a ne
+  // docs/proizvod-i-arhitektura.md §4–§5; ako se ijedna promeni „usput", pada ovde a ne
   // na računu korisnika.
   //
   // Prave trke (20 paralelnih poziva, stvarni `for update`) i dalje pokriva
@@ -1789,7 +1789,7 @@ async function main(): Promise<void> {
 
   // ── S17: dubina skeniranja i cena po stranici (0023) ─────
   // Novčana putanja, ponovo. Svaka provera ispod je jedan red iz tabele u
-  // docs/LANSIRANJE.md §1.2 ili jedna od tri zamke koje ta odluka nosi.
+  // docs/proizvod-i-arhitektura.md §4 ili jedna od tri zamke koje ta odluka nosi.
   //
   // Prave trke (dva korisnika u istoj sekundi, stvarni `for update`) i dalje
   // pokriva `pnpm check:f4` nad pravom bazom — PGlite ima jednu konekciju.

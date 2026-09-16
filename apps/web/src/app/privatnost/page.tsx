@@ -1,6 +1,6 @@
 // apps/web/src/app/privatnost/page.tsx
 // Politika privatnosti, po Zakonu o zaštiti podataka o ličnosti (ZZPL).
-// Zahtevi iz `docs/F8-landing.md` §3 i `docs/bezbednost-i-zastita.md` (P1,
+// Zahtevi iz F8 PRD §3 (git istorija) i `docs/bezbednost.md` (P1,
 // „Zaštita ličnih podataka po ZZPL-u").
 //
 // ‼️ ODELJAK 6 OPISUJE POSTOJEĆI PUT BRISANJA, NE ŽELJENI. Brisanje ide kroz
@@ -9,8 +9,8 @@
 //    i ovaj tekst; politika koja opisuje proceduru koje nema je gora od politike
 //    koje nema.
 //
-// ‼️ Tekst je iz šablona i NIJE pravno proveren. Markeri `Popuniti` čekaju
-//    korak R19.
+// ‼️ Tekst je iz šablona i NIJE pravno proveren. Markeri `Popuniti` se
+//    popunjavaju po stavci 4.3 u docs/lansiranje-checklista.md.
 
 import type { Metadata } from "next";
 import { KONTAKT_MEJL } from "@/components/futer";

@@ -1,7 +1,7 @@
 // apps/web/src/app/(admin)/admin/utisci/page.tsx
 // Utisci u konzoli (F11 §6.6).
 //
-// Jedan ekran UNUTAR konzole iz `docs/F12-admin.md`, ne svoj okvir: odatle
+// Jedan ekran UNUTAR konzole iz F12 PRD-a (git istorija), ne svoj okvir: odatle
 // dolaze `requireAdminPage()`, bočna traka, `admin_audit` i put do kredita.
 //
 // Raspored: red brojki, filteri, lista levo, detalj u panelu desno. Panel se

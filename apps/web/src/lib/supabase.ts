@@ -5,7 +5,7 @@
 //   adminSupabase() — service_role. RLS NE VAŽI. Vidi sve, menja sve.
 //
 // `import "server-only"` je tu da build pukne ako neko ikad uveze ovaj fajl u
-// `"use client"` komponentu. To je P0-4 iz docs/bezbednost-i-zastita.md — jedan
+// `"use client"` komponentu. To je P0-4 iz docs/bezbednost.md — jedan
 // slučajan import i cela baza je javna.
 //
 // Pravilo: sve što korisnik sme da vidi čita se kroz `userSupabase()`.

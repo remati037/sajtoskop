@@ -1,7 +1,11 @@
 # Bezbednost i zaštita od kopiranja
 
-Prioritetizovano. P0 mora pre launcha, P1 pre 100 korisnika, P2 kasnije.
+Prioritetizovano. P0 mora pre lansiranja, P1 pre 100 korisnika, P2 kasnije.
 Sve je specifično za ovu aplikaciju — generički OWASP checklist možeš naći bilo gde.
+
+> Napisano na početku projekta (avgust 2026), pre naplate skeniranja i pre Stripe-a —
+> primeri iz „beta" vremena (besplatna pretraga keša, 30 kredita) opisuju tadašnji model.
+> Pretnje i mere i dalje važe. Stanje svake mere je u sekciji **CHECKLIST** na dnu.
 
 ---
 
@@ -477,33 +481,38 @@ Ovo je jedini deo koji zaista drži. Sve gore je higijena.
 
 # CHECKLIST
 
-**P0 — pre launcha**
-- [ ] `spend_credit_and_unlock` Postgres funkcija sa `FOR UPDATE`
-- [ ] `user_id` isključivo iz Clerk sesije na svim rutama
-- [ ] Dnevni limit cache-miss pretraga po planu
-- [ ] Globalni dnevni cap API poziva + Google Cloud quota ispod free tiera
-- [ ] Server-side stripping polja za neotključane leadove
-- [ ] Supabase Storage bucket privatan, signed URL-ovi 15 min
-- [ ] RLS na svim tabelama; `businesses`/`website_audits` sa `using (false)`
-- [ ] CI grep za `service_role` u `.next/static`
-- [ ] Playwright u kontejneru: non-root, read-only, cap_drop ALL, mem limit
-- [ ] `resolveSafeUrl` sa blokiranim privatnim opsezima, DNS pinning, ručne redirekcije
-- [ ] Google ključ: IP restriction + API restriction + quota
-- [ ] Zod allowlist za grad i nišu
-- [ ] Uslovi korišćenja i politika privatnosti objavljeni
+Stanje na 16. septembar 2026. Otvorene stavke imaju broj stavke iz
+`docs/lansiranje-checklista.md`.
+
+**P0 — pre lansiranja**
+- [x] `spend_credit_and_unlock` Postgres funkcija sa `FOR UPDATE` (i `spend_credit_and_scan`)
+- [x] `user_id` isključivo iz Clerk sesije na svim rutama
+- [x] Dnevni limit skeniranja po planu (osigurač) + novčanik kao glavno ograničenje
+- [x] Globalni dnevni i mesečni cap Places poziva iz budžeta
+- [ ] Google Cloud: IP i API restrikcija ključa, dnevna kvota iznad aplikativnog capa — **1.6**
+- [x] Server-side izbacivanje polja za neotključane prospekte (pravilo 9)
+- [x] Supabase Storage bucketi privatni, potpisani URL-ovi 15 min
+- [x] RLS na svim tabelama; `businesses`/`website_audits` sa `using (false)`
+- [x] CI grep za `service_role` u `.next/static` (`pnpm check:secrets`)
+- [x] Playwright u kontejneru: non-root, read-only, cap_drop ALL, mem limit
+- [ ] Egress filter na hostu (iptables ka privatnim opsezima) potvrđen — **1.11**
+- [x] `resolveSafeUrl` sa blokiranim privatnim opsezima, DNS pinning, ručne redirekcije
+- [x] Zod allowlist za grad i nišu
+- [ ] Uslovi korišćenja i politika privatnosti objavljeni **bez markera** — **4.3**
 
 **P1 — pre 100 korisnika**
-- [ ] Rate limit po korisniku, IP-u i queue depth-u
-- [ ] `webhook_events` idempotencija
-- [ ] Bezbednosni headeri
-- [ ] `pg_dump` cron backup, 7 dana, offsite
-- [ ] Dependabot + `npm audit` u CI
-- [ ] Kanarinci u bazi
-- [ ] Detekcija deljenja naloga → ponuda upgrade-a
+- [x] Rate limit po IP-u i ruti (`request_limits`), admin tempo, tempo pozivnica
+- [x] `webhook_events` (Clerk) i `billing_events` (Stripe) idempotencija
+- [x] Bezbednosni headeri (CSP, HSTS, X-Frame-Options, Referrer-Policy)
+- [ ] `pg_dump` cron backup, 7 dana, off-site, jednom vraćen — skripta postoji, cron i vraćanje **1.4**
+- [x] Dependabot + `pnpm audit` u CI
+- [ ] Kanarinci u bazi — **2.5**
+- [ ] Sentry sa brisanjem ličnih podataka — **2.1**
+- [ ] Detekcija deljenja naloga → ponuda većeg plana
 
 **Zaštita brenda**
 - [ ] Provera imena u ZIS bazi i na RNIDS-u
 - [ ] `.rs`, `.co.rs`, `.com` kupljeni
-- [ ] Copyright notice u futeru i izvornim fajlovima
+- [x] Copyright notice u futeru
 - [ ] Žig prijavljen — **posle** potvrde da ima kupaca
-- [ ] Feedback loop na "Potpisan" status implementiran
+- [ ] Povratna sprega „Potpisan" u skoringu (podaci se skupljaju: `signed_events`, pitanje `prvi-potpisan`)

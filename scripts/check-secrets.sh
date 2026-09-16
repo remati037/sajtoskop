@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/check-secrets.sh — P0-4 iz docs/bezbednost-i-zastita.md
+# scripts/check-secrets.sh — P0-4 iz docs/bezbednost.md
 #
 # Traži service_role ključ i sirove JWT-ove u klijentskom bundle-u.
 # Jedan slučajan import u "use client" fajlu i cela baza je javna.

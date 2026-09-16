@@ -8,7 +8,7 @@
 //
 // ── S24: ovo je poddomen, ne ceo sajt ──────────────────────
 // Aplikacija stoji na `app.` poddomenu, a prodajna strana na golom domenu
-// (`docs/LANSIRANJE.md` §1.7). Ova strana je zato jedini ekran koji nije
+// (`docs/proizvod-i-arhitektura.md` §2). Ova strana je zato jedini ekran koji nije
 // dostupan sa landinga preko loga, pa mora sama da ponudi put nazad — i logo i
 // jedan diskretan link ispod forme. Bez toga je forma za prijavu ćorsokak za
 // nekoga ko je kliknuo „Prijavi se" iz radoznalosti.

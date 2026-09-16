@@ -49,7 +49,7 @@ export async function GET(
     // do ovog trenutka već vraćen, u istoj transakciji u kojoj je posao pao.
     const vraceno = job.status === "failed" ? await vracenoZaPosao(userId, job.id) : 0;
 
-    // Dva različita pada, dva teksta (`docs/11`): skeniranje koje NIJE uspelo je
+    // Dva različita pada, dva teksta (`lib/stanja-skeniranja.ts`): skeniranje koje NIJE uspelo je
     // stanje E, a skeniranje koje jeste prošlo ali lista nije stigla do korisnika
     // je stanje B. Razliku pravi interni marker u `last_error`; sam `last_error`
     // NIKAD ne izlazi korisniku — ni on, ni broj posla.

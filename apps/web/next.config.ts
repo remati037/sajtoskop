@@ -115,7 +115,7 @@ const clerkCaptcha = "https://challenges.cloudflare.com https://*.protect.clerk.
 const dev = process.env.NODE_ENV === "development";
 const unsafeEval = dev ? " 'unsafe-eval'" : "";
 
-// ── bezbednosni headeri (Faza 1, 1.1; P1 iz docs/bezbednost-i-zastita.md) ──
+// ── bezbednosni headeri (Faza 1, 1.1; P1 iz docs/bezbednost.md) ──
 // CSP je sastavljen oko onoga što app STVARNO koristi: Clerk (script/connect/img
 // — domen se izvlači iz publishable ključa, v. `clerkDomains()`), Supabase
 // (connect/img — potpisani URL-ovi slika), blob/data za snimke i avatare, i

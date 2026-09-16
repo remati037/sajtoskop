@@ -1,8 +1,11 @@
-# F3 — Hetzner server: kupovina i podešavanje
+# Worker na Hetzneru — kupovina, podešavanje i svakodnevni rad
 
-Prati `docs/F3-worker.md` §6. Ovo je pun redosled, od otvaranja naloga do
-provere da worker radi. Radi se **jednom**, traje 45–60 minuta prvi put
-(od čega je pola čekanje na verifikaciju naloga).
+Pun redosled, od otvaranja naloga do provere da worker radi, plus svakodnevni rad (§12).
+Napisano u fazi F3 (avgust 2026); delovi koji pominju „F5" ili „F6" opisuju šta je tada
+tek dolazilo — sve je u međuvremenu isporučeno. Redeploy posle izmene koda: §12.
+
+Postavljanje od nule se radi **jednom** i traje 45–60 minuta prvi put (od čega je pola
+čekanje na verifikaciju naloga).
 
 **Šta ovaj server radi:** vuče poslove iz `job_queue`, zove Google Places,
 preuzima tuđe sajtove, upisuje rezultat u Supabase. **Ne prima nijedan zahtev
@@ -306,12 +309,14 @@ repoa, loga ili Docker sloja posle ovoga **ne vredi ništa**.
 2. **API restrictions → Restrict key** → čekiraj **samo**:
    - Places API (New)
    - PageSpeed Insights API *(treba tek u F6, dodaj sad da se ne vraćaš)*
-3. **APIs & Services → Places API (New) → Quotas** → dnevni limit **100
-   requests/day**
+3. **APIs & Services → Places API (New) → Quotas** → dnevna kvota za Text Search malo
+   iznad aplikativnog dnevnog capa (`GLOBAL_DAILY_API_CAP` u
+   `packages/shared/src/plans.ts`, izveden iz `PLACES_MONTHLY_BUDGET_EUR`: €100 → 206
+   poziva, pa kvota **250**). Kad se budžet podigne, podiže se i kvota.
 
-Treći korak je poslednja mreža ispod `GLOBAL_DAILY_API_CAP = 75` iz
-`packages/shared/src/plans.ts`: ako aplikativni brojač ikad otkaže, Google
-odbija pozive umesto da ih naplati.
+Treći korak je poslednja mreža iznad aplikativnog brojača: ako brojač ikad otkaže, Google
+odbija pozive umesto da ih naplati. Kvota ispod capa bi, obrnuto, odbijala skeniranje pre
+nego što brojač stigne da kaže zašto.
 
 > Posle ovoga `pnpm scan` sa laptopa vraća `403 restrikcija ključa` sve dok ne
 > dodaš i svoju IP adresu. To nije bug, to je poenta.
@@ -374,7 +379,10 @@ Moraju da postoje:
 NEXT_PUBLIC_SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 GOOGLE_MAPS_API_KEY=...
+PSI_API_KEY=...
+ANTHROPIC_API_KEY=...
 WORKER_CONCURRENCY=3
+PLACES_MONTHLY_BUDGET_EUR=100     # ista vrednost kao na Vercelu
 ```
 
 Clerk promenljive workeru ne trebaju, ali ne smetaju.
@@ -435,7 +443,7 @@ docker compose -f apps/worker/docker-compose.yml up -d --build
 ```
 
 Gašenje je uredno: Docker šalje `SIGTERM`, worker završi tekuće poslove i ne
-uzima nove. Bez CI-a za sada (PRD §6).
+uzima nove. Deploy workera je ručan — CI ga ne radi.
 
 **Log:**
 

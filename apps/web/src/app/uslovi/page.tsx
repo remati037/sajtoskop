@@ -1,8 +1,8 @@
 // apps/web/src/app/uslovi/page.tsx
-// Uslovi korišćenja. Obavezne klauzule su iz `docs/F8-landing.md` §3 i
-// `docs/bezbednost-i-zastita.md` (Sloj 1 — „ono što ti omogućava da nekoga
-// isključiš"); pravila naplate i životnog ciklusa iz `docs/LANSIRANJE.md`
-// §1.3–§1.5.
+// Uslovi korišćenja. Obavezne klauzule su iz F8 PRD §3 (git istorija) i
+// `docs/bezbednost.md` (Sloj 1 — „ono što ti omogućava da nekoga
+// isključiš"); pravila naplate i životnog ciklusa iz `docs/proizvod-i-arhitektura.md`
+// §4–§5.
 //
 // Strana stoji IZVAN grupe `(app)`: mora da je pročita i gost, a Stripe je
 // traži na javnoj strani (Settings → Business → Public details).
@@ -10,7 +10,7 @@
 // [S25] Prodavac je LLC (odluka A4), ne merchant of record. Ime iz env-a.
 //
 // ‼️ Tekst je iz šablona i NIJE pravno proveren. Sve što traži stvaran podatak
-//    stoji kao `Popuniti` marker; korak R19 ih popunjava.
+//    stoji kao `Popuniti` marker; popunjavaju se po stavci 4.3 u docs/lansiranje-checklista.md.
 
 import type { Metadata } from "next";
 import { KONTAKT_MEJL } from "@/components/futer";

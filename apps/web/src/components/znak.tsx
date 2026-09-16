@@ -1,5 +1,5 @@
 // apps/web/src/components/znak.tsx
-// Znak proizvoda po `docs/DIZAJN-SISTEM.md` §2: lupa/nišan — prsten sa metom u
+// Znak proizvoda po `docs/dizajn-sistem.md` §2: lupa/nišan — prsten sa metom u
 // centru i drškom.
 //
 // Inline SVG, ne slika: znak stoji u bočnoj traci, na ekranu za prijavu i u

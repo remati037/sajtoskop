@@ -1,6 +1,6 @@
 // apps/web/src/lib/veze.ts
 // Veze ka landingu. Jedini fajl u aplikaciji koji sme da zna domen prodajne
-// strane (`docs/LANSIRANJE.md` §1.7).
+// strane (`docs/proizvod-i-arhitektura.md` §2).
 //
 // ── zašto uopšte postoji ───────────────────────────────────
 // Do S24 je aplikacija mislila da je sama na domenu: logo je svuda vodio na
@@ -23,7 +23,7 @@
 // Provereno 27.8. i ponovo pri isporuci S24: `https://sajtoskop.com` odgovara
 // `308` i preusmerava na `https://www.sajtoskop.com`. Goli oblik bi značio da
 // svaki klik iz aplikacije plaća suvišan skok, pa je kanonski oblik `www`
-// (`docs/LANSIRANJE.md` §1.7). Env promenljiva na Vercelu nosi isti oblik.
+// (`docs/proizvod-i-arhitektura.md` §2). Env promenljiva na Vercelu nosi isti oblik.
 
 /** Kad `NEXT_PUBLIC_LANDING_URL` nije postavljen — v. komentar iznad. */
 const PODRAZUMEVANI_LANDING = "https://www.sajtoskop.com";

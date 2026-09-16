@@ -1,7 +1,7 @@
 // apps/web/test/stanja-skeniranja.ts
 // Pokretanje: pnpm --filter web test  (ili `pnpm test` iz korena)
 //
-// [0034] Tekstovi stanja skeniranja A–F (`docs/11-tekstovi-stanja-skeniranja.md`).
+// [0034] Tekstovi stanja skeniranja A–F (`src/lib/stanja-skeniranja.ts`).
 //
 // Zašto test nad tekstom: dva pravila iz tog dokumenta su PONAŠANJE, ne stil, i
 // oba su već jednom pukla u proizvodu —

@@ -6,7 +6,7 @@ i priprema outreach materijal za web dizajnere, frilensere i agencije.
 **Dva domena:** `sajtoskop.com` je **landing** i **nije u ovom repozitorijumu** —
 ne pravi ga i ne prepravljaj ga odavde. `app.sajtoskop.com` je aplikacija iz `apps/web`.
 Na landing se pokazuje kroz `NEXT_PUBLIC_LANDING_URL`, nikad zakucanim domenom; landing na
-aplikaciju pokazuje slugom plana, **nikad Stripe `price_` ID-jem** (`docs/LANSIRANJE.md` §1.7).
+aplikaciju pokazuje slugom plana, **nikad Stripe `price_` ID-jem** (`docs/proizvod-i-arhitektura.md` §2).
 Naplata je **Stripe** (hosted Checkout + Customer Portal, `docs/naplata-stripe.md`); nijedan
 Stripe ID (`prod_`, `price_`, `cus_`, kupon) ne ulazi u kod — samo `lookup_key` iz `plans.ts` i env.
 
@@ -14,20 +14,30 @@ Autor: Marko Milenković / Remati · Solo developer.
 
 ## Kontekst i planovi
 
-Pre rada na bilo kojoj fazi pročitaj:
+Mapa foldera je u `docs/README.md`. Pre rada pročitaj:
 
-- `docs/00-kontekst.md` — proizvod, arhitektura, model podataka, terminologija
-- `docs/F{N}-*.md` — PRD za trenutnu fazu; **radi samo iz jednog PRD-a u jednoj sesiji**
-- `docs/bezbednost.md` — P0 lista, referenciraj kad faza dodiruje kredite, storage ili renderovanje sajtova
-- `docs/DIZAJN-SISTEM.md` — **obavezno pre bilo kakvog UI rada**; v. „Dizajn" niže
-- `docs/LANSIRANJE.md` — **plan do lansiranja**: otvorene odluke, sesije S16–S23 sa gotovim
-  promptovima, ručni koraci R1–R28 i go/no-go lista. Prvi fajl koji se otvara ako pitanje
-  glasi „šta je još ostalo".
-- `docs/SESIJE.md` — redosled preostalih isporuka i gotov prompt za svaku sledeću sesiju.
-  **Posle svake završene isporuke ovaj fajl se ažurira** (štiklirano gotovo, dopisano šta se
-  promenilo u odnosu na PRD).
+- `docs/proizvod-i-arhitektura.md` — proizvod, dva domena, arhitektura, planovi i krediti,
+  stanja pristupa, model podataka
+- `docs/lansiranje-checklista.md` — **šta je ostalo do lansiranja**, korak po korak; prvi fajl
+  koji se otvara ako pitanje glasi „šta je još ostalo". Ručni koraci koje sesija ostavi
+  dopisuju se ovde.
+- `docs/roadmap.md` — sav razvoj posle lansiranja po horizontima (mejlovi, utisci, javna tabla,
+  radar, region); isporučena stavka se odatle briše
+- `docs/plan-testiranja.md` — ručni prolazi sa SQL-om; dopuni ga kad isporuka doda ekran ili
+  novčanu putanju
+- `docs/dnevnik-isporuka.md` — šta je isporučeno i odluke koje i danas važe. **Posle svake
+  završene isporuke dopisuje se nov unos na dnu** (šta je isporučeno, migracija, šta se
+  razišlo sa zahtevom).
+- `docs/dizajn-sistem.md` — **obavezno pre bilo kakvog UI rada**; v. „Dizajn" niže
+- `docs/bezbednost.md` — P0 lista, referenciraj kad rad dodiruje kredite, storage ili renderovanje sajtova
+- `docs/naplata-stripe.md` i `docs/tok-i-onboarding.md` — spec naplate, odnosno toka,
+  onboardinga, utisaka i kartice prospekta, kad rad dodiruje te delove
 
-Ne implementiraj funkcije iz kasnijih faza jer su „usput". Faze su namerno sekvencijalne.
+Radi jednu isporuku po sesiji i ne implementiraj „usput" ništa van nje.
+
+Komentari u kodu i migracijama ponegde pominju obrisane dokumente (`LANSIRANJE §…`,
+`SESIJE`, `F11 §…`, `PLAN-IZMENA`, `REVIZIJA`). Pun tekst je u git istoriji, npr.
+`git show c6506d1:docs/LANSIRANJE.md`.
 
 ## Stack
 
@@ -127,7 +137,7 @@ Ako predlažeš kod koji povećava broj Places poziva, reci mi to eksplicitno pr
 
 ## Dizajn
 
-**Pre bilo kakvog UI rada pročitaj `docs/DIZAJN-SISTEM.md`.** Boje, fontovi, logo,
+**Pre bilo kakvog UI rada pročitaj `docs/dizajn-sistem.md`.** Boje, fontovi, logo,
 radijusi, senke i komponente su fiksni. Ne izmišljaj nove tokene ni nove nijanse zelene.
 
 - **Nijedan hex ni oklch u JSX-u.** Sve ide kroz tokene iz `apps/web/src/app/globals.css`,

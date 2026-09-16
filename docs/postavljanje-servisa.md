@@ -1,7 +1,9 @@
-# F1 — postavljanje (ručni koraci)
+# Postavljanje servisa od nule — Supabase, Clerk, Vercel
 
-Kod je napisan i proveren. Ovo je lista onoga što se ne može automatizovati:
-nalozi, ključevi i klikanje po konzolama. Redosled je bitan.
+Ručni koraci koji se ne mogu automatizovati: nalozi, ključevi i klikanje po konzolama, za
+novo okruženje (nova produkcija, odvojena dev baza). Redosled je bitan. Worker na Hetzneru:
+`docs/worker-hetzner.md`. Stripe: `docs/naplata-stripe.md` §2, §8, §11 i
+`docs/lansiranje-checklista.md` sekcija 6. Spisak svih env promenljivih: `.env.example`.
 
 ---
 
@@ -38,20 +40,20 @@ Prvo lokalno, bez mreže — pokreće celu migraciju u Postgresu koji radi u WAS
 pnpm check:sql
 ```
 
-Zatim na pravi projekat. **Preporučeno** (ostaje istorija, ne traži Docker):
+Zatim na pravi projekat, **sve migracije redom** (idempotentne su). Connection string:
+Dashboard → **Connect → Session pooler**.
 
 ```bash
-supabase link --project-ref <ref>
-supabase db push
+read -s DB_URL && export DB_URL
+for f in supabase/migrations/*.sql; do echo "$f"; psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f "$f" || break; done
 ```
 
-Ako `link` pravi problem, alternativa je Dashboard → **SQL Editor** → nalepi ceo
-`supabase/migrations/0001_init.sql` → Run. Radi isto, ali Supabase onda ne zna da
-je migracija primenjena, pa sledeći `db push` pokušava da je ponovi. (Migracija je
-idempotentna, pa i to prolazi — ali istorija ti je razbijena.)
+Poslednji ispisan fajl mora da bude najnovija migracija, bez greške. Za pojedinačnu novu
+migraciju isto radi Dashboard → **SQL Editor** → nalepi fajl → Run.
 
-**Provera:** Dashboard → **Storage** → mora da postoji bucket `screenshots` i mora
-da bude **privatan**. Migracija ga pravi; ako ga nema, napravi ga ručno kao privatan.
+**Provera:** Dashboard → **Storage** → bucket `screenshots` postoji i **privatan** je
+(pravi ga migracija). Bucket **`feedback`** napravi ručno: New bucket, Public = off, bez
+ijedne politike — bez njega `POST /api/feedback/slika` vraća `502`.
 
 ---
 
@@ -66,8 +68,11 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_SECRET_KEY=sk_test_...
 ```
 
-Srpska lokalizacija je već podešena u kodu (`srRS` u `apps/web/src/app/layout.tsx`),
-kao i putanje `/prijava` i `/registracija`. Ne treba ništa u konzoli.
+Srpska lokalizacija je već podešena u kodu (`srRS` u `apps/web/src/app/layout.tsx`).
+Forma za prijavu i registraciju je na `/`; `/prijava` i `/registracija` su redirekcije.
+Za **produkcijsku** instancu: domen `app.sajtoskop.com`, i sopstveni Google OAuth klijent
+(v. `docs/lansiranje-checklista.md` 1.10) — Clerkovi deljeni kredencijali rade samo u
+development instanci.
 
 ---
 
@@ -94,7 +99,8 @@ u politikama je `null`, dashboard pokazuje žuto upozorenje umesto kredita.
 
 1. **Clerk Dashboard → Configure → Webhooks → Add Endpoint**
 2. URL: `https://<tvoja-vercel-domena>/api/webhooks/clerk`
-3. Events: **`user.created`** i **`user.updated`**
+3. Events: **`user.created`**, **`user.updated`** i **`user.deleted`** (bez poslednjeg brisanje
+   naloga u Clerku ne briše profil ni ne otkazuje Stripe pretplatu — pravilo 15)
 4. **Signing Secret** (počinje sa `whsec_`) → `.env`:
 
 ```
@@ -102,8 +108,8 @@ CLERK_WEBHOOK_SIGNING_SECRET=whsec_...
 ```
 
 Lokalno webhook ne stiže do `localhost` bez tunela. Ne moraš da ga podešavaš odmah:
-dashboard ima rezervni put koji napravi profil pri prvoj poseti, i idempotentan je
-sa webhookom (ne može da dodeli 30 kredita dvaput). Kad budeš hteo da testiraš pravi
+aplikacija ima rezervni put koji napravi profil pri prvoj poseti, i idempotentan je
+sa webhookom (ne može da dodeli kredite dobrodošlice dvaput). Kad budeš hteo da testiraš pravi
 webhook lokalno: `ngrok http 3000` i stavi tu adresu kao endpoint.
 
 ---
@@ -117,10 +123,10 @@ pnpm seed           # upis
 pnpm check:f1       # provere iz „Gotovo kad"
 ```
 
-`pnpm seed --dry` trenutno daje **172 biznisa, 89 bez funkcionalnog sajta (52%)**.
-Te brojke idu na landing u F8.
+`pnpm seed --dry` daje izveštaj o arhivi skeniranja (u avgustu 2026: 172 firme, 52% bez
+funkcionalnog sajta).
 
-> Od F2 seed odbija scan čije niše nema u `packages/shared/src/taxonomy.ts` —
+> Seed odbija scan čije niše nema u `packages/shared/src/taxonomy.ts` —
 > takav red uđe u bazu, ali ga `/api/search` nikad ne vrati, jer prima samo
 > slugove iz taksonomije. Scanovi `izrada-sajtova` i `web-dizajn-agencija`
 > (istraživanje konkurencije, 116 biznisa) zato stoje u
@@ -138,8 +144,9 @@ jednim kreditom i briše profil za sobom.
 pnpm dev            # http://localhost:3000
 ```
 
-Napravi nalog na `/registracija`, pa proveri da `/dashboard` pokazuje **30 kredita**.
-Ako pokazuje žuto upozorenje umesto brojki — korak 4 nije dovršen.
+Napravi nalog na `/`, pa proveri da te aplikacija vodi na čarobnjak `/pocetak` i da nalog
+ima **2 kredita** (dobrodošlica, `ONBOARDING_CREDITS`). Ako umesto brojki stoji žuto
+upozorenje — korak 4 nije dovršen.
 
 ### Ako dobiješ HTTP 431
 
@@ -184,27 +191,9 @@ Ako je projekat već jednom napravljen sa „Other" presetom, promena Root Direc
 ne resetuje uvek preset — zato `apps/web/vercel.json` izričito postavlja
 `"framework": "nextjs"`, što je jače od vrednosti iz konzole.
 
-Env promenljive (Production i Preview):
-
-```
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-CLERK_SECRET_KEY
-CLERK_WEBHOOK_SIGNING_SECRET
-```
+Env promenljive: tabela u `docs/lansiranje-checklista.md`, stavka 1.1 (Supabase, Clerk,
+Stripe, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_LANDING_URL`, `CRON_SECRET`, Resend,
+`PLACES_MONTHLY_BUDGET_EUR`…).
 
 Google, PageSpeed i Anthropic ključevi **ne idu na Vercel** — oni žive na workeru
 (pravilo 7: Playwright i lančani fetch nikad u Vercel funkciji).
-
----
-
-## 9. Šta namerno nije urađeno u F1
-
-- Pretraga i lista prospekata → F2
-- Worker i red poslova → F3
-- Google Cloud quota limit ispod besplatnog praga → postaviće se u F3, kad prvi
-  put krene pravi Places saobraćaj iz aplikacije
-- shadcn/ui komponente → F8, kad postoji dizajn
-- Mesečno obnavljanje kredita (cron) → F4, uz naplatu

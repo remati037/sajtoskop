@@ -1,7 +1,7 @@
 // apps/web/src/lib/auth.ts
 // Jedini dozvoljen izvor `user_id` u celoj aplikaciji.
 //
-// Pravilo 8 iz CLAUDE.md i P0-1 (IDOR) iz docs/bezbednost-i-zastita.md:
+// Pravilo 8 iz CLAUDE.md i P0-1 (IDOR) iz docs/bezbednost.md:
 // user_id NIKAD ne dolazi iz request body-ja, query parametra ni headera.
 // Ako ikad vidiš `const { userId } = await req.json()` — to je propust, ne stil.
 //

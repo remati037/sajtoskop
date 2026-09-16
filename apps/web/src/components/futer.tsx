@@ -45,7 +45,7 @@ export function Futer({ className }: { className?: string }) {
             {/* Od S24 logo vodi na LANDING, ne na `/`. Na poddomenu je `/` ekran
                 za prijavu, a logo koji sa cenovnika vodi u formu za prijavu je
                 ćorsokak za nekoga ko je došao sa prodajne strane da čita cene
-                (`docs/LANSIRANJE.md` §1.7). */}
+                (`docs/proizvod-i-arhitektura.md` §2). */}
             <a href={LANDING_URL} className="inline-flex rounded-lg">
               <ZnakSaImenom />
             </a>
@@ -89,7 +89,7 @@ export function Futer({ className }: { className?: string }) {
         </div>
 
         <div className="mt-8 flex flex-col gap-2 border-t border-border pt-5 text-xs text-fg-muted sm:flex-row sm:items-center sm:justify-between">
-          {/* Copyright notice traži `docs/F8-landing.md` §3 i `docs/bezbednost-i-zastita.md`,
+          {/* Copyright notice traži F8 PRD §3 (git istorija) i `docs/bezbednost.md`,
               Sloj 1 — bez njega je autorstvo teže dokazati nego što mora da bude. */}
           <p>
             <span className="num">© {godina}</span> Sajtoskop · Marko Milenković. Sva prava

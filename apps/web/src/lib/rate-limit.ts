@@ -1,5 +1,5 @@
 // apps/web/src/lib/rate-limit.ts
-// IP rate limit na novčane rute (Faza 1, 1.2; P1 iz docs/bezbednost-i-zastita.md).
+// IP rate limit na novčane rute (Faza 1, 1.2; P1 iz docs/bezbednost.md).
 //
 // Brojač je u bazi (`request_limits` + `claim_request`, migracija 0018):
 // fiksni prozor od jednog minuta, 100 zahteva po (IP, ruta). Jedina brana ispod

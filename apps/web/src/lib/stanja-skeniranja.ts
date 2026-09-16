@@ -1,5 +1,5 @@
 // apps/web/src/lib/stanja-skeniranja.ts
-// Tekstovi stanja skeniranja (A–F) na jednom mestu — `docs/11-tekstovi-stanja-skeniranja.md`.
+// Tekstovi stanja skeniranja (A–F) na jednom mestu; ovaj modul je jedini izvor (spec je bio `docs/11`, obrisan 16. 9. 2026).
 //
 // ── zašto modul, a ne stringovi u komponentama ──────────────
 // Do sada su isti tekstovi živeli na četiri mesta: `pretraga-ekran.tsx`

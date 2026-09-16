@@ -4,13 +4,9 @@ Izvor istine za vizuelni identitet: boje, tipografija, logo, komponente, motion.
 Izvučeno iz landing sajta (`sajtoskop.com`) da bi aplikacija (`app.sajtoskop.com`)
 izgledala kao isti proizvod, a ne kao dva različita.
 
-**Kako se koristi:** ovaj fajl ide u app repo kao `docs/dizajn-sistem.md`, a u
-`CLAUDE.md` app projekta dodaješ red:
-
-```md
-Pre bilo kakvog UI rada pročitaj `docs/dizajn-sistem.md` — boje, fontovi, logo i
-komponente su fiksni. Ne izmišljaj nove tokene ni nove nijanse zelene.
-```
+**Kako se koristi:** čita se pre bilo kakvog UI rada (`CLAUDE.md`, sekcija „Dizajn"). Tokeni
+su prepisani u `apps/web/src/app/globals.css`. Namerna odstupanja koda od ovog dokumenta i
+tokeni dopisani mimo njega vode se u `CLAUDE.md`, ne ovde.
 
 Fajl je samostalan: sve što treba za rekonstrukciju identiteta je ovde, ne moraš
 da otvaraš landing repo.

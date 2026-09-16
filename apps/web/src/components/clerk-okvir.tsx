@@ -7,7 +7,7 @@
 // prop, a ne kao CSS promenljive, provider mora da bude klijentski i da čita
 // stvarnu temu iz konteksta.
 //
-// Vrednosti su doslovno tokeni iz `docs/DIZAJN-SISTEM.md` §3.1 — dokument ih
+// Vrednosti su doslovno tokeni iz `docs/dizajn-sistem.md` §3.1 — dokument ih
 // već drži u HEX-u, pa je ovo prepis, ne prevod. Jedini izuzetak je
 // `colorBorder` u tamnoj temi: token je `rgba(...)`, a Clerk iz boje ivice
 // izvodi svoju skalu i providnost mu razvali kontrast. Ovde stoji ista boja

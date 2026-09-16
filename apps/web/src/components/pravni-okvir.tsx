@@ -16,7 +16,7 @@
 //
 //   pronalaženje svih markera:  grep -rn "<Popuniti>" apps/web/src/app
 //
-// Go/no-go lista (`docs/LANSIRANJE.md` §8) traži da nijedan ne ostane. Kad
+// Go/no-go lista (`docs/lansiranje-checklista.md`) traži da nijedan ne ostane. Kad
 // poslednji nestane, briše se i `<NacrtBaner />` sa sve tri strane.
 
 import Link from "next/link";

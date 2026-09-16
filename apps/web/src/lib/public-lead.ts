@@ -1,6 +1,6 @@
 // apps/web/src/lib/public-lead.ts
 // Jedina funkcija u aplikaciji koja sme da pretvori red iz `businesses` /
-// `website_audits` u nešto što ide klijentu. P0-3 iz docs/bezbednost-i-zastita.md
+// `website_audits` u nešto što ide klijentu. P0-3 iz docs/bezbednost.md
 // i pravilo 9 iz CLAUDE.md.
 //
 // ── ZAŠTO UNIJA, A NE `null` ───────────────────────────────

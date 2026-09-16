@@ -8,7 +8,7 @@
 // ko klikne dugme na landingu.
 //
 // ── zašto slug, a ne Stripe ID ─────────────────────────────
-// `docs/LANSIRANJE.md` §1.7: landing NIKAD ne zna Stripe price ID. Da ga zna,
+// `docs/proizvod-i-arhitektura.md` §2: landing NIKAD ne zna Stripe price ID. Da ga zna,
 // prelazak test → live tražio bi izmenu i na landingu — na mestu gde se greška
 // ne vidi dok neko ne plati. Preslikavanje slug → `lookup_key` → `price_`
 // ostaje u aplikaciji (`plans.ts` → `lib/stripe-katalog.ts`).

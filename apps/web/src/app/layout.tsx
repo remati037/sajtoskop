@@ -7,7 +7,7 @@ import { TEMA_SKRIPTA } from "@/lib/tema";
 import "./globals.css";
 
 // Geist Sans za sve, Geist Mono za brojeve, ID-eve, URL-ove i labele
-// (`docs/DIZAJN-SISTEM.md` §4). Paket `geist` nosi obe varijante kao lokalne
+// (`docs/dizajn-sistem.md` §4). Paket `geist` nosi obe varijante kao lokalne
 // fontove — ne ide preko `next/font/google`, pa nema ni zahteva ka Google-u ni
 // pitanja o pokrivenosti dijakritike: Geist ima pun latin-ext.
 
