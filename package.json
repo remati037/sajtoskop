@@ -28,7 +28,7 @@
     "node": ">=24"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.4",
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^24.0.0",
     "stripe": "^22.6.1",
     "tsx": "^4.19.2",
