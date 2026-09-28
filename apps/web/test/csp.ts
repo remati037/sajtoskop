@@ -20,6 +20,8 @@
 // dakle proverava ono što pregledač stvarno dobije, uključujući hostove koji se
 // sklapaju iz publishable ključa u trenutku izvršavanja.
 
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import config from "../next.config";
 
 let fail = 0;
@@ -79,18 +81,50 @@ check(
   "connect-src nosi *.protect.clerk.com:* (sa portom!)",
 );
 
+// ── Supabase: origin iz env-a, ne wildcard ─────────────────
+// Do lokalne baze (docs/LOKALNA-BAZA.md §11.1) je stajao zakucan
+// `https://*.supabase.co`: lokalni `http://127.0.0.1:54321` je pregledač tiho
+// odbijao, a na produkciji je wildcard dozvoljavao svaki tuđi projekat.
+console.log("\nSupabase");
+
+const supabaseOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin;
+for (const d of ["img-src", "connect-src"]) {
+  check(ima(d, supabaseOrigin), `${d} nosi ${supabaseOrigin} (iz NEXT_PUBLIC_SUPABASE_URL)`);
+}
+check(!csp.includes("*.supabase.co"), "nijedna direktiva ne nosi *.supabase.co wildcard");
+
+// Bez env-a (ili sa neispravnim) sastavljanje CSP-a mora da padne sa porukom
+// koja imenuje promenljivu — nikad tihi fallback. Zasebni proces, jer se
+// `next.config` evaluira jednom po procesu. Prazan string, a ne `undefined`:
+// `loadRootEnv()` bi inače dopunio vrednost iz korenskog `.env`-a.
+const konfig = fileURLToPath(new URL("../next.config.ts", import.meta.url));
+for (const [opis, vrednost] of [
+  ["prazan", ""],
+  ["nije URL", "nije-url"],
+  ["nije http(s)", "ftp://127.0.0.1:54321"],
+] as const) {
+  const r = spawnSync(process.execPath, ["--import", "tsx", "-e", `await import(${JSON.stringify(konfig)})`], {
+    env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: vrednost },
+    encoding: "utf8",
+  });
+  check(
+    r.status !== 0 && r.stderr.includes("NEXT_PUBLIC_SUPABASE_URL"),
+    `NEXT_PUBLIC_SUPABASE_URL ${opis} → config pada sa porukom koja imenuje promenljivu`,
+  );
+}
+
 // ── naplata (S25): Stripe je redirekcija, CSP ga ne dodiruje ─
 // Hosted Checkout i Portal žive na Stripe-ovom domenu; naš dokument ne učitava
 // ništa njihovo. Host prethodnog provajdera ne sme da se vrati ni u jednu
 // direktivu — to bi bilo poverenje ka dobavljaču koga više nema.
 console.log("\nnaplata");
 
-// Svaki host mora da bude iz poznatog skupa (Clerk, Supabase, Cloudflare
-// Turnstile) ili ključna reč CSP-a — bilo šta drugo je tuđ domen koji se
+// Svaki host mora da bude iz poznatog skupa (Clerk, Supabase origin iz env-a,
+// Cloudflare Turnstile) ili ključna reč CSP-a — bilo šta drugo je tuđ domen koji se
 // vratio kroz zaboravljen import ili stari deploy.
-const POZNAT = /^'[^']*'$|^(data|blob):$|clerk|supabase|cloudflare/;
+const POZNAT = /^'[^']*'$|^(data|blob):$|clerk|cloudflare/;
 for (const [d, izvori] of direktive) {
-  const tudji = izvori.filter((s) => !POZNAT.test(s));
+  const tudji = izvori.filter((s) => !POZNAT.test(s) && s !== supabaseOrigin);
   check(tudji.length === 0, `${d} nosi samo poznate hostove${tudji.length ? ` (tuđi: ${tudji.join(" ")})` : ""}`);
 }
 check(!csp.includes("stripe"), "CSP ne nosi nijedan Stripe host — checkout je redirekcija");
