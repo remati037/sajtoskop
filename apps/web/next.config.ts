@@ -55,6 +55,43 @@ const clerk = clerkDomains().map((d) => `https://${d}`).join(" ");
 const clerkWss = clerkDomains().map((d) => `wss://${d}`).join(" ");
 
 /**
+ * Supabase origin iz `NEXT_PUBLIC_SUPABASE_URL`, za CSP (`img-src` i
+ * `connect-src`).
+ *
+ * Do lokalne baze (docs/LOKALNA-BAZA.md §11.1) ovde je stajao zakucan wildcard
+ * za `supabase.co`. Lokalni stack je na `http://127.0.0.1:54321`, pa je
+ * pregledač tiho odbijao potpisane URL-ove snimaka: kartica „pukla", a u bazi i
+ * u Storage-u sve postoji. Origin se zato izvodi iz iste promenljive iz koje
+ * klijent gradi URL-ove — isti obrazac kao Clerk domen iz publishable ključa.
+ *
+ * Bez fallback-a: wildcard bi na produkciji dozvolio SVAKI Supabase projekat,
+ * a lokalno bi opet tiho pukao. Build (i `next dev`) pada sa jasnom porukom.
+ */
+function supabaseOrigin(): string {
+  const raw = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
+  if (!raw) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL nije postavljen — CSP (img-src, connect-src) ne može da se sastavi. " +
+        "Upiši ga u koren .env (lokalno http://127.0.0.1:54321) ili u Vercel env.",
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      `NEXT_PUBLIC_SUPABASE_URL nije validan URL („${raw}") — očekuje se npr. https://xxx.supabase.co.`,
+    );
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(`NEXT_PUBLIC_SUPABASE_URL mora biti http(s) URL, a jeste „${url.protocol}".`);
+  }
+  return url.origin;
+}
+
+const supabase = supabaseOrigin();
+
+/**
  * Clerk-ova bot-zaštita pri registraciji.
  *
  * ── kako se kvar vidi ───────────────────────────────────────
@@ -118,7 +155,7 @@ const unsafeEval = dev ? " 'unsafe-eval'" : "";
 // ── bezbednosni headeri (Faza 1, 1.1; P1 iz docs/bezbednost.md) ──
 // CSP je sastavljen oko onoga što app STVARNO koristi: Clerk (script/connect/img
 // — domen se izvlači iz publishable ključa, v. `clerkDomains()`), Supabase
-// (connect/img — potpisani URL-ovi slika), blob/data za snimke i avatare, i
+// (connect/img — potpisani URL-ovi slika; origin iz env-a, v. `supabaseOrigin()`), blob/data za snimke i avatare, i
 // inline temna skripta u <head>-u (zato 'unsafe-inline' u script-src — nonce bi
 // tražio middleware i menjao ceo layout).
 // `frame-ancestors 'none'` je CSP ekvivalent `X-Frame-Options: DENY`; stoje oba.
@@ -129,12 +166,12 @@ const CSP = [
   // worker-src-a bi palo na script-src i bilo blokirano.
   "worker-src 'self' blob:",
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.accounts.dev ${clerk}`,
+  `img-src 'self' data: blob: ${supabase} https://img.clerk.com https://*.clerk.accounts.dev ${clerk}`,
   "font-src 'self' data:",
   // `https://*.protect.clerk.com:*` stoji ODVOJENO od `https://*.clerk.com`
   // iznad, iako ga po imenu pokriva: izvor bez porta poklapa samo 443, a ovi
   // hostovi se serviraju i na drugim portovima. Bez `:*` captcha tiho padne.
-  `connect-src 'self' https://*.supabase.co https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com https://*.protect.clerk.com:* ${clerk}`,
+  `connect-src 'self' ${supabase} https://*.clerk.accounts.dev ${clerkWss} https://*.clerk.com https://*.protect.clerk.com:* ${clerk}`,
   // Turnstile widget je iframe ka `challenges.cloudflare.com`, pa bez njega
   // registracija pada na „neuspelo sigurnosno proveravanje".
   `frame-src 'self' ${clerkCaptcha}`,

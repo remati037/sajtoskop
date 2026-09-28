@@ -756,6 +756,19 @@ gotovi, 5.1 gotov. Test mod ostaje netaknut — lokalni razvoj i dalje radi nad 
 
 ---
 
+## Poznati rizici
+
+Svesno ostavljeno za posle lansiranja; ne blokira go / no-go, ali se prati.
+
+- Pokloni (admin, feedback) od 0035 idu u credits_topup, a topup > 0 pretiče
+  grace (pristup.ts, grana 3). Istekao pretplatnik sa 1 poklonjenim kreditom
+  zadržava pun dopuna pristup dok ga ne potroši. Prati: broj profila sa
+  plan = dopuna, plan_expires_at u prošlosti i credits_topup > 0 bez kupljenog
+  paketa. Popravka posle lansiranja: odvojena kasa za poklone ili grana 3 gleda
+  samo kupljenu dopunu.
+
+---
+
 ## Go / no-go — jedno sedenje, na produkciji, sa čistim nalogom
 
 - [ ] Registracija → čarobnjak → lista → otključavanje → kopirana poruka, bez ijednog pitanja

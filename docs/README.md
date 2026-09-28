@@ -13,6 +13,7 @@
 | `tok-i-onboarding.md` | tok od landinga do prve poruke, onboarding, utisci, kartica prospekta — doslovni tekstovi | kad rad dodiruje te ekrane |
 | `worker-hetzner.md` | server za worker: postavljanje, deploy, svakodnevni rad | deploy workera |
 | `postavljanje-servisa.md` | Supabase, Clerk i Vercel od nule | novo okruženje |
+| `LOKALNA-BAZA.md` | ceo Supabase stack lokalno: Supabase CLI, seed, test lista, greške | rad na lokalnoj bazi; nikad `supabase link` ni `db push` |
 | `prompt-landing.md` | gotov prompt za landing repo (veze, brojevi, `/bot`) | stavka 5.1 checkliste |
 
 **PDF-ovi** se prave iz markdown-a: `pnpm docs:pdf` (posle svake izmene checkliste, plana

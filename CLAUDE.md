@@ -32,6 +32,7 @@ Mapa foldera je u `docs/README.md`. Pre rada pročitaj:
 - `docs/bezbednost.md` — P0 lista, referenciraj kad rad dodiruje kredite, storage ili renderovanje sajtova
 - `docs/naplata-stripe.md` i `docs/tok-i-onboarding.md` — spec naplate, odnosno toka,
   onboardinga, utisaka i kartice prospekta, kad rad dodiruje te delove
+- Lokalna baza (Supabase CLI, seed, test lista, greške): `docs/LOKALNA-BAZA.md`. Nikad `supabase link` ni `db push`.
 
 Radi jednu isporuku po sesiji i ne implementiraj „usput" ništa van nje.
 

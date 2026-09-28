@@ -40,6 +40,7 @@ import { PrekidacTeme, PrekidacTemeDugme } from "./prekidac-teme";
 import type { AktivacijaProbe } from "./aktiviraj-odmah";
 import { OnboardingProvider } from "./onboarding-provider";
 import { OnboardingTraka } from "./onboarding-traka";
+import type { TrakaDopune } from "@/lib/traka-dopune";
 import { PristupBaner } from "./pristup-baner";
 import { PristupProvider } from "./pristup-provider";
 import { UtisakDugme } from "./utisak-dugme";
@@ -106,8 +107,8 @@ type Props = {
   probaOtkazana?: boolean;
   /** [S30, §2.3] Zašto je nalog u grace-u — tekst banera po uzroku. */
   uzrokGrace?: UzrokGrace | null;
-  /** [S30, §1.12] `dopuna` bez ijednog kupljenog paketa: baner „Nemaš plan". */
-  dopunaBezPaketa?: boolean;
+  /** [S30, §1.12] Baner „Nemaš plan" za `dopuna` nalog. `null` = bez trake. */
+  trakaDopune?: TrakaDopune | null;
   /** [S30, §4.6] Stanje prvog prolaza iz profila. `null` = profil nije pročitan. */
   onboarding?: OnboardingPocetno | null;
   children: React.ReactNode;
@@ -126,7 +127,7 @@ export function OkvirAplikacije({
   aktivacijaProbe = null,
   probaOtkazana = false,
   uzrokGrace = null,
-  dopunaBezPaketa = false,
+  trakaDopune = null,
   onboarding = null,
   children,
 }: Props) {
@@ -293,7 +294,7 @@ export function OkvirAplikacije({
           aktivacijaProbe={aktivacijaProbe}
           probaOtkazana={probaOtkazana}
           uzrokGrace={uzrokGrace}
-          dopunaBezPaketa={dopunaBezPaketa}
+          trakaDopune={trakaDopune}
         />
 
         {/* Donji razmak postoji zbog plutajućeg dugmeta: bez njega ono stoji
