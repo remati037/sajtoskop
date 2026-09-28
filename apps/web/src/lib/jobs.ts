@@ -271,7 +271,7 @@ const BEZ_REGISTRA_MINUTA = 60;
  * nije stigla do korisnika (registar keša nije upisan).
  *
  * Interno i samo za izbor teksta (stanje B umesto E) — ne izlazi iz servera.
- * Upisuje ga `fail_scan_and_refund` kroz worker (`apps/worker/src/jobs/scan.ts`).
+ * Upisuje ga `fail_scan_and_refund` kroz worker (njegov `src/jobs/scan.ts`).
  */
 export const MARKER_BEZ_LISTE = "bez_liste:";
 
