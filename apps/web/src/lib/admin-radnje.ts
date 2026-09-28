@@ -306,13 +306,15 @@ export async function korigujKredite(
   if (red.reason === "already_applied") {
     return {
       ok: true,
-      poruka: `Ta izmena je već primenjena. Balans je i dalje ${red.balance}.`,
+      poruka: `Ta izmena je već primenjena. Ukupno i dalje ima ${red.balance} kredita.`,
       ref: refId,
     };
   }
 
+  // `balance` je od 0035 zbir obe kase — broj iz brojača, ne `credits_balance`.
+  // Dodela ide u dopunu, pa bi sama kasa koja ističe ovde pokazala nepromenjen broj.
   const znak = delta > 0 ? `+${delta}` : String(delta);
-  return { ok: true, poruka: `${znak} kredita. Balans je sada ${red.balance}.`, ref: refId };
+  return { ok: true, poruka: `${znak} kredita. Ukupno sada ima ${red.balance}.`, ref: refId };
 }
 
 /** Razlozi iz RPC-a su mešani (§ komentar u 0012); korisniku ide jedna rečenica. */

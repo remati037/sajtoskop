@@ -58,6 +58,33 @@ baza očišćena 14.9. · jedini nalog ima `profiles.role = 'admin'`.
   **Gotovo kad:** `docker compose … ps` pokazuje `Up` bez restart petlje i skeniranje iz
   aplikacije prolazi.
 
+- [ ] **0.2 · Migracija `0035` i ko je pogođen ručnom dodelom**
+  Do `0035` su korekcija iz konzole i nagrada za utisak išle u `credits_balance`: nalog
+  `dopuna` ih vidi u brojaču ali je zaključan, pretplatniku ih briše sledeći `invoice.paid`.
+  1. **Pre** migracije, Supabase → SQL Editor, sačuvaj rezultat:
+     ```sql
+     select p.id, p.email, p.plan, p.credits_balance, p.credits_topup,
+            cl.reason, count(*) as dodela, sum(cl.delta) as ukupno_dodeljeno,
+            min(cl.created_at) as prva, max(cl.created_at) as poslednja
+     from credit_ledger cl
+     join profiles p on p.id = cl.user_id
+     where cl.reason in ('admin', 'feedback')
+       and cl.delta > 0
+       and not exists (
+         select 1 from subscriptions s
+         where s.user_id = p.id and s.status in ('active', 'trialing', 'past_due')
+       )
+     group by p.id, p.email, p.plan, p.credits_balance, p.credits_topup, cl.reason
+     order by p.plan, poslednja desc;
+     ```
+     Posle migracije isti upit vraća i nove (ispravne) dodele — zato pre, ili dodaj
+     `and cl.created_at < '<trenutak migracije>'`.
+  2. SQL Editor → nalepi `supabase/migrations/0035_admin_krediti_topup.sql` → Run.
+  3. Za svakog pogođenog odluči ručno: prebacivanje nije automatsko. Korekcija iz konzole
+     sada puni dopunu, pa je dovoljno `−n` pa `+n` sa beleškom „prenos u dopunu (0035)".
+
+  **Gotovo kad:** migracija je prošla, a lista iz koraka 1 je pregledana.
+
 ---
 
 ## 1. Infrastruktura, nalozi i env
