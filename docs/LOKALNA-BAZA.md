@@ -387,7 +387,7 @@ colima stop               # oslobađa RAM
 | Clerk webhook ne stiže | cloudflared promenio URL | §7 |
 | Stripe Authorise sivo | browser login | §7, `--api-key` |
 | Snimak na kartici „pukao", u bazi sve postoji | CSP bez Supabase origina | rešeno (§11.1): origin se izvodi iz `NEXT_PUBLIC_SUPABASE_URL`; restartuj web posle izmene `.env` |
-| Traka „Dobio si 2 kredita" i kad imaš više | zakucan tekst | otvoreno, §11.1 |
+| Traka „Dobio si 2 kredita" i kad imaš više | zakucan tekst | rešeno (§11.1): tekst po izvoru kredita |
 | `Could not establish connection. Receiving end does not exist` | Chrome ekstenzija | ignoriši |
 
 Logovi: `docker logs supabase_db_sajtoskop` (isto za `supabase_rest_`, `supabase_auth_`, `supabase_storage_`, `supabase_kong_` + `sajtoskop`).
@@ -399,7 +399,7 @@ Logovi: `docker logs supabase_db_sajtoskop` (isto za `supabase_rest_`, `supabase
 ### 11.1 Dve sitne popravke (jedan Claude Code prompt)
 
 1. **CSP iz env-a** (rešeno) — `apps/web/next.config.ts` zakucava `https://*.supabase.co` u `img-src` (i verovatno `connect-src`). Origin treba izvesti iz `NEXT_PUBLIC_SUPABASE_URL`, istim obrascem kao Clerk domen iz publishable ključa. Bez tihog fallback-a, build pada ako env fali.
-2. **Traka za plan „dopuna"** — tekst zavisi od stanja: samo onboarding → postojeći tekst; kupljen paket → „Imaš N kredita iz paketa" bez „probaj"; admin/feedback → „Nemaš plan. Imaš N kredita. …". N = `credits_topup + greatest(credits_balance, 0)`.
+2. **Traka za plan „dopuna"** (rešeno) — tekst zavisi od stanja: samo onboarding → postojeći tekst; kupljen paket → „Imaš N kredita iz paketa" bez „probaj"; admin/feedback → „Nemaš plan. Imaš N kredita. …". N = `credits_topup + greatest(credits_balance, 0)`.
 
 ### 11.2 Poznat rizik (upisati u `docs/lansiranje-checklista.md`)
 

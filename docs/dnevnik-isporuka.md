@@ -552,3 +552,17 @@ Otpala: landing je napravljen van repoa.
 - Grana `povracaj` je nepromenjena (samo balans, pod −1000, povratni `balance` = `credits_balance`); u reviziji `kasa = 'balance'`.
 - `balance_after` ostaje `null` za `admin`: kolona znači stanje posle mesečne dodele i piše je samo `grant_monthly_credits`.
 - Postojeća stanja nisu prebačena; upit za pogođene je u checklisti, 0.2.
+
+### Popravke posle lokalnog testa — CSP iz env-a, traka „Nemaš plan" po izvoru
+**Isporučeno:** 29. septembar 2026 · bez migracije · izvor: `docs/LOKALNA-BAZA.md` §11
+
+- Lokalni Supabase stack: `supabase/config.toml`, prazan `seed.sql`, skripte `db:*`, uputstvo `docs/LOKALNA-BAZA.md`; CLAUDE.md i `docs/README.md` pokazuju na njega. Rizik „topup pretiče grace" upisan u checklistu (Poznati rizici).
+- CSP: `img-src` i `connect-src` nose origin iz `NEXT_PUBLIC_SUPABASE_URL` (`supabaseOrigin()` u `next.config.ts`) umesto `https://*.supabase.co`. Prazan, neispravan ili ne-http(s) URL obara učitavanje konfiguracije, dakle i build. `test/csp.ts` proverava obe direktive, odsustvo wildcard-a i sva tri pada.
+- Traka za `dopuna`: tri grane iz pozitivnih redova knjige (`credit_pack` → paket, `admin`/`feedback` → poklon, inače onboarding), N = `credits_topup + greatest(credits_balance, 0)`. Čista logika u `lib/traka-dopune.ts`, čitanje u `razloziTrakeDopune()` (samo za `dopuna` nalog, isto mesto gde layout računa pristup); `test/traka-dopune.ts` renderuje sve tri grane.
+
+**Odstupanja koja i danas važe:**
+- Nalog sa kupljenim paketom do sada nije imao traku; sada ima „Imaš N kredita iz paketa." sa linkom na planove (grana iz §11.1).
+- Paket ima prednost nad poklonom kad postoje oba.
+- Greška čitanja knjige → bez trake (ranije isto: `imaKupljenPaket` je na grešku vraćao `true`).
+- Pravilo 3 u CLAUDE.md već je nosilo rečenicu o 0035, pa nije dopisivano ponovo.
+- Checklista nije imala deo sa poznatim rizicima; napravljen je `## Poznati rizici` pre go / no-go.

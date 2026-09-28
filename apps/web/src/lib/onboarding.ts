@@ -24,6 +24,7 @@ import {
   type ProfileRow,
 } from "@sajtoskop/shared";
 import type { OnboardingPocetno } from "./onboarding-schema";
+import { RAZLOZI_TRAKE_DOPUNE } from "./traka-dopune";
 import { adminSupabase } from "./supabase";
 
 export const PUTANJA_POCETAK = "/pocetak";
@@ -211,6 +212,28 @@ export async function imaKupljenPaket(userId: string): Promise<boolean> {
     return true;
   }
   return (data ?? []).length > 0;
+}
+
+/**
+ * Razlozi pozitivnih redova knjige koji biraju granu trake „Nemaš plan"
+ * (`lib/traka-dopune.ts`). Jedan upit, samo za `dopuna` nalog.
+ *
+ * Na grešku `null` — traka se tada ne prikazuje. Pogrešan broj kredita na
+ * svakom ekranu je gori od trake koje nema.
+ */
+export async function razloziTrakeDopune(userId: string): Promise<string[] | null> {
+  const { data, error } = await adminSupabase()
+    .from("credit_ledger")
+    .select("reason")
+    .eq("user_id", userId)
+    .in("reason", [...RAZLOZI_TRAKE_DOPUNE])
+    .gt("delta", 0)
+    .returns<{ reason: string }[]>();
+  if (error) {
+    console.error("[onboarding] razlozi trake dopune:", error.message);
+    return null;
+  }
+  return (data ?? []).map((r) => r.reason);
 }
 
 /** Ima li nalog ijedan red u `unlocks`. Na grešku `true`, iz istog razloga. */

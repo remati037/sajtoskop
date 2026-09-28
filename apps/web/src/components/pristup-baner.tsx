@@ -4,15 +4,15 @@
 // Trajna traka iznad sadržaja za stanja u kojima korisnik mora da zna datum
 // (LANSIRANJE §1.5, tok-i-onboarding §1.12, §2.2, §2.3).
 //
-//   dopuna   — [S30, §1.12] SAMO bez ijednog kupljenog paketa: nalog koji je
-//              dobio kredite dobrodošlice i nema plan
+//   dopuna   — [S30, §1.12] nalog bez plana; tekst po izvoru kredita
+//              (`lib/traka-dopune.ts`): dobrodošlica, kupljen paket, poklon
 //   grace    — pristup je istekao, čitanje traje još do tačnog datuma; tekst po
 //              UZROKU (§2.3): pala naplata, potrošeni besplatni krediti, istek
 //   otkazan  — pretplata (ili proba) je otkazana, ali plaćeni period još traje
 //   proba    — SAMO kad su probni krediti potrošeni (S26, §7.4)
 //
 // Ostala stanja nemaju traku: `komp` i `aktivan` rade normalno, proba sa
-// kreditima isto, `dopuna` sa kupljenim paketom isto, a `zakljucan` uopšte ne
+// kreditima isto, a `zakljucan` uopšte ne
 // stiže dovde — kapija ga odvodi na `/zakljucano`.
 //
 // ── zašto traka, a ne samo modal ─────────────────────────────
@@ -34,6 +34,7 @@ import {
   type Pristup,
   type UzrokGrace,
 } from "@sajtoskop/shared";
+import type { TrakaDopune } from "@/lib/traka-dopune";
 import { formatDatum, plural, redniDan } from "@/lib/ui-tekst";
 import { AktivirajOdmah, type AktivacijaProbe } from "./aktiviraj-odmah";
 import { PortalDugme } from "./portal-dugme";
@@ -59,7 +60,7 @@ export function PristupBaner({
   aktivacijaProbe = null,
   probaOtkazana = false,
   uzrokGrace = null,
-  dopunaBezPaketa = false,
+  trakaDopune = null,
 }: {
   pristup: Pristup | null;
   /** Zbir obe kase. `null` = nije pročitano — tada traka probe ne izlazi. */
@@ -70,8 +71,8 @@ export function PristupBaner({
   probaOtkazana?: boolean;
   /** [S30] Uzrok grace-a (§2.3). `null` van grace-a. */
   uzrokGrace?: UzrokGrace | null;
-  /** [S30] `dopuna` bez ijednog `credit_pack` reda (§1.12). */
-  dopunaBezPaketa?: boolean;
+  /** [S30] Grana i broj kredita trake „Nemaš plan" (§1.12). `null` = bez trake. */
+  trakaDopune?: TrakaDopune | null;
 }) {
   if (!pristup) return null;
 
@@ -104,20 +105,36 @@ export function PristupBaner({
     );
   }
 
-  // ── [S30, §1.12] nalog bez plana, na kreditima dobrodošlice ─
+  // ── [S30, §1.12] nalog bez plana ───────────────────────────
   if (pristup.stanje === "dopuna") {
-    if (!dopunaBezPaketa) return null;
+    if (!trakaDopune) return null;
+    const n = trakaDopune.krediti;
+    const kredita = plural(n, "kredit", "kredita", "kredita");
 
     return (
       <div role="status" className={OKVIR_INFO}>
         <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
           <Info className="mt-0.5 hidden h-4 w-4 shrink-0 text-info-text sm:block" aria-hidden />
           <p className="min-w-0 flex-1 text-xs leading-relaxed text-fg-muted">
-            Nemaš plan. Dobio si{" "}
-            <span className="num">{ONBOARDING_CREDITS}</span>{" "}
-            {plural(ONBOARDING_CREDITS, "kredit", "kredita", "kredita")} da probaš: jedna lista,
-            jedan prospekt.{" "}
-            <strong className="font-semibold text-fg">Plan počinje sa {PROBA_UKRATKO}.</strong>
+            {trakaDopune.grana === "onboarding" ? (
+              <>
+                Nemaš plan. Dobio si{" "}
+                <span className="num">{ONBOARDING_CREDITS}</span>{" "}
+                {plural(ONBOARDING_CREDITS, "kredit", "kredita", "kredita")} da probaš: jedna
+                lista, jedan prospekt.{" "}
+                <strong className="font-semibold text-fg">Plan počinje sa {PROBA_UKRATKO}.</strong>
+              </>
+            ) : trakaDopune.grana === "paket" ? (
+              // Platio je — nije na probi, pa ni „probaj" ni prodaja probe.
+              <>
+                Imaš <span className="num">{n}</span> {kredita} iz paketa.
+              </>
+            ) : (
+              <>
+                Nemaš plan. Imaš <span className="num">{n}</span> {kredita}.{" "}
+                <strong className="font-semibold text-fg">Plan počinje sa {PROBA_UKRATKO}.</strong>
+              </>
+            )}
           </p>
           <Link href={PLANOVI_PRO} className={LINK}>
             Pogledaj planove

@@ -22,10 +22,11 @@ import { currentUser } from "@clerk/nextjs/server";
 import { jeAdminIzProfila } from "@/lib/admin";
 import { requireSession } from "@/lib/auth";
 import { trebaPodsetnikSada } from "@/lib/feedback";
-import { imaKupljenPaket, onboardingIzProfila } from "@/lib/onboarding";
+import { onboardingIzProfila, razloziTrakeDopune } from "@/lib/onboarding";
 import { citajProfil, ensureProfile, zabeleziDolazak } from "@/lib/profile";
 import { aktivacijaZa, citajPretplatuZaEkran } from "@/lib/pretplata";
 import { citajPretplatu, pristupZaProfil, PUTANJA_ZAKLJUCANO } from "@/lib/pristup";
+import { trakaDopune as izvediTrakuDopune } from "@/lib/traka-dopune";
 import { OkvirAplikacije } from "@/components/okvir-aplikacije";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -88,10 +89,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Otkazana PROBA je `otkazan` (§7.1), ali traka je zove njenim imenom.
   const probaOtkazana = pristup?.stanje === "otkazan" && pretplata?.status === "trialing";
 
-  // [S30, §1.12] Baner „Nemaš plan" traži `dopuna` BEZ ijednog kupljenog paketa.
-  // Upit ide samo za `dopuna` nalog — svaki drugi zahtev kroz `(app)` ga nema.
-  const dopunaBezPaketa =
-    pristup?.stanje === "dopuna" && profile ? !(await imaKupljenPaket(userId)) : false;
+  // [S30, §1.12] Baner „Nemaš plan" za `dopuna` nalog, tekst po izvoru kredita
+  // (onboarding / paket / poklon, `lib/traka-dopune.ts`). Upit nad knjigom ide
+  // samo za `dopuna` nalog — svaki drugi zahtev kroz `(app)` ga nema.
+  const razlozi =
+    pristup?.stanje === "dopuna" && profile ? await razloziTrakeDopune(userId) : null;
+  const trakaDopune = profile && razlozi ? izvediTrakuDopune(razlozi, profile) : null;
 
   // [Faza 3, 3.6] Stanje motora utisaka se odavde više NE čita — layout je
   // čekao na feedback upite pre prvog bajta (P4). `UtisciProvider` ga povlači
@@ -149,7 +152,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       probaOtkazana={probaOtkazana}
       // [S30, §2.3] Grace ne nosi uzrok; izvodi se iz istog para ulaza.
       uzrokGrace={uzrokGrace(pristup, pretplata)}
-      dopunaBezPaketa={dopunaBezPaketa}
+      trakaDopune={trakaDopune}
       // [S30, §4.6] Traka, tačke i vodič — iz profila koji je gore već pročitan.
       onboarding={onboardingIzProfila(profile)}
     >
