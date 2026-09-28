@@ -538,3 +538,17 @@ Otpala: landing je napravljen van repoa.
 **Odstupanja koja i danas važe:**
 - Stari oblik povraćaja (`refund` + `scan:<job>`) i dalje važi kao dokaz da je posao refundiran.
 - Broj posla, „keš" i zadatak korisniku ne smeju u tekst stanja — test to drži; stanje D upućuje na blok „Tvoji pristupi" na dnu `/pretraga`.
+
+### Popravka — ručna dodela kredita ide u dopunu
+**Isporučeno:** 28. septembar 2026 · migracija `0035` · izvor: prijava iz upotrebe
+
+- `0035`: `admin_adjust_credits` (`korekcija`) upisuje `+n` u `credits_topup` za svaki plan; `−n` skida redom kao trošenje (prvo pozitivan deo balansa, pa dopuna), nijednu kasu ne vodi ispod nule, dug u balansu se ne računa kao kredit. Revizija nosi `kasa`: `topup` / `balance` / `oba` (uz `iz_balansa` i `iz_dopune`).
+- `grant_credits` za razloge `feedback` i `admin` puni `credits_topup` — to pokriva i +10 za bug iz `/admin/utisci` i +1 za utisak (`grant_feedback_credits` ne ide kroz `admin_adjust_credits`).
+- Povratni `balance` korekcije je zbir obe kase; konzola piše „Ukupno sada ima N".
+- `check:sql`: sekcija „0035 — admin_adjust_credits po kasama"; dve stare tvrdnje prešle na novu kasu.
+
+**Odstupanja koja i danas važe:**
+- `kasa` ima i treću vrednost `oba` — oduzimanje može da pređe granicu kasa.
+- Grana `povracaj` je nepromenjena (samo balans, pod −1000, povratni `balance` = `credits_balance`); u reviziji `kasa = 'balance'`.
+- `balance_after` ostaje `null` za `admin`: kolona znači stanje posle mesečne dodele i piše je samo `grant_monthly_credits`.
+- Postojeća stanja nisu prebačena; upit za pogođene je u checklisti, 0.2.

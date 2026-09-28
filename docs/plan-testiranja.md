@@ -610,6 +610,19 @@ svake izmene u bazi: **puno osvežavanje** (`Cmd+Shift+R`), ne klik u aplikaciji
   tokena i lozinke; drugo „Otvori komp" ne dodeljuje kredite ponovo; namerno neispravan unos
   (npr. rok 20 godina unapred) ostavlja red sa `ok = false`.
 
+  **[0035] Kasa ručne dodele.** Nalog sa `plan = 'dopuna'` i 0/0 kredita (zaključan):
+  korekcija +5.
+
+  **Očekivano:** `credits_topup` +5, `credits_balance` netaknut; traka „nemaš kredita"
+  nestaje, otključavanje prolazi i skida iz dopune; revizija ima `"kasa": "topup"`.
+  Oduzimanje (−n) prazni prvo balans pa dopunu i nijednu ne vodi ispod nule; preko granice
+  kasa revizija piše `"kasa": "oba"` sa `iz_balansa` i `iz_dopune`. Isto za +10 za bug iz
+  `/admin/utisci` — ide u dopunu.
+  ```sql
+  select credits_balance, credits_topup from profiles where email = '<mejl>';
+  select payload from admin_audit where action = 'credits.adjust' order by created_at desc limit 1;
+  ```
+
 - [ ] **9.4 · Pregled, dnevnik, utisci**
   `/admin` (brojke, NPS, budžet), `/admin/dnevnik` (napravi, izmeni, obriši stavku → vidi se na
   `/dashboard` kao „Novo u Sajtoskopu"), `/admin/utisci` (filteri Fali i Citat, panel „Kontekst",

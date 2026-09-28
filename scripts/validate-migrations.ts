@@ -758,9 +758,12 @@ async function main(): Promise<void> {
   // dodelilo ništa — zamka koju F11 §4 izričito imenuje.
   const prvaNagrada = await nagrada(1, fbId?.id);
   check(prvaNagrada?.ok === true && prvaNagrada.delta === 1, "prva nagrada → +1 kredit");
+  // [0035] Nagrada ide u kasu koja ne ističe — `invoice.paid` je ne briše.
   check(
-    (await one<{ b: number }>(`select credits_balance as b from profiles where id='f11'`))?.b === 6,
-    "balans porastao tačno za 1",
+    (await one<{ b: number; t: number }>(
+      `select credits_balance as b, credits_topup as t from profiles where id='f11'`))
+      ?.t === 1,
+    "dopuna porasla tačno za 1 (0035: nagrada u credits_topup)",
   );
   check((await nagrada(1, fbId?.id))?.reason === "vec dodeljeno", "ista nagrada drugi put ne prolazi");
   check((await nagrada(11, fbId?.id))?.reason === "iznos van granica", "iznos preko 10 odbijen");
@@ -835,9 +838,11 @@ async function main(): Promise<void> {
   const preko = await adjust(-500, "adm:r3");
   check(preko?.ok === false && preko.reason === "balans bi bio negativan",
     "oduzimanje ispod nule odbijeno");
+  // [0035] +30 je otišlo u dopunu, −15 je prvo ispraznilo balans (10) pa uzelo 5 iz dopune.
   check(
-    (await one<{ b: number }>(`select credits_balance as b from profiles where id='meta'`))?.b === 25,
-    "odbijena korekcija ne menja balans",
+    (await one<{ z: number }>(
+      `select credits_balance + credits_topup as z from profiles where id='meta'`))?.z === 25,
+    "odbijena korekcija ne menja stanje",
   );
 
   // Pravilo 14: mutacija i njen trag su jedna transakcija.
@@ -2238,6 +2243,71 @@ async function main(): Promise<void> {
   check((await one<{ n: number }>(
     `select count(*)::int as n from search_access where user_id='sr3' and city_slug='kula'`))?.n === 0,
     "prazan rezultat ne ostavlja pristup");
+
+  // ── [0035] ručna dodela ide u kasu koja ne ističe ────────
+  // Bug: +n iz konzole je išlo u `credits_balance` — nalog `dopuna` ga vidi u
+  // brojaču a `stanjePristupa` ga ne vidi, pretplatniku ga briše `invoice.paid`.
+  console.log("\n0035 — admin_adjust_credits po kasama");
+  type Adj35 = { ok: boolean; reason: string; balance: number };
+  const adj35 = (u: string, delta: number, ref: string) =>
+    one<Adj35>(`select * from admin_adjust_credits(null,$1,$2,'nota',$3)`, [u, delta, ref]);
+  const kase35 = (u: string) =>
+    one<{ b: number; t: number }>(
+      `select credits_balance as b, credits_topup as t from profiles where id = $1`, [u]);
+  const kasa35 = async (ref: string) =>
+    (await one<{ p: { kasa: string; iz_balansa?: number; iz_dopune?: number } }>(
+      `select payload as p from admin_audit where target_ref = $1`, [ref]))?.p;
+
+  await db.exec(`insert into profiles (id, email, plan, credits_balance, credits_topup)
+                 values ('d35','d35@x.rs','dopuna',0,0), ('s35','s35@x.rs','pro',300,0)`);
+
+  // 1. Nalog `dopuna`, +5 → dopuna, i otključavanje prolazi.
+  const d1 = await adj35("d35", 5, "adm:d35-1");
+  let k35 = await kase35("d35");
+  check(d1?.ok === true && k35?.b === 0 && k35.t === 5,
+    `dopuna +5 → credits_topup ${k35?.t}, credits_balance ${k35?.b}`);
+  check(d1?.balance === 5, `povratni balance je zbir kasa (${d1?.balance})`);
+  check((await kasa35("adm:d35-1"))?.kasa === "topup", "revizija: kasa = topup");
+  check((await spend("d35", "p2"))?.reason === "unlocked", "posle +5 otključavanje radi");
+
+  // 2. Pretplatnik, +20 → dopuna; mesečna dodela je ne briše.
+  await adj35("s35", 20, "adm:s35-1");
+  await one(`select * from grant_monthly_credits('s35', 450, 'in_s35')`);
+  k35 = await kase35("s35");
+  check(k35?.b === 450 && k35.t === 20, `invoice.paid posle +20: balans ${k35?.b}, dopuna ${k35?.t} ostaje`);
+
+  // 3. Oduzimanje: redosled kao trošenje, preko granice kasa.
+  await db.exec(`update profiles set credits_balance = 3, credits_topup = 10 where id = 'd35'`);
+  const d2 = await adj35("d35", -5, "adm:d35-2");
+  k35 = await kase35("d35");
+  check(d2?.ok === true && k35?.b === 0 && k35.t === 8, `−5 sa 3/10 → ${k35?.b}/${k35?.t} (balans prvo)`);
+  const rev35 = await kasa35("adm:d35-2");
+  check(rev35?.kasa === "oba" && rev35.iz_balansa === -3 && rev35.iz_dopune === -2,
+    `revizija: kasa = oba, ${rev35?.iz_balansa} / ${rev35?.iz_dopune}`);
+  await adj35("d35", -2, "adm:d35-3");
+  check((await kasa35("adm:d35-3"))?.kasa === "topup", "prazan balans → kasa = topup");
+  await db.exec(`update profiles set credits_balance = 4, credits_topup = 4 where id = 'd35'`);
+  await adj35("d35", -4, "adm:d35-4");
+  check((await kasa35("adm:d35-4"))?.kasa === "balance", "pokriveno balansom → kasa = balance");
+
+  // 4. Dug u balansu se ne produbljuje i ne računa kao kredit.
+  await db.exec(`update profiles set credits_balance = -5, credits_topup = 3 where id = 'd35'`);
+  check((await adj35("d35", -4, "adm:d35-5"))?.reason === "balans bi bio negativan",
+    "dopuna 3 uz dug −5: −4 odbijeno");
+  await adj35("d35", -3, "adm:d35-6");
+  k35 = await kase35("d35");
+  check(k35?.b === -5 && k35.t === 0, `−3 uzima samo dopunu, dug ostaje (${k35?.b}/${k35?.t})`);
+
+  // 5. Knjiga: jedan red sa punim iznosom, `balance_after` ostaje prazan.
+  const red35 = await one<{ d: number; ba: number | null }>(
+    `select delta as d, balance_after as ba from credit_ledger where ref_id = 'adm:d35-2'`);
+  check(red35?.d === -5 && red35.ba === null, "knjiga: delta −5, balance_after null");
+
+  // 6. `grant_credits('admin')` — ista kasa kao konzola.
+  await db.exec(`update profiles set credits_balance = 0, credits_topup = 0 where id = 'd35'`);
+  await one(`select * from grant_credits('d35', 2, 'admin', 'adm:d35-g')`);
+  k35 = await kase35("d35");
+  check(k35?.b === 0 && k35.t === 2, "grant_credits('admin') puni credits_topup");
 
   // Registracija: profil bez plana i bez kredita. `existing` mora da radi i kad
   // dodele nema — do 0024 se izvodio iz postojanja `monthly_grant` reda.
