@@ -26,3 +26,5 @@ apps/web/.clerk/
 
 # lokalni pnpm store (nastao u sesiji 2026-08; nikad u repo)
 .pnpm-store/
+.env.prod
+supabase/seed-lokalni.sql
