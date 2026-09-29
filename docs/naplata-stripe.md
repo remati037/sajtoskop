@@ -512,9 +512,9 @@ Ne menja se: `/cenovnik?plan=pro&ciklus=godisnje` → `citajNameru()` → `Cenov
 | `customer.subscription.updated` | `SUB_STATE` | `apply_subscription` |
 | `customer.subscription.deleted` | `SUB_STATE` + `SUB_ENDED` | `apply_subscription(status=canceled)` + `expire_subscription_credits` |
 | `invoice.paid` | `PERIOD_PAID` | `apply_invoice_paid(target = plan.monthlyCredits, ref = in_…)` — **samo** `billing_reason in (subscription_create, subscription_cycle, subscription_update)` i `amount_due >= 0`; mesečni ciklus, ili prva faktura godišnjeg |
-| `invoice.payment_failed` | `PAYMENT_FAILED` | ništa u kreditima; `apply_subscription` će stići kao `updated` sa `past_due`. Loguje se; mejl je P4 |
+| `invoice.payment_failed` | `PAYMENT_FAILED` | ništa u kreditima; `apply_subscription` će stići kao `updated` sa `past_due`. Loguje se; za `subscription_cycle` / `subscription_update` jedan mejl korisniku po `in_…` (ključ `mejl:naplata_pala:<in_…>` u `billing_events`, `billing-mejl.ts`). Pad mejla ne menja 200 |
 | `charge.refunded` | `REFUNDED` | fakture tog plaćanja: `charge.invoice` ako postoji, inače `invoicePayments.list` po `payment_intent` (na `dahlia` ni naplata ni `PaymentIntent` nemaju `invoice`), pa redovi knjige po `in_…` / `pi_…` (`dodeleZaTransakciju`). Skida se **suma njihovih `delta`** (`dodeljenoZaTransakciju`, 0032) — nikad `monthlyCredits`, nikad `balance_after`; bez redova ili sa sumom ≤ 0 → `preskočeno`, 200. Od 0033 je jedinica posla **refund**, ne naplata: `refunds.list({ charge })` (lista na naplati ume da bude skraćena), pa se svaki `re_…` primenjuje sa svojim iznosom, `floor(dodeljeno × refund.amount / charge.amount)`, pod ključem `povracaj:<re_…>`. Kumulativni `amount_refunded` se ne koristi. Kroz `apply_refund`: jedan red po refundu, srazmera i traženo/skinuto u `credit_ledger.details`; paket iz dopune (ostatak kao dug u balansu, uz `admin_audit` red `refund_preliv`), pretplata iz balansa, pod −1000 |
-| `charge.dispute.created` | `DISPUTED` | samo log + mejl adminu (P4). Krediti se ne diraju dok Stripe ne odluči |
+| `charge.dispute.created` | `DISPUTED` | log + mejl na `FEEDBACK_EMAIL_TO` (iznos, `dp_…`, razlog, rok za dokaze, link na Dashboard; bez podataka o kartici). Krediti se ne diraju dok Stripe ne odluči |
 | `charge.dispute.closed` | `DISPUTE_CLOSED` | samo `status = lost`: `charges.retrieve` (spor ne nosi kupca), pa isto kao pun refund, ref `spor:<dp_…>`. Ostali statusi: log |
 
 Sve ostalo → `preskočeno:<tip>`, 200.
@@ -675,7 +675,7 @@ Stripe naplaćuje. `invoice.paid` (`subscription_cycle`) → `apply_invoice_paid
 
 ### 7.5 Kartica pala osmog dana
 
-`invoice.payment_failed` → log. Stripe Smart Retries (§2.2) pokušava 4× kroz 7 dana; `subscription.updated` stiže sa `past_due`. Pristup: `plan_expires_at` je ostao dan 8 → `stanjePristupa` daje `grace` (čita, ne troši) — što je tačno ono što treba: nije platio. Posle poslednjeg neuspeha Stripe otkazuje (podešeno u §2.2) → `subscription.deleted` → `expire_subscription_credits` (nema šta, već je potrošio probu ili ostatak probe se briše). Mejlovi: P4.
+`invoice.payment_failed` → log. Stripe Smart Retries (§2.2) pokušava 4× kroz 7 dana; `subscription.updated` stiže sa `past_due`. Pristup: `plan_expires_at` je ostao dan 8 → `stanjePristupa` daje `grace` (čita, ne troši) — što je tačno ono što treba: nije platio. Posle poslednjeg neuspeha Stripe otkazuje (podešeno u §2.2) → `subscription.deleted` → `expire_subscription_credits` (nema šta, već je potrošio probu ili ostatak probe se briše). Mejl: jedan po fakturi, na prvi `payment_failed` — šta se desilo, do kad traje pristup (`plan_expires_at`, pa `citanjeDoZa`), datum sledećeg pokušaja i dugme „Ažuriraj karticu" na `/krediti`.
 
 ### 7.6 Ponovljena proba
 
