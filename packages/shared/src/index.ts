@@ -23,6 +23,7 @@ export type {
 // ── oblik redova u bazi (snake_case, granica sa Supabase-om) ─
 export type {
   AdminAdjustResult,
+  AdminAktivacija,
   AdminAuditRow,
   AccessInviteKind,
   AccessInviteRedemptionRow,

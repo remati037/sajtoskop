@@ -449,6 +449,8 @@ Ubaci 5-10 lažnih biznisa sa jedinstvenim fingerprintima (nepostojeći nazivi, 
 
 Ako se ti zapisi pojave u konkurentskom proizvodu ili u nečijoj CSV datoteci, imaš **dokaz kopiranja** sa tragom do konkretnog naloga. Košta te pola sata rada i vredi neuporedivo više od obfuskacije.
 
+**Kako je urađeno (0036):** oznaka je u tabeli `canaries`, a ne kolona u `businesses`. Nijedna ruta je ne čita, pa lista, kartica i CSV kanarinca ne razlikuju od pravog prospekta. Test `apps/web/test/kanarinci.ts` pada ako se ime tabele pojavi u webu. Spisak (nazivi, telefoni, domeni) je u `scripts/kanarinci.local.json`, van git-a. Upis i mesečno osvežavanje radi `pnpm kanarinci -- --pisi`, a ko je koga otključao pokazuje `pnpm kanarinci -- --izvestaj`.
+
 Isti trik: unikatna varijacija u formulaciji `ai_verdict` teksta po nalogu (nevidljiva razlika u interpunkciji ili sinonimu). Ako se pojavi negde, znaš čiji nalog je izvor.
 
 ## Sloj 3 — pravi moat

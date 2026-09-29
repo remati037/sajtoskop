@@ -1,8 +1,8 @@
 // apps/web/src/lib/admin-pregled.ts
 // Pregled sistema sa `/admin` (F12 §3.4).
 //
-// Šest kartica, jedan poziv `admin_overview` (migracija 0013) i nijedan spoljni
-// servis. Clerka ovde nema namerno: pregled je ekran koji se otvara da bi se
+// Šest kartica iz jednog poziva `admin_overview` (migracija 0013), sedma
+// („Aktivacija") iz `admin_aktivacija` (0036), i nijedan spoljni servis. Clerka ovde nema namerno: pregled je ekran koji se otvara da bi se
 // videlo da li nešto gori, pa ne sme da zavisi od trećeg servisa da bi se
 // iscrtao.
 //
@@ -15,6 +15,7 @@ import "server-only";
 import {
   GLOBAL_DAILY_API_CAP,
   GLOBAL_MONTHLY_API_CAP,
+  type AdminAktivacija,
   type AdminOverview,
 } from "@sajtoskop/shared";
 import { adminSupabase } from "./supabase";
@@ -48,6 +49,27 @@ export async function citajPregled(): Promise<Pregled> {
   if (!p) throw new Error("admin_overview nije vratio rezultat.");
 
   return p;
+}
+
+/** Koliko dana unazad kartica „Aktivacija" broji registracije. */
+export const DANA_AKTIVACIJE = 7;
+
+/**
+ * Sedam brojeva iz checkliste 2.5 (0036). Poseban poziv, a ne ključ u
+ * `admin_overview`: ista funkcija hrani i `scripts/metrike.sql`, pa definicije
+ * žive na jednom mestu, a `admin_overview` ostaje nedirnut.
+ */
+export async function citajAktivaciju(): Promise<AdminAktivacija> {
+  const { data, error } = await adminSupabase().rpc("admin_aktivacija", {
+    p_dana: DANA_AKTIVACIJE,
+  });
+
+  if (error) throw new Error(`Čitanje aktivacije nije uspelo: ${error.message}`);
+
+  const a = data as AdminAktivacija | null;
+  if (!a) throw new Error("admin_aktivacija nije vratila rezultat.");
+
+  return a;
 }
 
 /** Udeo iskorišćenog budžeta, po danu i po mesecu — veći od ta dva odlučuje. */

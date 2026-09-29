@@ -113,7 +113,8 @@ async function main(): Promise<void> {
                    "billing_events", "subscriptions",
                    "search_access", "access_invites", "access_invite_redemptions",
                    "trial_fingerprints",
-                   "lead_status", "outreach_messages", "signed_events"]) {
+                   "lead_status", "outreach_messages", "signed_events",
+                   "canaries"]) {
     const r = await one<{ relrowsecurity: boolean }>(
       `select relrowsecurity from pg_class where relname = $1`, [t]);
     check(r?.relrowsecurity === true, `uključen na ${t}`);
@@ -2656,6 +2657,78 @@ async function main(): Promise<void> {
   check((await one<{ refunded: number }>(`select * from refund_scan($1, 0)`, [admNovo?.job_id]))?.refunded === 0,
     "refund_scan adminu nema šta da vrati");
 
+  // ── [0036] kanarinci i metrike aktivacije ────────────────
+  console.log("\n0036: kanarinci");
+  await db.exec(`insert into businesses (place_id, city_slug, niche_slug, name)
+                   values ('kan_p1','nis','stomatolog','Kanarinac 1')`);
+  await db.exec(`insert into canaries (place_id, label) values ('kan_p1','k1')`);
+  await mustFail(`insert into canaries (place_id, label) values ('nepostoji','k2')`,
+    "kanarinac bez reda u businesses odbijen (FK)");
+  await mustFail(`insert into canaries (place_id, label) values ('p2','k1')`, "ista oznaka dvaput odbijena");
+  await mustFail(`insert into canaries (place_id, label) values ('p2','K 2')`, "oznaka van [a-z0-9-] odbijena");
+  await mustFail(`delete from businesses where place_id = 'kan_p1'`,
+    "brisanje biznisa ne briše oznaku kanarinca tiho (restrict)");
+  const kanPrava = await one<{ anon: boolean; auth: boolean }>(
+    `select has_table_privilege('anon', 'canaries', 'select') as anon,
+            has_table_privilege('authenticated', 'canaries', 'select') as auth`);
+  check(kanPrava?.anon === false && kanPrava.auth === false,
+    "canaries: anon i authenticated nemaju select");
+  const listingKolone = await one<{ n: number }>(
+    `select count(*)::int as n from pg_proc p, unnest(p.proargnames) as a(ime)
+     where p.proname = 'search_listing' and a.ime ilike '%canar%'`);
+  check(listingKolone?.n === 0, "search_listing nema nijednu kolonu o kanarincu");
+
+  console.log("\n0036: admin_aktivacija");
+  type Aktivacija = {
+    dana: number;
+    registracije: { dan: string; broj: number }[];
+    nalozi: number; sa_listom: number; sa_otkljucavanjem: number; ceo_onboarding: number;
+    vratili_se: number; mogli_da_se_vrate: number;
+    pretplate: Record<string, { aktivna: number; proba: number; kasni: number }>;
+    paketi: { krediti: number; kupljeno: number; naloga: number }[];
+  };
+  const akt = async () =>
+    (await one<{ a: Aktivacija }>(`select admin_aktivacija(7) as a`))?.a;
+  const aktPre = await akt();
+  const sviKoraci = `'{"pretraga":"2026-09-01T10:00:00Z","otkljucavanje":"2026-09-01T10:05:00Z",
+                       "poruka":"2026-09-01T10:10:00Z","pipeline":"2026-09-01T10:15:00Z"}'::jsonb`;
+  await db.exec(`
+    insert into profiles (id, email, credits_balance, created_at, last_seen_at, onboarding_steps, role)
+      values ('akt1','akt1@x.rs',0, now() - interval '3 days', now(), ${sviKoraci}, 'user'),
+             ('akt2','akt2@x.rs',0, now(), now(), '{}'::jsonb, 'user'),
+             ('akt3','akt3@x.rs',0, now() - interval '2 days', now() - interval '2 days', '{}'::jsonb, 'user'),
+             ('akt_adm','akt_adm@x.rs',0, now() - interval '3 days', now(), ${sviKoraci}, 'admin');
+    insert into businesses (place_id, city_slug, name) values ('akt_p1','nis','Aktivacija firma');
+    insert into unlocks (user_id, place_id) values ('akt1','akt_p1'), ('akt_adm','akt_p1');
+    insert into search_access (user_id, country_code, city_slug, niche_slug, pages, expires_at)
+      values ('akt2','RS','nis','akt-nisa',1, now() + interval '30 days'),
+             ('akt_adm','RS','nis','akt-nisa',1, now() + interval '30 days');
+    insert into subscriptions (stripe_subscription_id, user_id, status, plan)
+      values ('sub_akt1','akt1','active','pro'), ('sub_akt3','akt3','trialing','starter'),
+             ('sub_akt_adm','akt_adm','active','pro'), ('sub_akt2','akt2','canceled','pro');
+    insert into credit_ledger (user_id, delta, reason, ref_id)
+      values ('akt2', 77, 'credit_pack', 'pi_akt2'), ('akt_adm', 77, 'credit_pack', 'pi_akt_adm');
+  `);
+  const aktPosle = await akt();
+  const d = (k: "nalozi" | "sa_listom" | "sa_otkljucavanjem" | "ceo_onboarding" | "vratili_se" | "mogli_da_se_vrate") =>
+    (aktPosle?.[k] ?? 0) - (aktPre?.[k] ?? 0);
+  check(aktPosle?.registracije.length === 7, `registracije: 7 dana i sa nulama (${aktPosle?.registracije.length})`);
+  check((aktPosle?.registracije[0]?.broj ?? 0) - (aktPre?.registracije[0]?.broj ?? 0) === 1,
+    "registracije: danas +1 (admin se ne broji)");
+  check(d("nalozi") === 3, `nalozi +3, admin isključen (${d("nalozi")})`);
+  check(d("sa_listom") === 2, `sa listom +2: korak ili search_access (${d("sa_listom")})`);
+  check(d("sa_otkljucavanjem") === 1, `sa otključavanjem +1 (${d("sa_otkljucavanjem")})`);
+  check(d("ceo_onboarding") === 1, `sva četiri koraka +1 (${d("ceo_onboarding")})`);
+  check(d("vratili_se") === 1, `vratili se +1: samo kasniji dan od registracije (${d("vratili_se")})`);
+  check(d("mogli_da_se_vrate") === 2, `imenilac +2: registrovani pre danas (${d("mogli_da_se_vrate")})`);
+  check((aktPosle?.pretplate.pro?.aktivna ?? 0) - (aktPre?.pretplate.pro?.aktivna ?? 0) === 1,
+    "pretplate: pro aktivna +1, admin i canceled se ne broje");
+  check((aktPosle?.pretplate.starter?.proba ?? 0) - (aktPre?.pretplate.starter?.proba ?? 0) === 1,
+    "pretplate: starter proba +1");
+  check(aktPosle?.pretplate.advanced !== undefined, "pretplate: plan bez ijedne pretplate je tu sa nulama");
+  const paket77 = aktPosle?.paketi.find((p) => p.krediti === 77);
+  check(paket77?.kupljeno === 1 && paket77.naloga === 1, "paketi: jedan kupljen, admin se ne broji");
+
   console.log("\nPrava nad funkcijama");
   for (const fn of ["spend_credit_and_unlock", "grant_credits", "create_profile_with_grant",
                     "consume_api_call", "consume_side_call", "api_budget_status", "mark_api_exhausted",
@@ -2673,7 +2746,8 @@ async function main(): Promise<void> {
                     "admin_set_role", "admin_overview",
                     "claim_request", "zabelezi_utisak", "dopuni_utisak",
                     "get_job_for_user", "inkrementiraj_analizu", "search_listing",
-                    "onboarding_mark_step", "admin_nps", "admin_fali"]) {
+                    "onboarding_mark_step", "admin_nps", "admin_fali",
+                    "admin_aktivacija"]) {
     const r = await one<{ anon: boolean; svc: boolean }>(
       `select has_function_privilege('anon', p.oid, 'execute') as anon,
               has_function_privilege('service_role', p.oid, 'execute') as svc

@@ -1,0 +1,15 @@
+{
+  "kanarinci": [
+    {
+      "oznaka": "k1",
+      "naziv": "Stomatološka ordinacija Primer",
+      "grad": "nis",
+      "nisa": "stomatolog",
+      "adresa": "Primer ulica 1, Niš",
+      "telefon": "060 0000000",
+      "sajt": "https://primer-ordinacija.example",
+      "ocena": 4.6,
+      "brojOcena": 23
+    }
+  ]
+}

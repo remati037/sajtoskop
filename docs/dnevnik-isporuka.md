@@ -621,3 +621,30 @@ Otpala: landing je napravljen van repoa.
 - Grep `beta|paddle` u `apps/web/src` ne nalazi „Paddle" nigde. „Beta" ostaje namerno na tri mesta: **Beta dnevnik** je termin iz tabele terminologije; `user.beta_open` / `user.beta_expiry` su ključevi radnji u `admin_audit` i vide se sirovi u reviziji, ali preimenovanje bi razdvojilo istoriju (komentar u `lib/admin.ts`); `plan === "beta"` u `admin-radnje.ts` je odbrana od stare vrednosti. Sve ostalo su komentari.
 - **Nije popravljeno, samo nađeno:** `webhook_events` insert u Clerk ruti nema `on conflict do nothing` (ni upsert sa `ignoreDuplicates`), pa Svix retry već obrađenog događaja dobija grešku 23505 → 500 „Deduplikacija nije dostupna" i Sentry prijavu umesto `duplicate: true`. Grana `if (!marker)` se zato nikad ne izvršava. Profili su i dalje idempotentni po `ref_id`, pa ne nastaje šteta u podacima, ali Svix ponavlja do odustajanja. Popravka je posebna isporuka.
 - `CLAUDE.md` u tabeli terminologije i dalje kaže „pretraga po kešu je besplatna". Nije menjan jer je van ove isporuke.
+
+### Kanarinci i metrike aktivacije (checklista 2.5)
+**Isporučeno:** 29. septembar 2026 · migracija `0036_kanarinci_metrike.sql` · izvor: checklista 2.5
+
+- **Mehanizam je dogovoren pre pisanja:** oznaka kanarinca je u novoj tabeli `canaries` (`place_id` → `businesses`, `label`), a ne kolona u `businesses`. RLS je uključen, politika `using (false)`, `revoke` za `anon` i `authenticated`, a FK je `on delete restrict`, jer je oznaka dokaz. `businesses` i `website_audits` nemaju nijednu novu kolonu. Zato `search_listing`, `LEAD_BUSINESS_COLUMNS` / `LEAD_AUDIT_COLUMNS`, kartica i CSV po konstrukciji ne mogu da nose oznaku.
+- `apps/web/test/kanarinci.ts` (u `pnpm --filter web test`) pada ako se `canar` / `kanarin` pojavi u `apps/web/src` ili `packages/shared/src`. `pnpm check:sql` proverava FK, jedinstvenu oznaku, oblik oznake, `restrict`, da `anon` i `authenticated` nemaju `select` i da `search_listing` nema kolonu o kanarincu.
+- `scripts/kanarinci.ts` (`pnpm kanarinci`): pregled je podrazumevan, a upisuje se tek sa `--pisi`. Izveštaj daje `--izvestaj`, drugi spisak `--fajl=`.
+  - Spisak se čita iz `scripts/kanarinci.local.json` (u `.gitignore`, oblik je u `kanarinci.primer.json`) i validira se Zod-om. Traži se 1–10 stavki, jedinstvena oznaka i jedinstven domen po kanarincu, telefon u Googleovom nacionalnom obliku (`060 1234567`), a grad i niša iz taksonomije.
+  - `place_id` je nasumičan, u obliku `ChIJ` + 23 znaka. Nastaje pri prvom upisu, a posle se čita iz `canaries` po oznaci.
+  - Red ide kroz workerov `upsertBusinesses` sa istim `query_text` koji bi upisao pravi `scan`. Audit radi worker preko `enrich_basic` (`placeIdsNeedingAudit`, isti ključ deduplikacije kao u scanu), dakle pravi Ugly Score nad mojim domenom, uz robots.txt i razmak.
+  - `--izvestaj` pokazuje svežinu (dana do nestanka iz pretrage), stanje audita i svako otključavanje sa nalogom, mejlom i vremenom; admin je označen.
+  - Nula Places poziva, nula kredita.
+- `admin_aktivacija(p_dana)` (`security definer`, samo `service_role`) vraća jsonb sa sedam brojeva: registracije po beogradskom danu (sa nulama), nalozi sa listom, sa otključavanjem, sa sva četiri onboarding koraka, vratili se, aktivne pretplate po planu (uz probu i `past_due`) i kupljeni paketi po veličini. Admin nalozi su isključeni svuda. Definicije su u zaglavlju migracije.
+- `scripts/metrike.sql` raspakuje taj jsonb u jedan rezultat (`red | metrika | broj | napomena`), za SQL editor.
+- `/admin` ima sedmu karticu „Aktivacija" (7 dana), sa istim `Kartica` / `Red` delovima i u istoj mreži. Čita je `citajAktivaciju()` u `lib/admin-pregled.ts`, paralelno sa `admin_overview`. Ako čitanje padne, kartica piše „nije pročitano", a ostalih šest radi.
+- Tip `AdminAktivacija` je u `packages/shared/src/db.ts`.
+- Dokumenti: `docs/bezbednost.md` (kako je urađeno), `docs/tok-i-onboarding.md` §4.9 i dva pomena „kanarinca iz S25", checklista 2.5 (ručni koraci) i mesečna rutina, plan testiranja 9.5 i 13.7.
+
+**Odstupanja koja i danas važe:**
+- „Vratili se drugog dana" se računa kao `last_seen_at` na kasniji beogradski dan od registracije. `last_seen_at` čuva samo poslednji dolazak (0012), pa je broj „vratio se bar jednom posle prvog dana", a ne tačno „sutradan". Tačna D1 metrika traži dnevnik dolazaka, a to je nova tabela van ove isporuke.
+- „Bar jedna lista" = korak `pretraga` ili red u `search_access`. Nalog koji je listu imao samo pre 0025 (bez `search_access` i bez onboardinga) se ne broji.
+- Kupljeni paketi su redovi `credit_pack` u knjizi. Vraćen novac se ne oduzima (to je poseban red `povracaj`).
+- Kanarinac nije Googleov podatak, ali `search_listing` ga filtrira po `google_refreshed_at` kao i svaki red. Zato se `--pisi` pokreće ručno jednom mesečno (checklista, „Posle lansiranja"), a ne kroz novi tip posla u workeru.
+- Otključan kanarinac ima „Otvori na Google Mapsu" sa lažnim `place_id`, i Maps ga ne nalazi. Isto tako, ko proverava `place_id` kroz Places API vidi da ne postoji. Kanarinac zato hvata kopiranje baze, a ne pažljivu ručnu proveru.
+- `canaries` nema `country_code`, iako pravilo 11 to traži za svaku relevantnu tabelu. Red je samo oznaka nad `place_id`, a država je u `businesses`.
+- Varijacija `ai_verdict` teksta po nalogu (isti odeljak u `bezbednost.md`) nije rađena, jer nije bila deo zahteva.
+- Lokalno je 0036 primenjena kroz `psql` u kontejner, bez `db reset`, da ne bi nestali lokalni podaci. Probni kanarinac iz provere je obrisan.

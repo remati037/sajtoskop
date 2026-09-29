@@ -80,7 +80,7 @@ Slugovi: `starter` · `pro` · `advanced`. Ciklus na srpskom (`CIKLUS_IZ_LINKA` 
 | Vidi | Google: jedan klik, povratak. Mejl: adresa + lozinka → šestocifren kod iz mejla (Clerk šablon, srpski od K6/P4). `fallbackRedirectUrl = nazad`. |
 | Baza | Clerk `user.created` → `POST /api/webhooks/clerk` (Svix potpis, `webhook_events` dedup) → `create_profile_with_grant(user, email, 2, 'signup:<id>')` → red u `profiles` (`plan = dopuna`, `credits_topup = 2`, `country_code = RS`), red u `credit_ledger` (`onboarding`, +2). Ako webhook zakasni: `ensureProfile()` u `(app)/layout.tsx` i u checkout ruti radi isto, idempotentno po `ref_id`. |
 | Pođe po zlu | Webhook ne stigne **i** korisnik ode pravo u checkout → checkout ruta zove `ensureProfile` pre novca (već tako). Dupli `user.created` (Clerk ponavlja) → `credit_ledger_grant_idem_idx` odbija drugu dodelu, vraća `already_granted`. Isti mejl, drugi provajder (Google pa mejl) → Clerk spaja u isti nalog ako je „account linking“ uključen (R: proveri u Clerk panelu; podrazumevano jeste za verifikovan mejl). |
-| Hvata se | `select reason, delta, ref_id from credit_ledger where user_id = :id` — tačno jedan red `onboarding`. Kanarinac iz S25 prolazi isti put. |
+| Hvata se | `select reason, delta, ref_id from credit_ledger where user_id = :id` — tačno jedan red `onboarding`. |
 
 ### 1.5 Povratak na cenovnik sa preselekcijom — `A/cenovnik?plan=pro&ciklus=godisnje`
 
@@ -475,7 +475,7 @@ end $$;
 -- (drop function … pa create, isti obrazac kao 0024/0025 — v. SESIJE.md S25 odstupanje).
 ```
 
-`KREDITI_NA_REGISTRACIJI = 2` u `profile.ts` (konstanta `ONBOARDING_CREDITS` u `plans.ts`, ne broj u fajlu). Kanarinci iz S25 dobijaju 2 — metrika „prvo otključavanje“ ih već isključuje po fingerprintu.
+`KREDITI_NA_REGISTRACIJI = 2` u `profile.ts` (konstanta `ONBOARDING_CREDITS` u `plans.ts`, ne broj u fajlu). Kanarinci su biznisi, ne nalozi (tabela `canaries`, 0036), pa ne dobijaju kredite i ne ulaze u metrike naloga.
 
 Koraci se upisuju **sa servera, iz ruta koje ih i rade**, ne iz klijenta: `pretraga` u `/api/search` (prvi `charged`/`already_paid` odgovor), `otkljucavanje` u `unlockLead` (prvi `unlocks` red), `poruka` u `POST /api/onboarding/korak` (jedini klijentski poziv — „Kopiraj“ nema serverski trag) i `pipeline` u `/api/pipeline` (prvi `lead_status` red). Ruta prima `{korak: "poruka"}` samo; Zod `strictObject`.
 
@@ -564,9 +564,12 @@ select date_trunc('day', p.created_at) as dan,
          extract(epoch from ((p.onboarding_steps->>'poruka')::timestamptz - p.created_at))/60)
          filter (where p.onboarding_steps ? 'poruka')               as medijana_min_do_poruke
 from profiles p
-where p.role <> 'kanarinac'   -- ili filter po fingerprintu iz S25
+where p.role <> 'admin'      -- kanarinci su biznisi (0036), ne nalozi; admin ne plaća
 group by 1 order by 1 desc;
 ```
+
+Zbirne metrike aktivacije (sedam brojeva iz checkliste 2.5) su u `admin_aktivacija(p_dana)`
+(0036), raspakovane u `scripts/metrike.sql` i na kartici „Aktivacija" na `/admin`.
 
 ---
 ## 5. Feedback sistem

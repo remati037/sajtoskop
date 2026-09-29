@@ -905,6 +905,30 @@ export type AdminOverview = {
   trenutak: string;
 };
 
+/**
+ * Kartica „Aktivacija" na `/admin` i `scripts/metrike.sql` — jedan poziv
+ * `admin_aktivacija(p_dana)` (migracija 0036, checklista 2.5).
+ *
+ * Oblik je 1:1 sa `jsonb_build_object` iz 0036; definicije svakog broja su u
+ * zaglavlju te migracije. Admin nalozi se nigde ne broje.
+ */
+export type AdminAktivacija = {
+  dana: number;
+  /** Beogradski dan (`YYYY-MM-DD`), najnoviji prvi; dani bez registracije su `0`. */
+  registracije: { dan: string; broj: number }[];
+  nalozi: number;
+  sa_listom: number;
+  sa_otkljucavanjem: number;
+  ceo_onboarding: number;
+  /** `last_seen_at` na kasniji dan od registracije. */
+  vratili_se: number;
+  /** Imenilac za `vratili_se`: registrovani pre današnjeg dana. */
+  mogli_da_se_vrate: number;
+  pretplate: Record<"starter" | "pro" | "advanced", { aktivna: number; proba: number; kasni: number }>;
+  /** Po veličini paketa (`delta` reda `credit_pack`); vraćen novac se ne oduzima. */
+  paketi: { krediti: number; kupljeno: number; naloga: number }[];
+};
+
 export type ApiBudgetRow = {
   day: string;   // LA dan, YYYY-MM-DD
   month: string; // LA mesec, YYYY-MM

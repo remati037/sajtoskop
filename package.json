@@ -14,6 +14,7 @@
     "backfill:ai": "tsx scripts/backfill-ai.ts",
     "probe:ai": "tsx scripts/probe-ai.ts",
     "rescore": "tsx scripts/rescore-audits.ts",
+    "kanarinci": "tsx scripts/kanarinci.ts",
     "check:secrets": "bash scripts/check-secrets.sh",
     "stripe:doktor": "tsx scripts/stripe-doktor.ts",
     "dev": "pnpm --filter @sajtoskop/web dev",
