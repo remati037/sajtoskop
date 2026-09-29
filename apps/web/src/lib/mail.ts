@@ -26,6 +26,12 @@ export type Mejl = {
   html: string;
   /** Postavlja se samo ako prođe `bezbednaAdresa()`. */
   replyTo?: string | null;
+  /**
+   * Resend `Idempotency-Key` (24 h): isti ključ u tom prozoru ne šalje drugi
+   * mejl. Za poštu koju okida webhook — tajmaut posle kog je Resend ipak
+   * primio poruku inače bi, uz ponovni pokušaj, značio dva mejla.
+   */
+  kljucIdempotencije?: string;
 };
 
 const TAJMAUT_MS = 8_000;
@@ -56,6 +62,7 @@ export async function posaljiMejl(m: Mejl): Promise<MejlIshod> {
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
+        ...(m.kljucIdempotencije ? { "Idempotency-Key": m.kljucIdempotencije.slice(0, 256) } : {}),
       },
       body: JSON.stringify(telo),
       signal: AbortSignal.timeout(TAJMAUT_MS),
@@ -97,4 +104,39 @@ export function escapeHtml(s: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+// ── zajednički delovi tela ───────────────────────────────────
+// Boje su ovde zakucane, i to je jedino mesto u projektu gde smeju: mejl klijent
+// ne vidi `globals.css` ni jedan jedini token. Vrednosti su prepis `--accent`,
+// `--fg` i `--fg-muted` iz dizajn sistema §3.1, u svetloj temi.
+//
+// Do P4 su živeli u `admin-mail.ts`; izdvojeni su kad je i naplata počela da
+// piše korisniku (`billing-mejl.ts`), da oba mejla izgledaju isto.
+
+export function okvirHtml(delovi: string[]): string {
+  return [
+    `<div style="font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0a0b0c;max-width:520px">`,
+    ...delovi,
+    `<p style="margin:24px 0 0;font-size:12px;color:#8b9299">sajtoskop.com</p>`,
+    `</div>`,
+  ].join("");
+}
+
+export function dugmeHtml(href: string, tekst: string): string {
+  // `href` je uvek naš link (Clerk pozivnica, sopstveni origin ili Stripe
+  // Dashboard), nikad korisnički unos — ali escape ide svejedno, jer se to
+  // pravilo ne pamti po izuzecima.
+  return (
+    `<a href="${escapeHtml(href)}" style="display:inline-block;background:#adee2e;color:#0a0b0c;` +
+    `text-decoration:none;font-weight:600;font-size:14px;padding:10px 18px;border-radius:10px">` +
+    `${escapeHtml(tekst)}</a>`
+  );
+}
+
+export function redHtml(labela: string, vrednost: string): string {
+  return (
+    `<tr><td style="padding:3px 16px 3px 0;color:#6c757f;white-space:nowrap">${escapeHtml(labela)}</td>` +
+    `<td style="padding:3px 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${escapeHtml(vrednost)}</td></tr>`
+  );
 }

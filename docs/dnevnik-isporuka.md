@@ -590,3 +590,22 @@ Otpala: landing je napravljen van repoa.
 - Grad i niša iz `/api/search` ne idu u Sentry (isto pravilo kao `dnevnik-gresaka.ts`); Clerk ID ide kao `user.id`.
 - Hostovi infrastrukture (Supabase, Stripe, Clerk, Google API, Anthropic, Resend, Vercel, naš domen) ostaju u tekstu bez query stringa; svaki drugi domen je `[url]`, pa i onaj koji nije prospekt.
 - Stavka 2.1 u checklisti ostaje otvorena: DSN na Vercel i server i probna greška su ručni koraci.
+
+### Mejlovi za pad naplate i spor (checklista 2.2)
+**Isporučeno:** 29. septembar 2026 · bez migracije · izvor: checklista 2.2
+
+- `invoice.payment_failed` → mejl korisniku „Naplata za Sajtoskop nije prošla": iznos, do kad traje pristup, datum sledećeg pokušaja (`next_payment_attempt`) i dugme „Ažuriraj karticu" na apsolutni `/krediti` (`NEXT_PUBLIC_APP_URL`). Adresa i rok iz `profiles` (`NaplataSkladiste.kontaktKorisnika`); korisnik se i dalje nalazi po metapodacima, nikad po mejlu.
+- Samo za `subscription_cycle` i `subscription_update` (dan 8 probe, „Aktiviraj odmah", obnova). `subscription_create` pada u Checkout-u pred korisnikom i ne dobija mejl.
+- Najviše jedan mejl po fakturi: ključ `mejl:naplata_pala:<in_…>` se upisuje u `billing_events` pre slanja (isti `upisiDogadjaj`, bez migracije), a Resend dobija `Idempotency-Key: naplata_pala:<in_…>` (24 h), za slučaj kad poruka prođe a odgovor se izgubi. Ako slanje padne, ključ se briše, pa sledeći pokušaj naplate pokuša i mejl.
+- `charge.dispute.created` → mejl na `FEEDBACK_EMAIL_TO`: iznos, `dp_…`, `ch_…`, Stripe `reason`, rok za dokaze, link `dashboard.stripe.com/[test/]disputes/<dp_…>`. Ulaz je uzak tip `SporZaMejl`, pa `evidence` i `payment_method_details` ne mogu da uđu u mejl.
+- Pad mejla (Resend, mreža, pad baze pri čitanju adrese, profil bez adrese) nikad ne menja ishod: ostaje `ok: true` i 200. Razlog ide u novo polje `Ishod.upozorenje`; ruta ga loguje i šalje u Sentry (`prijaviPoruku`).
+- Šabloni su u `lib/billing-mejl.ts`; `okvirHtml`, `dugmeHtml` i `redHtml` prebačeni iz `admin-mail.ts` u `lib/mail.ts`; `Mejl` dobija opciono `kljucIdempotencije`.
+- `test/naplata.ts`: sekcija „MEJLOVI (P4)": lažni `fetch` hvata Resend. Pokriva jedan mejl po `in_…` kroz retry-e, drugu fakturu, oba teksta o pristupu, Resend 500, pad mreže, ponovni pokušaj posle pada, `subscription_create`, profil bez adrese, pad baze → 200, spor bez kartice i kupca i spor sa Resend-om u kvaru.
+- Roadmap 6.4 i 6.10 obrisani; spec §6.1 i §7.5, plan testiranja N4 i N14 dopunjeni.
+
+**Odstupanja koja i danas važe:**
+- Nema posebne tabele za poslate mejlove: ključ živi u `billing_events` pod `event_type = 'mejl.naplata_pala'`. Ko broji Stripe događaje iz te tabele, treba da isključi `event_id like 'mejl:%'`.
+- Datum u mejlu je `plan_expires_at` iz baze u trenutku događaja: ako je još ispred, „Pristup ti traje do <plan_expires_at>" (uz datum do kog sme da čita); ako je prošao, „Pristup ti traje do <plan_expires_at + 30 dana>, ali samo za ono što već imaš". Ako `subscription.updated` stigne posle `payment_failed`, mejl čita stari rok.
+- **Neprovereno u Stripe-u:** §7.1 i §7.5 pretpostavljaju da Stripe na neuspeloj obnovi drži `current_period_end` na starom datumu. Po Stripe dokumentaciji period se pomera na obnovi bez obzira na naplatu. Ako je tako, `past_due` nalog zadržava pun pristup ceo novi period, a posle `deleted` postaje `otkazan` do tog datuma, a mejl to verno prenosi. Proverava se u N4 (plan testiranja); popravka, ako treba, je posebna isporuka.
+- Mejl o sporu nema dodatni ključ: `created` stiže jednom po sporu, grana ne baca, pa je gruba brana (`evt_…`) dovoljna. Resend ipak dobija `Idempotency-Key: spor:<dp_…>`.
+- Stavka 2.2 u checklisti ostaje otvorena dok N4 i `stripe trigger charge.dispute.created` ne pošalju mejl uživo.

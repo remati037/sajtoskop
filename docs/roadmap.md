@@ -331,13 +331,11 @@ test mejlu; ako srpski nije podržan, isti mejl šaljemo mi (6.2, 6.7) i Stripe 
 | 6.1 | Plan je aktivan · T | prva plaćena `invoice.paid` (posle probe ili odmah) | mi | **[H1]** | plan, krediti koji su stigli, datum sledeće naplate |
 | 6.2 | Potvrda uplate / račun · T | `invoice.paid`, `checkout.session.completed` (paket) | Stripe | **[H0]** checklista 2.6 | pravni dokaz uplate, PDF račun |
 | 6.3 | Paket kupljen · T | `checkout.session.completed` mode `payment` | mi | **[H1]** | koliko je leglo, balans obe kase, da ne ističu |
-| 6.4 | Naplata nije prošla · T | `invoice.payment_failed` | mi | **[H0]** checklista 2.2 | šta se dešava sa pristupom, do kada, „Ažuriraj karticu" |
 | 6.5 | Pretplata se neće obnoviti · T | `subscription.updated` sa `cancel_at` | mi | **[H1]** | tačan datum do kog sve radi, **šta ostaje zauvek** (otključani, pipeline), kako da se predomisli |
 | 6.6 | Pretplata je istekla · T | `customer.subscription.deleted` (posle perioda) | mi | **[H1]** | šta se ugasilo, 30 dana čitanja, povratak jednim klikom |
 | 6.7 | Povraćaj obrađen · T | `charge.refunded` | Stripe + mi | **[H1]** | Stripe potvrđuje novac; naš mejl kaže koliko je kredita skinuto i kakav je balans — bolje da pročita od nas nego da se iznenadi |
 | 6.8 | Godišnja obnova za 7 dana · T | `invoice.upcoming` za `ciklus = year` | mi | **[H1]** | iznos i datum; godišnja naplata bez podsetnika je sigurna zamerka |
 | 6.9 | Promena plana · T | `subscription.updated` sa novim `lookup_key` | mi | **[H2]** | upgrade: novi krediti odmah; downgrade: od kog datuma |
-| 6.10 | Spor otvoren · tebi | `charge.dispute.created` | mi | **[H0]** checklista 2.2 | iznos, rok, link na Stripe |
 
 Za `invoice.upcoming` u Stripe-u: **Settings → Billing → Subscriptions and emails → Upcoming
 renewal events** na 7 dana, i događaj dodat na webhook endpoint.
@@ -363,7 +361,7 @@ Dan 3    otvorio listu? ─► 2.3
 Dan 4    proba ─► 5.2 ističe za 3 dana
 Dan 4–5  nema otključanih? ─► 2.4
 Dan 7    ima otključanih? ─► 2.5
-Dan 8    naplata ─► 6.2 račun (Stripe) + 6.1 plan je aktivan   |  pala ─► 6.4
+Dan 8    naplata ─► 6.2 račun (Stripe) + 6.1 plan je aktivan   |  pala ─► mejl (isporučen)
 Dan 8–10 aktivan? ─► 2.6
 Dan 14+  nestao? ─► 4.1 (jednom)
 Stalno   prijava rešena 3.1 · krediti pri kraju 3.2 · stigli 3.3 · prospekti čekaju 3.5 · novosti 4.2
@@ -372,7 +370,7 @@ Otkaz    6.5 ─► kraj perioda 6.6 ─► 30 dana čitanja
 
 ### 5.9 Redosled gradnje
 
-1. **H0** (checklista 2.2 i 2.6): 5.2, 6.2, 6.4, 6.10 i prevod Clerk šablona 1.1–1.2.
+1. **H0** (checklista 2.6): 5.2, 6.2 i prevod Clerk šablona 1.1–1.2.
 2. **H1.1** infrastruktura, pa **H1.2**: 5.1, 5.3–5.6, 6.1, 6.3, 6.5–6.8, 7.2; pa **H1.3**: 2.1–2.6; pa
    **H1.6**: 1.5.
 3. **H2.3**: 3.2, 3.3, 3.5, 4.1, 4.2; uz **H2.1**: 3.6; uz **H2.9**: 7.5, 7.6; 6.9, 7.1.

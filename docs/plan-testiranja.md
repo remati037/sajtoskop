@@ -425,6 +425,11 @@ terminalu sa `stripe listen` — svaki mora da vrati `200`.
   **Očekivano:** dan 8 — `invoice.payment_failed` u `billing_events`, `status past_due`, stanje
   `grace` (čitanje radi, skeniranje i otključavanje ne). Posle retry-a —
   `customer.subscription.deleted`, balans 0.
+  Mejl: na adresu naloga stiže tačno jedan „Naplata za Sajtoskop nije prošla" (i posle
+  svih retry-a), sa datumom do kog traje pristup i dugmetom „Ažuriraj karticu" → `/krediti`.
+  `select event_id from billing_events where event_id like 'mejl:naplata_pala:%'` → jedan red.
+  Datum u mejlu je `plan_expires_at`: ako posle dana 8 kolona NE stoji na danu 8 nego +30
+  dana, stani i javi (v. dnevnik, „Mejlovi za pad naplate i spor").
 
 - [ ] **N5 · Aktiviraj odmah**
   1. Nalog u probi → `/krediti` → **Aktiviraj odmah** → modal „Naplaćuje se €29 sada…" → potvrdi.
@@ -499,7 +504,9 @@ terminalu sa `stripe listen` — svaki mora da vrati `200`.
   1. Aktivan nalog → paket sa karticom `4000 0000 0000 0259` → posle par sekundi Stripe otvara spor.
   2. Dashboard → Disputes → spor → Submit evidence, u tekst upiši `losing_evidence` → pošalji.
 
-  **Očekivano:** `charge.dispute.created` → samo log, krediti netaknuti.
+  **Očekivano:** `charge.dispute.created` → log i mejl „Spor otvoren: … · dp_…" na
+  `FEEDBACK_EMAIL_TO` (iznos, rok za dokaze, dugme na Stripe Dashboard, bez podataka o
+  kartici); krediti netaknuti.
   `charge.dispute.closed` sa `lost` → red `povracaj` sa ref `spor:dp_…`, iznos jednak dodeli.
 
 - [ ] **N15 · Odbijena kartica i 3DS**
