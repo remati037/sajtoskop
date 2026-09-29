@@ -648,3 +648,23 @@ Otpala: landing je napravljen van repoa.
 - `canaries` nema `country_code`, iako pravilo 11 to traži za svaku relevantnu tabelu. Red je samo oznaka nad `place_id`, a država je u `businesses`.
 - Varijacija `ai_verdict` teksta po nalogu (isti odeljak u `bezbednost.md`) nije rađena, jer nije bila deo zahteva.
 - Lokalno je 0036 primenjena kroz `psql` u kontejner, bez `db reset`, da ne bi nestali lokalni podaci. Probni kanarinac iz provere je obrisan.
+
+### Mejl pred kraj probe i „Uplata primljena" (checklista 2.6)
+**Isporučeno:** 29. septembar 2026 · bez migracije · izvor: checklista 2.6
+
+- `customer.subscription.trial_will_end` → mejl korisniku „Proba se završava <datum>". Sadrži plan i ciklus, datum (`trial_end`), iznos prve naplate (`unit_amount × quantity` sa stavke pretplate), broj kredita koji tada stiže (`monthlyCredits`) i napomenu da se ostatak probe ne sabira (A1). Dugme „Upravljaj pretplatom" vodi na `/krediti`. Krediti i ogledalo se ne diraju.
+- Ne šalje se kad status nije `trialing` ili je otkaz zakazan do kraja probe (`cancel_at_period_end`, ili `cancel_at ≤ trial_end` kao na `dahlia`). Jedan mejl po pretplati: ključ `mejl:proba_istice:<sub_…>` u `billing_events` i Resend `Idempotency-Key: proba_istice:<sub_…>`. Ako slanje padne, ključ se oslobađa.
+- Korak 2 checkliste je zapisan: Stripe ne šalje na srpskom. Zato postoji naš mejl „Uplata primljena: <iznos>", sa iznosom, planom ili paketom, brojem kredita, datumom i brojem uplate (`in_…` / `pi_…`). Uz pretplatu ide i link na `hosted_invoice_url`, gde je Stripe-ov račun sa potvrdom za preuzimanje.
+  - `invoice.paid`: samo kad je dodela **sada** upisana (`granted`) i `amount_paid > 0`. Proba (0 €), gratis mesec i ponovljena faktura (`already_granted`) mejl ne dobijaju.
+  - Paket (`checkout.session.completed`, `mode = payment`): samo uz `granted` i `amount_total > 0`.
+  - Resend ključ je `uplata:<in_…|pi_…>`. Dodatna brana u `billing_events` ne postoji, jer je dovoljna gruba brana `evt_…` uz `granted`.
+- Zajednički deo u `billing.ts`: `mejlKorisniku()` (adresa iz profila, `/krediti`, opcioni ključ u `billing_events`, nikad ne baca) i `uzMejl()` (mejl ide u `radnja` ili `upozorenje`, a `ok` se nikad ne menja). `palaNaplata` nije prebačena na njih i ostaje kakva je bila.
+- `test/naplata.ts`, sekcije 6 i 7 u bloku mejlova. Proba: tekst, dugme, ključ, jedan mejl po pretplati, oba oblika otkaza, otkaz posle kraja probe (mejl ide), popust (bez iznosa), Resend 500 pa ponovni pokušaj. Uplata: faktura sa računom, ponovljena faktura, proba i gratis mesec bez mejla, paket, Resend 500 (dodela ostaje).
+- Dokumenti: spec §6.1 (nov red i dopuna `invoice.paid` / `checkout.session.completed`), checklista 2.6 koraci 1–2 i 6.2 korak 6, roadmap §5.5 (5.2 ✅), §5.6 (6.2 ✅, sada šaljemo mi) i §5.8–5.9, plan testiranja N2. Checklista 6.3 je `trial_will_end` već imala među deset događaja.
+
+**Odstupanja koja i danas važe:**
+- Iznos u mejlu o probi je cena sa pretplate, a ne Stripe-ov pregled sledeće fakture (`invoices.createPreview`), jer bi to bio još jedan Stripe poziv u webhooku. Razlika postoji samo uz popust ili porez. Za popust mejl izostavlja iznos, a Stripe Tax nije uključen (H2.7).
+- **Paket nema link na račun.** Checkout u `payment` modu ne pravi fakturu, a `receipt_url` je na naplati (`latest_charge`), što traži Stripe poziv. Kupac paketa sada ima naš mejl, ali ne i Stripe-ovu potvrdu. Ako zatreba dokument: `invoice_creation.enabled` u checkout-u (Stripe to naplaćuje kao Invoicing) ili čitanje `receipt_url` u skladištu.
+- Stripe potvrda **povraćaja** ostaje uključena, na engleskom, dok ne stigne naš mejl 6.7.
+- Mejl „Uplata primljena" delimično preklapa roadmap 6.1 („Plan je aktivan", H1.2). Kad se 6.1 bude gradio, treba ga spojiti s ovim mejlom, a ne slati dva mejla na isti `invoice.paid`.
+- Stavka 2.6 ostaje otvorena do koraka 5 (N2 pod test satom, mejl uživo) i dok se u Stripe-u ne isključi „Successful payments".

@@ -14,7 +14,8 @@
 // namerno: odluka ne sme da zna kako izgleda upit koji je sprovodi.
 //
 // Jedini izlaz van skladišta je pošta (P4, `billing-mejl.ts` → `lib/mail.ts`):
-// `invoice.payment_failed` piše korisniku, `charge.dispute.created` meni. Mejl
+// `invoice.payment_failed`, `customer.subscription.trial_will_end`,
+// `invoice.paid` i kupljen paket pišu korisniku, `charge.dispute.created` meni. Mejl
 // je obaveštenje, ne novčana radnja — njegov pad (ili pad upita koji ga
 // priprema) NIKAD ne menja ishod događaja: ostaje `ok: true` i 200, a razlog
 // ide u `Ishod.upozorenje`, pa ga ruta šalje u Sentry.
@@ -28,6 +29,7 @@
 //    Mejl o paloj naplati ima svoju branu: `mejl:naplata_pala:<in_…>` u istoj
 //    tabeli `billing_events` — Stripe šalje `payment_failed` za SVAKI pokušaj
 //    Smart Retries-a (novi `evt_…`, ista faktura), a korisnik dobija jedan mejl.
+//    Mejl pred kraj probe isto: `mejl:proba_istice:<sub_…>` — jedan po pretplati.
 // 2. Korisnik se nalazi iz metapodataka koje NOSI SVAKI događaj (naš checkout ih
 //    upisuje, Stripe ih prepisuje na pretplatu, fakture i naplate), pa nijedan
 //    događaj ne zavisi od prethodnog. Nikad po mejlu.
@@ -55,7 +57,14 @@ import {
   type PaidPlanId,
   type PaketId,
 } from "@sajtoskop/shared";
-import { posaljiNaplataPala, posaljiSporAdminu } from "./billing-mejl";
+import {
+  posaljiNaplataPala,
+  posaljiProbaIstice,
+  posaljiSporAdminu,
+  posaljiUplatuPrimljenu,
+} from "./billing-mejl";
+import type { MejlIshod } from "./mail";
+import { imePlana } from "./ui-tekst";
 
 // ═══════════════════════════════════════════════════════════
 // TIPOVI
@@ -466,15 +475,18 @@ export async function obradiDogadjaj(
 ): Promise<Ishod> {
   switch (dogadjaj.type) {
     case "checkout.session.completed":
-      return await zavrsenaSesija(dogadjaj.data.object, s);
+      return await zavrsenaSesija(dogadjaj.data.object, dogadjaj.created, s, opcije);
 
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted":
       return await stanjePretplate(dogadjaj.type, dogadjaj.data.object, dogadjaj.created, s);
 
+    case "customer.subscription.trial_will_end":
+      return await probaIstice(dogadjaj.data.object, dogadjaj.created, s, opcije);
+
     case "invoice.paid":
-      return await placenaFaktura(dogadjaj.data.object, s, opcije);
+      return await placenaFaktura(dogadjaj.data.object, dogadjaj.created, s, opcije);
 
     case "invoice.payment_failed":
       return await palaNaplata(dogadjaj.data.object, dogadjaj.created, s, opcije);
@@ -510,7 +522,9 @@ export async function obradiDogadjaj(
  */
 async function zavrsenaSesija(
   sesija: Stripe.Checkout.Session,
+  created: number,
   s: NaplataSkladiste,
+  opcije: NaplataOpcije,
 ): Promise<Ishod> {
   const customerId = id(sesija.customer);
   const userId = await nadjiKorisnika(s, {
@@ -543,7 +557,30 @@ async function zavrsenaSesija(
     }
 
     const r = await s.primeniPaket({ userId, credits: opis.credits, txnId: pi, customerId });
-    return r.ok ? { ok: true, radnja: `paket:${r.reason}` } : { ok: false, radnja: "paket", greska: r.reason };
+    if (!r.ok) return { ok: false, radnja: "paket", greska: r.reason };
+
+    const ishod: Ishod = { ok: true, radnja: `paket:${r.reason}` };
+    // Potvrda samo kad je paket SADA legao — `already_granted` je ponovljena
+    // isporuka, i mejl je tada već otišao (ili je njegov pad već prijavljen).
+    const iznos = sesija.amount_total ?? 0;
+    if (r.reason !== "granted" || iznos <= 0) return ishod;
+    return uzMejl(
+      ishod,
+      "mejl o uplati",
+      await mejlKorisniku(s, userId, opcije, null, (za, kreditiUrl) =>
+        posaljiUplatuPrimljenu({
+          za,
+          ref: pi,
+          iznos,
+          valuta: sesija.currency ?? "eur",
+          stavka: { vrsta: "paket" },
+          krediti: opis.credits,
+          dana: new Date(created * 1000).toISOString(),
+          racunUrl: null,
+          kreditiUrl,
+        }),
+      ),
+    );
   }
 
   if (sesija.mode !== "subscription") {
@@ -673,6 +710,7 @@ async function stanjePretplate(
  */
 async function placenaFaktura(
   inv: Stripe.Invoice,
+  created: number,
   s: NaplataSkladiste,
   opcije: NaplataOpcije,
 ): Promise<Ishod> {
@@ -709,10 +747,159 @@ async function placenaFaktura(
     return { ok: true, radnja: "preskočeno:faktura van kataloga" };
   }
 
-  const r = await s.primeniFakturu({ userId, invoiceId: inv.id, target: PLANS[plan].monthlyCredits });
-  return r.ok
-    ? { ok: true, radnja: `faktura:${r.reason}` }
-    : { ok: false, radnja: "invoice.paid", greska: r.reason };
+  const target = PLANS[plan].monthlyCredits;
+  const r = await s.primeniFakturu({ userId, invoiceId: inv.id, target });
+  if (!r.ok) return { ok: false, radnja: "invoice.paid", greska: r.reason };
+
+  const ishod: Ishod = { ok: true, radnja: `faktura:${r.reason}` };
+  // Potvrda uplate (checklista 2.6): samo kad je dodela SADA upisana i kad je
+  // novac stvarno naplaćen. Gratis mesec (pozivnica) ima 0 € — nije uplata.
+  const iznos = inv.amount_paid ?? 0;
+  if (r.reason !== "granted" || iznos <= 0) return ishod;
+  return uzMejl(
+    ishod,
+    "mejl o uplati",
+    await mejlKorisniku(s, userId, opcije, null, (za, kreditiUrl) =>
+      posaljiUplatuPrimljenu({
+        za,
+        ref: inv.id,
+        iznos,
+        valuta: inv.currency ?? "eur",
+        stavka: { vrsta: "plan", ime: imePlana(plan) },
+        krediti: target,
+        dana: new Date(created * 1000).toISOString(),
+        racunUrl: inv.hosted_invoice_url ?? null,
+        kreditiUrl,
+      }),
+    ),
+  );
+}
+
+/**
+ * `customer.subscription.trial_will_end` — Stripe ga šalje 3 dana pre kraja
+ * probe (odmah, ako je proba kraća). Ništa u kreditima ni u ogledalu; jedan
+ * mejl korisniku: kad se naplaćuje, koliko i koliko kredita tada stiže
+ * (roadmap §5.5, mejl 5.2). Bez njega proba prelazi u naplatu bez upozorenja.
+ *
+ * Ne šalje se kad pretplata više nije u probi ili ima zakazan otkaz — tada
+ * naplate neće ni biti. Jedan mejl po pretplati: ključ
+ * `mejl:proba_istice:<sub_…>` u `billing_events` (Stripe šalje ponovo ako se
+ * `trial_end` pomeri, novim `evt_…`).
+ *
+ * Iznos je sa cene na pretplati (`unit_amount × quantity`). Popust na
+ * pretplati znači da taj broj nije ono što će Stripe naplatiti — mejl tada ne
+ * navodi iznos, samo datum.
+ */
+async function probaIstice(
+  sub: Stripe.Subscription,
+  created: number,
+  s: NaplataSkladiste,
+  opcije: NaplataOpcije,
+): Promise<Ishod> {
+  const radnja = `proba ističe:${sub.id}`;
+  if (sub.status !== "trialing" || typeof sub.trial_end !== "number") {
+    return { ok: true, radnja: `${radnja}, bez mejla (${sub.status})` };
+  }
+
+  const item = sub.items?.data?.[0];
+  // U probi je kraj perioda isto što i kraj probe. Otkaz zakazan za kasnije
+  // (`cancel_at` posle `trial_end`, samo kroz API) ne sprečava prvu naplatu.
+  const periodEnd =
+    (item as unknown as { current_period_end?: number } | undefined)?.current_period_end ?? sub.trial_end;
+  if (otkazKrajemPerioda(sub, periodEnd)) {
+    return { ok: true, radnja: `${radnja}, bez mejla (otkaz zakazan)` };
+  }
+
+  const kupovina = kupovinaZaLookupKey(item?.price?.lookup_key ?? null);
+  if (kupovina?.kind !== "subscription") {
+    return { ok: true, radnja, upozorenje: `mejl o kraju probe nije poslat: cena van kataloga (${item?.price?.lookup_key ?? "—"})` };
+  }
+
+  const popust =
+    (sub.discounts ?? []).length > 0 ||
+    Boolean((sub as unknown as { discount?: unknown }).discount);
+  const jedinicna = item?.price?.unit_amount;
+  const iznos = !popust && typeof jedinicna === "number" ? jedinicna * (item?.quantity ?? 1) : null;
+  const trialEnd = sub.trial_end;
+
+  let userId: string | null;
+  try {
+    userId = await nadjiKorisnika(s, {
+      kandidati: [tekst(sub.metadata, "user_id")],
+      subscriptionId: sub.id,
+      customerId: id(sub.customer),
+    });
+  } catch (err) {
+    return { ok: true, radnja, upozorenje: `mejl o kraju probe nije poslat: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (!userId) {
+    return { ok: true, radnja, upozorenje: `mejl o kraju probe nije poslat: pretplata ${sub.id} nije vezana ni za jedan profil` };
+  }
+
+  return uzMejl(
+    { ok: true, radnja },
+    "mejl o kraju probe",
+    await mejlKorisniku(
+      s,
+      userId,
+      opcije,
+      { eventId: `mejl:proba_istice:${sub.id}`, eventType: "mejl.proba_istice", occurredAt: iso(created) },
+      (za, kreditiUrl) =>
+        posaljiProbaIstice({
+          za,
+          pretplataId: sub.id,
+          plan: imePlana(kupovina.plan),
+          ciklus: kupovina.ciklus,
+          naplataDana: new Date(trialEnd * 1000).toISOString(),
+          iznos,
+          valuta: item?.price?.currency ?? "eur",
+          krediti: PLANS[kupovina.plan].monthlyCredits,
+          kreditiUrl,
+        }),
+    ),
+  );
+}
+
+type MejlKorisniku = "poslat" | "vec_poslat" | { greska: string };
+
+/**
+ * Mejl korisniku posle obavljenog posla — adresa iz profila, dugme na `/krediti`.
+ * NIKAD ne baca: pad baze pri traženju adrese i pad Resend-a se vraćaju kao
+ * `{ greska }`, a pozivalac ih pretvara u `Ishod.upozorenje` (200 ostaje).
+ *
+ * `kljuc` je brana u `billing_events` za mejl koji može da okine više različitih
+ * događaja; zauzima se tek kad je jasno da ima kome da se piše, a oslobađa na
+ * pad slanja, da sledeći događaj sme da pokuša.
+ */
+async function mejlKorisniku(
+  s: NaplataSkladiste,
+  userId: string,
+  opcije: NaplataOpcije,
+  kljuc: { eventId: string; eventType: string; occurredAt: string | null } | null,
+  posalji: (za: string, kreditiUrl: string) => Promise<MejlIshod>,
+): Promise<MejlKorisniku> {
+  try {
+    const kontakt = await s.kontaktKorisnika(userId);
+    if (!kontakt?.email) return { greska: `profil ${userId} nema adresu` };
+    if (!opcije.appUrl) return { greska: "NEXT_PUBLIC_APP_URL nije prosleđen" };
+
+    if (kljuc && !(await s.upisiDogadjaj(kljuc))) return "vec_poslat";
+
+    const poslato = await posalji(kontakt.email, new URL("/krediti", opcije.appUrl).toString());
+    if (poslato.ok) return "poslat";
+
+    if (kljuc) await s.obrisiDogadjaj(kljuc.eventId);
+    return { greska: poslato.greska };
+  } catch (err) {
+    return { greska: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Ishod posla + ishod mejla. Mejl nikad ne menja `ok`. */
+function uzMejl(ishod: Ishod, sta: string, m: MejlKorisniku): Ishod {
+  if (m === "poslat") return { ...ishod, radnja: `${ishod.radnja}, ${sta} poslat` };
+  if (m === "vec_poslat") return { ...ishod, radnja: `${ishod.radnja}, ${sta} već poslat` };
+  return { ...ishod, upozorenje: `${sta} nije poslat: ${m.greska}` };
 }
 
 /**

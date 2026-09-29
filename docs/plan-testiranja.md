@@ -403,9 +403,12 @@ terminalu sa `stripe listen` — svaki mora da vrati `200`.
   5. `pnpm stripe:sat pomeri <clock> +4d`.
 
   **Očekivano:** dan 0 — `status trialing`, `trial_end ≈ +7d`, knjiga `trial_grant +10` ref
-  `trial:<C>`, balans 10 (+2 dopune), **nema** `monthly_grant`. Posle sata — `invoice.paid`
+  `trial:<C>`, balans 10 (+2 dopune), **nema** `monthly_grant`. Posle prvog pomeranja — red
+  `mejl:proba_istice:<sub_…>` u `billing_events`; mejl kaže Starter, mesečno, datum = `trial_end`,
+  29,00 €, 150 kredita, dugme „Upravljaj pretplatom" → `/krediti`. Posle drugog — `invoice.paid`
   (`subscription_cycle`), `monthly_grant` ref `in_…`, balans **150 (ne 160)**, `status active`,
-  `plan_expires_at ≈ +30d`.
+  `plan_expires_at ≈ +30d`, i mejl „Uplata primljena: 29,00 €" sa linkom na račun. Nalog u probi
+  sa zakazanim otkazom (N3) mejl „Proba se završava" **ne dobija**.
 
 - [ ] **N3 · Proba otkazana pre kraja**
   1. Nalog u probi (pod satom) → `/krediti` → Upravljaj pretplatom → portal → otkaži.

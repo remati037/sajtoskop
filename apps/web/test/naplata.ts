@@ -1312,6 +1312,179 @@ const promenaStarter = dogadjaj(
     resend = "ok";
     check(r2.status === 200 && r2.body.ok === true, "spor: Resend pada → webhook i dalje 200 ok");
   }
+
+  // ── 6. proba se završava (trial_will_end, checklista 2.6) ──
+  const KRAJ_PROBE = T0 + 3 * DAN;
+  const probna = (o: {
+    status?: string;
+    cancelAtEnd?: boolean;
+    cancelAt?: number | null;
+    popust?: boolean;
+    lookupKey?: string;
+    unitAmount?: number;
+  } = {}) => {
+    const p = pretplata({
+      status: o.status ?? "trialing",
+      lookupKey: o.lookupKey ?? PLAN_PRICES.starter.month.lookupKey,
+      periodEnd: KRAJ_PROBE,
+      trialEnd: KRAJ_PROBE,
+      cancelAtEnd: o.cancelAtEnd,
+      cancelAt: o.cancelAt,
+    });
+    const stavka = p.items.data[0]!;
+    return {
+      ...p,
+      discounts: o.popust ? ["di_test"] : [],
+      items: {
+        ...p.items,
+        data: [{ ...stavka, quantity: 1, price: { ...stavka.price, unit_amount: o.unitAmount ?? 2900, currency: "eur" } }],
+      },
+    };
+  };
+
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    s.profil.balance = 4;
+    const r = await posalji(dogadjaj("evt_twe_1", "customer.subscription.trial_will_end", probna()), s.skladiste);
+    const m = poslato[0];
+    const sve = `${m?.subject}\n${m?.text}\n${m?.html}`;
+    check(r.status === 200 && r.body.ok === true, "proba: trial_will_end → 200 ok");
+    check(poslato.length === 1 && m?.to.join() === "korisnik@primer.rs", "proba: jedan mejl, na adresu iz profila");
+    check(m?.subject === `Proba se završava ${datumBg(KRAJ_PROBE)}`, "proba: naslov „Proba se završava <datum>”");
+    check(!!m && /29,00\s€/.test(m.text) && m.text.includes("Starter, mesečno"), "proba: plan i iznos prve naplate sa cene na pretplati");
+    check(!!m && m.text.includes(`${PLANS.starter.monthlyCredits} kredita`), "proba: broj kredita koji tada stiže");
+    check(
+      !!m && m.html.includes('href="http://localhost:3000/krediti"') && m.html.includes("Upravljaj pretplatom"),
+      "proba: dugme „Upravljaj pretplatom” vodi na /krediti",
+    );
+    check(m?.reply_to === "marko@primer.rs" && m?.kljuc === "proba_istice:sub_test_1", "proba: Reply-To na mene, Idempotency-Key po sub_…");
+    check(!/feedback|povratn|trial|beta/i.test(m?.text ?? ""), "proba: terminologija (bez „trial”)");
+    check(!sve.includes("<script") && s.knjiga.length === 0 && s.profil.balance === 4, "proba: krediti netaknuti");
+
+    // Stripe šalje ponovo ako se `trial_end` pomeri — nov `evt_…`, ista pretplata.
+    await posalji(dogadjaj("evt_twe_2", "customer.subscription.trial_will_end", probna()), s.skladiste);
+    check(poslato.length === 1, "proba: drugi događaj iste pretplate → nema drugog mejla");
+  }
+
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    await posalji(dogadjaj("evt_twe_c1", "customer.subscription.trial_will_end", probna({ cancelAtEnd: true })), s.skladiste);
+    await posalji(dogadjaj("evt_twe_c2", "customer.subscription.trial_will_end", probna({ cancelAt: KRAJ_PROBE })), s.skladiste);
+    await posalji(dogadjaj("evt_twe_c3", "customer.subscription.trial_will_end", probna({ status: "active" })), s.skladiste);
+    check(poslato.length === 0, "proba: zakazan otkaz (oba oblika) ili van probe → bez mejla");
+    check(!s.dogadjaji.has("mejl:proba_istice:sub_test_1"), "proba: bez mejla ključ se ne zauzima");
+
+    // Otkaz zakazan tek POSLE kraja probe: prva naplata ipak stiže.
+    await posalji(
+      dogadjaj("evt_twe_c4", "customer.subscription.trial_will_end", probna({ cancelAt: KRAJ_PROBE + 60 * DAN })),
+      s.skladiste,
+    );
+    check(poslato.length === 1, "proba: otkaz posle kraja probe → mejl ide");
+  }
+
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    await posalji(dogadjaj("evt_twe_p", "customer.subscription.trial_will_end", probna({ popust: true })), s.skladiste);
+    const t = poslato[0]?.text ?? "";
+    check(poslato.length === 1 && !/€/.test(t) && t.includes(datumBg(KRAJ_PROBE)), "proba: popust na pretplati → mejl bez iznosa, sa datumom");
+  }
+
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    resend = "500";
+    const r = await posalji(dogadjaj("evt_twe_x1", "customer.subscription.trial_will_end", probna()), s.skladiste);
+    resend = "ok";
+    check(r.status === 200 && r.body.ok === true, "proba: Resend 500 → webhook i dalje 200 ok");
+    check(!s.dogadjaji.has("mejl:proba_istice:sub_test_1"), "proba: ključ oslobođen posle pada slanja");
+    await posalji(dogadjaj("evt_twe_x2", "customer.subscription.trial_will_end", probna()), s.skladiste);
+    check(poslato.length === 1, "proba: sledeći događaj posle pada šalje mejl");
+  }
+
+  // ── 7. uplata primljena (Stripe-ova potvrda nema srpski, checklista 2.6) ──
+  const placena = (o: Parameters<typeof faktura>[0] & { amountPaid: number }) => ({
+    ...faktura(o),
+    amount_paid: o.amountPaid,
+    currency: "eur",
+    hosted_invoice_url: `https://invoice.stripe.com/i/${o.id}`,
+  });
+
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    const r = await posalji(
+      dogadjaj("evt_up_1", "invoice.paid", placena({ id: "in_up", billingReason: "subscription_cycle", amountDue: 5900, amountPaid: 5900 })),
+      s.skladiste,
+    );
+    const m = poslato[0];
+    check(r.status === 200 && r.body.ok === true && s.profil.balance === PLANS.pro.monthlyCredits, "uplata: invoice.paid → dodela i 200 ok");
+    check(poslato.length === 1 && /^Uplata primljena: 59,00\s€$/.test(m?.subject ?? ""), "uplata: jedan mejl, naslov sa iznosom");
+    check(!!m && m.text.includes("Pro") && m.text.includes(`${PLANS.pro.monthlyCredits} kredita`), "uplata: plan i broj kredita");
+    check(!!m && m.html.includes("https://invoice.stripe.com/i/in_up"), "uplata: link na račun (hosted_invoice_url)");
+    check(m?.kljuc === "uplata:in_up" && m?.reply_to === "marko@primer.rs", "uplata: Idempotency-Key po in_…, Reply-To na mene");
+
+    // Ista faktura, nov `evt_…` (gruba brana promašena) → dodela `already_granted`, bez mejla.
+    await posalji(
+      dogadjaj("evt_up_2", "invoice.paid", placena({ id: "in_up", billingReason: "subscription_cycle", amountDue: 5900, amountPaid: 5900 })),
+      s.skladiste,
+    );
+    check(poslato.length === 1, "uplata: ponovljena faktura → nema drugog mejla");
+  }
+
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    await posalji(
+      dogadjaj("evt_up_t", "invoice.paid", placena({ id: "in_up_t", billingReason: "subscription_create", amountDue: 0, amountPaid: 0 })),
+      s.skladiste,
+    );
+    await posalji(
+      dogadjaj(
+        "evt_up_g",
+        "invoice.paid",
+        placena({ id: "in_up_g", billingReason: "subscription_create", amountDue: 0, amountPaid: 0, discount: true }),
+      ),
+      s.skladiste,
+    );
+    check(s.profil.balance === PLANS.pro.monthlyCredits && poslato.length === 0, "uplata: proba (0 €) i gratis mesec → bez mejla, gratis ipak dodeljuje");
+  }
+
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    const paket = CREDIT_PACKS["dopuna-200"];
+    const r = await posalji(
+      dogadjaj("evt_up_pk", "checkout.session.completed", {
+        ...sesija({ mode: "payment", paket: "dopuna-200", paymentIntent: "pi_up" }),
+        amount_total: paket.eur * 100,
+        currency: "eur",
+      }),
+      s.skladiste,
+    );
+    const m = poslato[0];
+    check(r.body.ok === true && s.profil.topup === paket.credits, "uplata: paket legao");
+    check(poslato.length === 1 && /^Uplata primljena: 49,00\s€$/.test(m?.subject ?? ""), "uplata: paket → mejl sa iznosom");
+    check(!!m && m.text.includes(`+${paket.credits}`) && m.text.includes("ne ističu"), "uplata: paket → broj kredita, ne ističu");
+    check(m?.kljuc === "uplata:pi_up" && !m.html.includes("invoice.stripe.com"), "uplata: paket → ključ po pi_…, bez linka na račun");
+  }
+
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    resend = "500";
+    const r = await posalji(
+      dogadjaj("evt_up_x", "invoice.paid", placena({ id: "in_up_x", billingReason: "subscription_cycle", amountDue: 5900, amountPaid: 5900 })),
+      s.skladiste,
+    );
+    resend = "ok";
+    check(
+      r.status === 200 && r.body.ok === true && s.profil.balance === PLANS.pro.monthlyCredits,
+      "uplata: Resend 500 → dodela ostaje, webhook 200 ok",
+    );
+  }
 }
 
 console.log(fail === 0 ? "\nSve prošlo." : `\n${fail} palo.`);
