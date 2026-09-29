@@ -19,6 +19,7 @@
 import "server-only";
 import type {
   IshodPovracaja,
+  KontaktKorisnika,
   NaplataSkladiste,
   NaplataSpora,
   OtisakPretplate,
@@ -282,6 +283,16 @@ export function supabaseSkladiste(): NaplataSkladiste {
         | null;
       if (!red || typeof red.ok !== "boolean") return { ok: false, reason: "prazan odgovor", skinuto: 0 };
       return { ok: red.ok, reason: red.reason ?? "", skinuto: -(red.delta ?? 0) };
+    },
+
+    async kontaktKorisnika(userId): Promise<KontaktKorisnika | null> {
+      const { data, error } = await db
+        .from("profiles")
+        .select("email, plan_expires_at")
+        .eq("id", userId)
+        .maybeSingle<{ email: string | null; plan_expires_at: string | null }>();
+      if (error) throw new Error(`profiles(email): ${error.message}`);
+      return data ? { email: data.email, planExpiresAt: data.plan_expires_at } : null;
     },
   };
 }

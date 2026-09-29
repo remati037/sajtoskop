@@ -7,11 +7,12 @@
 // oba potpisuju ko piše — čovek koji dobije mejl od alata za koji se prijavio
 // mora u prvom redu da vidi ko mu piše i kako da odgovori.
 //
-// Slanje, tajmaut i čišćenje ključa iz greške su u `lib/mail.ts`.
+// Slanje, tajmaut, čišćenje ključa iz greške i zajednički okvir tela (dugme,
+// red tabele) su u `lib/mail.ts`.
 
 import "server-only";
 import { feedbackMailEnv } from "./env";
-import { escapeHtml, posaljiMejl, type MejlIshod } from "./mail";
+import { dugmeHtml, escapeHtml, okvirHtml, posaljiMejl, redHtml, type MejlIshod } from "./mail";
 
 /** Adresa na koju stižu odgovori. Ista ona na koju stižu i utisci. */
 function mojaAdresa(): string | null {
@@ -164,36 +165,4 @@ export async function posaljiPorukuKorisniku(opts: {
     html,
     replyTo: mojaAdresa(),
   });
-}
-
-// ── zajednički delovi tela ───────────────────────────────────
-// Boje su ovde zakucane, i to je jedino mesto u projektu gde smeju: mejl klijent
-// ne vidi `globals.css` ni jedan jedini token. Vrednosti su prepis `--accent`,
-// `--fg` i `--fg-muted` iz dizajn sistema §3.1, u svetloj temi.
-
-function okvirHtml(delovi: string[]): string {
-  return [
-    `<div style="font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0a0b0c;max-width:520px">`,
-    ...delovi,
-    `<p style="margin:24px 0 0;font-size:12px;color:#8b9299">sajtoskop.com</p>`,
-    `</div>`,
-  ].join("");
-}
-
-function dugmeHtml(href: string, tekst: string): string {
-  // `href` je uvek naš link (Clerk pozivnica ili sopstveni origin), nikad
-  // korisnički unos — ali escape ide svejedno, jer se to pravilo ne pamti po
-  // izuzecima.
-  return (
-    `<a href="${escapeHtml(href)}" style="display:inline-block;background:#adee2e;color:#0a0b0c;` +
-    `text-decoration:none;font-weight:600;font-size:14px;padding:10px 18px;border-radius:10px">` +
-    `${escapeHtml(tekst)}</a>`
-  );
-}
-
-function redHtml(labela: string, vrednost: string): string {
-  return (
-    `<tr><td style="padding:3px 16px 3px 0;color:#6c757f;white-space:nowrap">${escapeHtml(labela)}</td>` +
-    `<td style="padding:3px 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${escapeHtml(vrednost)}</td></tr>`
-  );
 }

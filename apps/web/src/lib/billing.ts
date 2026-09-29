@@ -13,12 +13,21 @@
 // U ovom fajlu zato nema nijednog `adminSupabase()` ni `stripe()` poziva i to je
 // namerno: odluka ne sme da zna kako izgleda upit koji je sprovodi.
 //
+// Jedini izlaz van skladišta je pošta (P4, `billing-mejl.ts` → `lib/mail.ts`):
+// `invoice.payment_failed` piše korisniku, `charge.dispute.created` meni. Mejl
+// je obaveštenje, ne novčana radnja — njegov pad (ili pad upita koji ga
+// priprema) NIKAD ne menja ishod događaja: ostaje `ok: true` i 200, a razlog
+// ide u `Ishod.upozorenje`, pa ga ruta šalje u Sentry.
+//
 // ── pravila (naplata-stripe.md §6) ──────────────────────────
 // 1. Idempotencija: gruba brana je `billing_events.event_id` (ruta, pre obrade);
 //    fina brana je `ref_id` u knjizi — `in_…` za mesečnu dodelu, `pi_…` za
 //    paket, `trial:<user>` za probu, `expire:<sub>` za pražnjenje,
 //    `povracaj:<ch_…>` / `spor:<dp_…>` za vraćen novac. Dupla
 //    isporuka ne dodeljuje dvaput ni kad gruba brana zakaže.
+//    Mejl o paloj naplati ima svoju branu: `mejl:naplata_pala:<in_…>` u istoj
+//    tabeli `billing_events` — Stripe šalje `payment_failed` za SVAKI pokušaj
+//    Smart Retries-a (novi `evt_…`, ista faktura), a korisnik dobija jedan mejl.
 // 2. Korisnik se nalazi iz metapodataka koje NOSI SVAKI događaj (naš checkout ih
 //    upisuje, Stripe ih prepisuje na pretplatu, fakture i naplate), pa nijedan
 //    događaj ne zavisi od prethodnog. Nikad po mejlu.
@@ -37,6 +46,7 @@
 import "server-only";
 import type Stripe from "stripe";
 import {
+  citanjeDoZa,
   CREDIT_PACKS,
   kupovinaZaLookupKey,
   PLANS,
@@ -45,6 +55,7 @@ import {
   type PaidPlanId,
   type PaketId,
 } from "@sajtoskop/shared";
+import { posaljiNaplataPala, posaljiSporAdminu } from "./billing-mejl";
 
 // ═══════════════════════════════════════════════════════════
 // TIPOVI
@@ -189,7 +200,16 @@ export interface NaplataSkladiste {
   dodeleZaTransakciju(userId: string, refIds: string[]): Promise<StavkaDodele[]>;
   /** `apply_refund` (0032) — jedini put kojim naplata skida kredite. */
   primeniPovracaj(a: ArgPovracaj): Promise<IshodPovracaja>;
+  /** Adresa i plaćeni rok iz `profiles` — za mejl o paloj naplati. `null` kad profila nema. */
+  kontaktKorisnika(userId: string): Promise<KontaktKorisnika | null>;
 }
+
+export type KontaktKorisnika = {
+  /** `profiles.email` (Clerk). Korisnik se po njemu NE traži — samo mu se piše. */
+  email: string | null;
+  /** `profiles.plan_expires_at` — isti datum koji čita `stanjePristupa`. */
+  planExpiresAt: string | null;
+};
 
 /**
  * Ishod obrade jednog događaja.
@@ -205,12 +225,19 @@ export type Ishod = {
   ok: boolean;
   radnja: string;
   greska?: string;
+  /**
+   * Događaj je obrađen (`ok: true`, 200), ali nešto usput nije prošlo — za sada
+   * samo mejl. Ruta ga loguje i šalje u Sentry; Stripe ga ne vidi.
+   */
+  upozorenje?: string;
 };
 
 /** Podešavanja koja obrada ne sme da čita sama iz env-a (test ih prosleđuje). */
 export type NaplataOpcije = {
   /** ID kupona „prvi mesec gratis" — samo za prepoznavanje gratis fakture. */
   kuponPrvogMeseca?: string | null;
+  /** `NEXT_PUBLIC_APP_URL` — za dugme „Ažuriraj karticu" (`/krediti`) u mejlu. */
+  appUrl?: string | null;
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -226,6 +253,9 @@ const RAZLOZI_DODELE: readonly string[] = [
   "subscription_cycle",
   "subscription_update",
 ];
+
+/** Fakture čiji pad korisnik saznaje mejlom — obnova, ne prvi Checkout. */
+const RAZLOZI_OBAVESTENJA: readonly string[] = ["subscription_cycle", "subscription_update"];
 
 type Meta = Stripe.Metadata | Record<string, string> | null | undefined;
 
@@ -446,23 +476,14 @@ export async function obradiDogadjaj(
     case "invoice.paid":
       return await placenaFaktura(dogadjaj.data.object, s, opcije);
 
-    case "invoice.payment_failed": {
-      // Ništa u kreditima: `subscription.updated` stiže sa `past_due`, a kapija
-      // iz `plan_expires_at` sama spusti nalog u grace (§7.5). Mejl je P4.
-      const inv = dogadjaj.data.object;
-      console.warn(`[stripe-webhook] naplata pala: ${inv.id} (${subIdIzFakture(inv) ?? "bez pretplate"})`);
-      return { ok: true, radnja: `naplata pala:${inv.id}` };
-    }
+    case "invoice.payment_failed":
+      return await palaNaplata(dogadjaj.data.object, dogadjaj.created, s, opcije);
 
     case "charge.refunded":
       return await povracaj(dogadjaj.data.object, s);
 
-    case "charge.dispute.created": {
-      // Samo log (i mejl adminu, P4). Krediti se ne diraju dok Stripe ne odluči.
-      const d = dogadjaj.data.object;
-      console.warn(`[stripe-webhook] SPOR otvoren: ${d.id} nad ${id(d.charge)} (${d.amount} ${d.currency})`);
-      return { ok: true, radnja: `spor otvoren:${d.id}` };
-    }
+    case "charge.dispute.created":
+      return await otvorenSpor(dogadjaj.data.object, dogadjaj.livemode);
 
     case "charge.dispute.closed": {
       const d = dogadjaj.data.object;
@@ -695,6 +716,114 @@ async function placenaFaktura(
 }
 
 /**
+ * `invoice.payment_failed` — ništa u kreditima, jedan mejl korisniku po fakturi.
+ *
+ * Krediti: `subscription.updated` stiže sa `past_due`, a kapija iz
+ * `plan_expires_at` sama spusti nalog u grace (§7.5).
+ *
+ * Mejl samo za fakturu obnove (`subscription_cycle`, `subscription_update` —
+ * dan 8 probe, „Aktiviraj odmah", mesečna obnova). Prva faktura bez probe
+ * (`subscription_create`) pada u Checkout-u, pred korisnikom, pa mejl o
+ * „pristupu koji traje" nema o čemu da govori; ručne fakture nisu naše.
+ *
+ * Idempotencija: Stripe šalje ovaj događaj za SVAKI pokušaj (Smart Retries,
+ * 4× kroz 7 dana) — svaki sa novim `evt_…`, pa gruba brana ne pomaže. Ključ je
+ * `mejl:naplata_pala:<in_…>` u `billing_events`, zauzet PRE slanja. Ako slanje
+ * padne, ključ se oslobađa, pa sledeći pokušaj naplate (novi događaj) pokušava i
+ * mejl. Ako Resend primi poruku a odgovor se izgubi, isti `Idempotency-Key` kod
+ * Resend-a (24 h) sprečava drugi mejl.
+ *
+ * NIŠTA ovde ne obara događaj: ni pad baze pri traženju adrese, ni Resend.
+ */
+async function palaNaplata(
+  inv: Stripe.Invoice,
+  created: number,
+  s: NaplataSkladiste,
+  opcije: NaplataOpcije,
+): Promise<Ishod> {
+  const subId = subIdIzFakture(inv);
+  console.warn(`[stripe-webhook] naplata pala: ${inv.id} (${subId ?? "bez pretplate"})`);
+  const radnja = `naplata pala:${inv.id}`;
+
+  if (!subId || !RAZLOZI_OBAVESTENJA.includes(inv.billing_reason ?? "")) {
+    return { ok: true, radnja: `${radnja}, bez mejla (${inv.billing_reason ?? "?"})` };
+  }
+
+  try {
+    const userId = await nadjiKorisnika(s, {
+      kandidati: [tekst(metaIzFakture(inv), "user_id"), tekst(inv.metadata, "user_id")],
+      subscriptionId: subId,
+      customerId: id(inv.customer),
+    });
+    if (!userId) {
+      return { ok: true, radnja, upozorenje: `mejl nije poslat: faktura ${inv.id} nije vezana ni za jedan profil` };
+    }
+
+    const kontakt = await s.kontaktKorisnika(userId);
+    if (!kontakt?.email) {
+      return { ok: true, radnja, upozorenje: `mejl nije poslat: profil ${userId} nema adresu` };
+    }
+    if (!opcije.appUrl) {
+      return { ok: true, radnja, upozorenje: "mejl nije poslat: NEXT_PUBLIC_APP_URL nije prosleđen" };
+    }
+
+    const kljuc = `mejl:naplata_pala:${inv.id}`;
+    const sada = new Date(created * 1000).toISOString();
+    const zauzet = await s.upisiDogadjaj({ eventId: kljuc, eventType: "mejl.naplata_pala", occurredAt: sada });
+    if (!zauzet) return { ok: true, radnja: `${radnja}, mejl već poslat` };
+
+    const poslato = await posaljiNaplataPala({
+      za: kontakt.email,
+      fakturaId: inv.id,
+      iznos: inv.amount_due,
+      valuta: inv.currency,
+      punDo: kontakt.planExpiresAt,
+      citanjeDo: citanjeDoZa(kontakt.planExpiresAt),
+      sledeciPokusaj: iso(inv.next_payment_attempt),
+      sada,
+      kreditiUrl: new URL("/krediti", opcije.appUrl).toString(),
+    });
+    if (poslato.ok) return { ok: true, radnja: `${radnja}, mejl poslat` };
+
+    // Sledeći pokušaj naplate (novi `evt_…`) sme da pokuša i mejl.
+    await s.obrisiDogadjaj(kljuc);
+    return { ok: true, radnja, upozorenje: `mejl nije poslat: ${poslato.greska}` };
+  } catch (err) {
+    return { ok: true, radnja, upozorenje: `mejl nije poslat: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * `charge.dispute.created` — log i mejl meni. Krediti se ne diraju dok Stripe
+ * ne odluči (`charge.dispute.closed`).
+ *
+ * Dedup je gruba brana (`evt_…`): Stripe šalje `created` jednom po sporu, a
+ * ova grana ne baca, pa nema ni ponavljanja. U mejl ide samo belo-listom
+ * izabrano (`SporZaMejl`) — nijedan podatak o kartici ni o kupcu.
+ */
+async function otvorenSpor(d: Stripe.Dispute, livemode: boolean): Promise<Ishod> {
+  const chargeId = id(d.charge);
+  console.warn(`[stripe-webhook] SPOR otvoren: ${d.id} nad ${chargeId} (${d.amount} ${d.currency})`);
+  const radnja = `spor otvoren:${d.id}`;
+
+  try {
+    const poslato = await posaljiSporAdminu({
+      sporId: d.id,
+      naplataId: chargeId,
+      iznos: d.amount,
+      valuta: d.currency,
+      razlog: d.reason ?? null,
+      rokZaDokaze: iso(d.evidence_details?.due_by),
+      dashboardUrl: `https://dashboard.stripe.com/${livemode ? "" : "test/"}disputes/${encodeURIComponent(d.id)}`,
+    });
+    return poslato.ok
+      ? { ok: true, radnja: `${radnja}, mejl poslat` }
+      : { ok: true, radnja, upozorenje: `mejl o sporu nije poslat: ${poslato.greska}` };
+  } catch (err) {
+    return { ok: true, radnja, upozorenje: `mejl o sporu nije poslat: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 /**
  * `charge.refunded` — jedini put kojim krediti idu NANIŽE iz naplate (uz
  * izgubljen spor).

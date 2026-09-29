@@ -38,9 +38,11 @@ export async function POST(req: Request): Promise<Response> {
 
   let dogadjaj: Stripe.Event;
   let kupon: string | null = null;
+  let appUrl: string | null = null;
   try {
     const env = stripeServerEnv();
     kupon = env.STRIPE_COUPON_FIRST_MONTH;
+    appUrl = env.NEXT_PUBLIC_APP_URL;
     dogadjaj = stripe().webhooks.constructEvent(sirovoTelo, potpis, env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     // 401, ne 400: ovo nije loše sastavljen zahtev nego zahtev koji nije dokazao
@@ -82,7 +84,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   try {
-    const ishod = await obradiDogadjaj(dogadjaj, skladiste, { kuponPrvogMeseca: kupon });
+    const ishod = await obradiDogadjaj(dogadjaj, skladiste, { kuponPrvogMeseca: kupon, appUrl });
     if (!ishod.ok) {
       // TRAJAN neuspeh: događaj ostaje upisan, odgovor je 200. Ponavljanje ne bi
       // promenilo ishod, a Stripe bi ga vrteo tri dana.
@@ -93,6 +95,14 @@ export async function POST(req: Request): Promise<Response> {
       return Response.json({ ok: false, radnja: ishod.radnja });
     }
     console.log(`[stripe-webhook] ${dogadjaj.type} ${dogadjaj.id} → ${ishod.radnja}`);
+    if (ishod.upozorenje) {
+      // Obrađeno, ali mejl nije otišao (P4). 200 ostaje — Stripe ne sme da
+      // ponavlja događaj zbog pošte — ali bez Sentry-ja bi se to videlo samo u logu.
+      console.error(`[stripe-webhook] ${dogadjaj.type} ${dogadjaj.id}: ${ishod.upozorenje}`);
+      prijaviPoruku(`Stripe ${dogadjaj.type}: ${ishod.upozorenje}`, "api/billing/webhook", {
+        dodatno: { dogadjaj: dogadjaj.id, tip: dogadjaj.type, radnja: ishod.radnja },
+      });
+    }
     return Response.json({ ok: true, radnja: ishod.radnja });
   } catch (err) {
     // PROLAZAN neuspeh: skladište je bacilo. Marker se povlači da bi sledeći

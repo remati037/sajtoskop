@@ -20,7 +20,8 @@
 // 10 (paket), 12 (prvi mesec gratis). Plus: pogrešan potpis, nema korisnika,
 // `komp` iz webhooka, redosled događaja, plan sa fakture (downgrade kroz
 // schedule, proracija, faktura van kataloga), prolazna greška, povraćaj skida
-// tačno ono što je transakcija upisala u knjigu, jednim redom (0032), izgubljen spor.
+// tačno ono što je transakcija upisala u knjigu, jednim redom (0032), izgubljen spor,
+// mejl korisniku na palu naplatu i meni na otvoren spor (P4).
 
 import { registerHooks } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -1151,6 +1152,166 @@ const promenaStarter = dogadjaj(
   check(pao.status === 500 && !s.dogadjaji.has("evt_retry"), "prolazna greška → 500, marker povučen");
   const ponovljen = await posalji(telo, nestabilno);
   check(ponovljen.status === 200 && ponovljen.body.ok === true && s.profil.balance === PLANS.pro.monthlyCredits, "retry prolazi i tek tada dodeljuje");
+}
+
+// ═══════════════════════════════════════════════════════════
+// MEJLOVI (P4): pala naplata → korisniku, otvoren spor → meni
+// ═══════════════════════════════════════════════════════════
+// Slanje ide pravim `lib/mail.ts`; mreža je lažna — `fetch` ka Resend-u se
+// hvata ovde, a svaki drugi URL obara test (webhook ne sme da zove ništa drugo).
+
+{
+  const RESEND_KLJUC = "re_test_00000000000000000000"; // gitleaks:allow
+  process.env.RESEND_API_KEY = RESEND_KLJUC;
+  process.env.FEEDBACK_EMAIL_TO = "marko@primer.rs";
+  process.env.FEEDBACK_EMAIL_FROM = "Sajtoskop <feedback@primer.rs>";
+
+  type Poslat = { to: string[]; subject: string; text: string; html: string; reply_to?: string; kljuc: string | null };
+  const poslato: Poslat[] = [];
+  let resend: "ok" | "500" | "mreza" = "ok";
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const adresa = String(url);
+    if (adresa !== "https://api.resend.com/emails") throw new Error(`neočekivan fetch: ${adresa}`);
+    if (resend === "mreza") throw new Error("ECONNRESET");
+    if (resend === "500") return new Response(`interna greška ${RESEND_KLJUC}`, { status: 500 });
+    const zaglavlja = new Headers(init?.headers);
+    poslato.push({ ...(JSON.parse(String(init?.body)) as Omit<Poslat, "kljuc">), kljuc: zaglavlja.get("idempotency-key") });
+    return Response.json({ id: "resend_1" });
+  }) as typeof fetch;
+
+  const datumBg = (sek: number) =>
+    new Date(sek * 1000).toLocaleDateString("sr-Latn-RS", { timeZone: "Europe/Belgrade", day: "numeric", month: "long", year: "numeric" });
+
+  const palaFaktura = (o: { id: string; reason?: string; sledeci?: number | null }) => ({
+    ...faktura({ id: o.id, billingReason: o.reason ?? "subscription_cycle", amountDue: 5900 }),
+    currency: "eur",
+    attempt_count: 1,
+    next_payment_attempt: o.sledeci === undefined ? T0 + 3 * DAN : o.sledeci,
+  });
+
+  // ── 1. obnova pala, pun pristup još traje ──
+  {
+    const s = napraviLazno();
+    s.profil.planExpiresAt = new Date((T0 + 5 * DAN) * 1000).toISOString();
+    s.profil.balance = 42;
+    const r = await posalji(dogadjaj("evt_pf_1", "invoice.payment_failed", palaFaktura({ id: "in_pf" })), s.skladiste);
+    const m = poslato[0];
+    check(r.status === 200 && r.body.ok === true, "mejl: payment_failed → 200 ok");
+    check(poslato.length === 1 && m?.to.join() === "korisnik@primer.rs", "mejl: jedan mejl, na adresu iz profila");
+    check(m?.subject === "Naplata za Sajtoskop nije prošla", "mejl: subject na srpskom");
+    check(m?.reply_to === "marko@primer.rs", "mejl: Reply-To na mene");
+    check(m?.kljuc === "naplata_pala:in_pf", "mejl: Resend Idempotency-Key po in_…");
+    check(
+      !!m && m.html.includes('href="http://localhost:3000/krediti"') && m.html.includes("Ažuriraj karticu") && m.text.includes("http://localhost:3000/krediti"),
+      "mejl: dugme „Ažuriraj karticu” vodi na apsolutni /krediti",
+    );
+    check(!!m && m.text.includes(`Pristup ti traje do ${datumBg(T0 + 5 * DAN)}.`), "mejl: pristup traje do plan_expires_at");
+    check(!!m && m.text.includes(datumBg(T0 + 35 * DAN)), "mejl: i do kad sme da čita (plan_expires_at + grace)");
+    check(!!m && m.text.includes(`Sledeći pokušaj naplate je ${datumBg(T0 + 3 * DAN)}`), "mejl: datum sledećeg pokušaja");
+    check(!!m && /59,00\s€/.test(m.text), "mejl: iznos 59,00 €");
+    check(!/feedback|povratn|trial|beta/i.test(m?.text ?? ""), "mejl: terminologija (bez „feedback”, „trial”, „beta”)");
+    check(s.knjiga.length === 0 && s.profil.balance === 42, "mejl: krediti netaknuti");
+
+    // Smart Retries: isti `in_…`, nov `evt_…` → bez drugog mejla.
+    const r2 = await posalji(
+      dogadjaj("evt_pf_2", "invoice.payment_failed", { ...palaFaktura({ id: "in_pf" }), attempt_count: 2 }, T0 + 3 * DAN),
+      s.skladiste,
+    );
+    check(r2.body.ok === true && poslato.length === 1, "mejl: drugi pokušaj iste fakture → nema drugog mejla");
+
+    // Nova faktura (sledeći mesec) → nov mejl.
+    await posalji(dogadjaj("evt_pf_3", "invoice.payment_failed", palaFaktura({ id: "in_pf_b" })), s.skladiste);
+    check(poslato.length === 2, "mejl: druga faktura → drugi mejl");
+  }
+
+  // ── 2. pun pristup je već prošao (dan 8 probe, §7.5) ──
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    s.profil.planExpiresAt = new Date(T0 * 1000).toISOString();
+    await posalji(
+      dogadjaj("evt_pf_d8", "invoice.payment_failed", palaFaktura({ id: "in_d8", sledeci: null }), T0 + 60),
+      s.skladiste,
+    );
+    const t = poslato[0]?.text ?? "";
+    check(
+      t.includes(`Pristup ti traje do ${datumBg(T0 + 30 * DAN)}, ali samo za ono što već imaš`) && t.includes("Skeniranje i otključavanje stoje"),
+      "mejl: rok prošao → pristup do kraja grace-a, samo čitanje",
+    );
+    check(!t.includes("Sledeći pokušaj"), "mejl: bez sledećeg pokušaja kad ga Stripe nema");
+  }
+
+  // ── 3. Resend pada → 200, ključ oslobođen, sledeći pokušaj šalje ──
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    resend = "500";
+    const r = await posalji(dogadjaj("evt_pf_x1", "invoice.payment_failed", palaFaktura({ id: "in_x" })), s.skladiste);
+    check(r.status === 200 && r.body.ok === true, "mejl: Resend 500 → webhook i dalje 200 ok");
+    check(!s.dogadjaji.has("mejl:naplata_pala:in_x") && s.dogadjaji.has("evt_pf_x1"), "mejl: ključ mejla oslobođen, događaj ostaje upisan");
+    resend = "mreza";
+    const r2 = await posalji(dogadjaj("evt_pf_x2", "invoice.payment_failed", palaFaktura({ id: "in_x" })), s.skladiste);
+    check(r2.status === 200 && r2.body.ok === true, "mejl: pad mreže → 200 ok");
+    resend = "ok";
+    await posalji(dogadjaj("evt_pf_x3", "invoice.payment_failed", palaFaktura({ id: "in_x" })), s.skladiste);
+    check(poslato.length === 1, "mejl: posle pada sledeći pokušaj naplate šalje tačno jedan mejl");
+  }
+
+  // ── 4. kad se NE šalje ──
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    await posalji(dogadjaj("evt_pf_c", "invoice.payment_failed", palaFaktura({ id: "in_c", reason: "subscription_create" })), s.skladiste);
+    check(poslato.length === 0, "mejl: prva faktura (Checkout) → bez mejla");
+
+    s.profil.email = null;
+    const r = await posalji(dogadjaj("evt_pf_e", "invoice.payment_failed", palaFaktura({ id: "in_e" })), s.skladiste);
+    check(r.status === 200 && r.body.ok === true && poslato.length === 0, "mejl: profil bez adrese → 200, bez mejla");
+    check(!s.dogadjaji.has("mejl:naplata_pala:in_e"), "mejl: bez adrese ključ se ne zauzima");
+
+    const pukla: NaplataSkladiste = {
+      ...napraviLazno().skladiste,
+      async kontaktKorisnika() {
+        throw new Error("baza ne odgovara");
+      },
+    };
+    const r2 = await posalji(dogadjaj("evt_pf_db", "invoice.payment_failed", palaFaktura({ id: "in_db" })), pukla);
+    check(r2.status === 200 && r2.body.ok === true, "mejl: pad baze pri čitanju adrese → 200, ne 500");
+  }
+
+  // ── 5. spor → mejl meni, bez podataka o kartici ──
+  {
+    poslato.length = 0;
+    const s = napraviLazno();
+    s.profil.balance = 42;
+    const spor = {
+      id: "dp_test_1",
+      object: "dispute",
+      amount: 5900,
+      currency: "eur",
+      charge: "ch_test_1",
+      payment_intent: "pi_test_1",
+      reason: "fraudulent",
+      status: "needs_response",
+      evidence: { customer_email_address: "kupac@primer.rs", billing_address: "Knez Mihailova 1" },
+      evidence_details: { due_by: T0 + 7 * DAN },
+      payment_method_details: { type: "card", card: { brand: "visa", last4: "4242", network_reason_code: "10.4" } },
+    };
+    const r = await posalji(dogadjaj("evt_dp_1", "charge.dispute.created", spor), s.skladiste);
+    const m = poslato[0];
+    const sve = `${m?.subject}\n${m?.text}\n${m?.html}`;
+    check(r.status === 200 && r.body.ok === true, "spor: dispute.created → 200 ok");
+    check(poslato.length === 1 && m?.to.join() === "marko@primer.rs", "spor: jedan mejl, na FEEDBACK_EMAIL_TO");
+    check(/59,00\s€/.test(m?.subject ?? "") && sve.includes("dp_test_1"), "spor: iznos i dp_… u mejlu");
+    check(sve.includes("https://dashboard.stripe.com/test/disputes/dp_test_1"), "spor: link na Stripe Dashboard (test mod)");
+    check(!/4242|visa|kupac@primer|Knez Mihailova|10\.4/i.test(sve), "spor: nijedan podatak o kartici ni kupcu");
+    check(s.knjiga.length === 0 && s.profil.balance === 42, "spor: krediti netaknuti");
+
+    resend = "500";
+    const r2 = await posalji(dogadjaj("evt_dp_2", "charge.dispute.created", { ...spor, id: "dp_test_2" }), s.skladiste);
+    resend = "ok";
+    check(r2.status === 200 && r2.body.ok === true, "spor: Resend pada → webhook i dalje 200 ok");
+  }
 }
 
 console.log(fail === 0 ? "\nSve prošlo." : `\n${fail} palo.`);

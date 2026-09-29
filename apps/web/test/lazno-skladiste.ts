@@ -79,6 +79,8 @@ export type Lazno = {
     planExpiresAt: string | null;
     customerId: string | null;
     inviteId: string | null;
+    /** `profiles.email` — kome ide mejl o paloj naplati. */
+    email: string | null;
   };
   dogadjaji: Set<string>;
   pretplate: Map<string, Pretplata>;
@@ -113,6 +115,7 @@ export function napraviLazno(): Lazno {
     planExpiresAt: null as string | null,
     customerId: "cus_test_1" as string | null,
     inviteId: null as string | null,
+    email: "korisnik@primer.rs" as string | null,
   };
   const pretplate = new Map<string, Pretplata>();
   const otisci = new Map<string, OtisakPretplate>();
@@ -288,6 +291,9 @@ export function napraviLazno(): Lazno {
       profil.topup -= izDopune;
       profil.balance -= izBalansa;
       return { ok: true, reason: ukupno === a.iznos ? "applied" : "odseceno", skinuto: ukupno };
+    },
+    async kontaktKorisnika(userId) {
+      return userId === KORISNIK ? { email: profil.email, planExpiresAt: profil.planExpiresAt } : null;
     },
   };
 
