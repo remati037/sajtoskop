@@ -522,9 +522,13 @@ Svaka stavka je jedna sesija. Prompt se kopira u prazan prozor Claude Code-a u o
   naplatu osmog dana bez ikakvog upozorenja, a kupac nema potvrdu uplate ni račun u inboksu. To
   su najčešći razlozi za sporove. Plan svih mejlova: `docs/roadmap.md` §5 (mejlovi 5.2 i 6.2).
   1. Stripe (test mod) → **Settings → Business → Customer emails** (ili **Settings → Emails**) →
-     uključi **Successful payments** i **Refunds**. Ostale mejlove kupcima ostavi isključene.
-  2. Isti ekran → **Preview** jednog mejla → proveri jezik. Ako srpski nije ponuđen, zapiši to
-     ovde — onda potvrdu uplate šaljemo mi (dopuna prompta ispod).
+     **Successful payments isključeno** (potvrdu šaljemo mi, v. korak 2), **Refunds uključeno**
+     (naš mejl o povraćaju, roadmap §5.6 mejl 6.7, još ne postoji). Ostale mejlove kupcima ostavi
+     isključene.
+  2. Isti ekran → **Preview** jednog mejla → proveri jezik. **Zapisano 29. 9. 2026: srpski nije
+     ponuđen** (preview se nije ni otvorio, a na spisku jezika srpskog nema). Zato potvrdu uplate
+     šaljemo mi: „Uplata primljena" na `invoice.paid` i na kupljen paket (isporučeno uz ovu
+     stavku). Refund potvrda ostaje Stripe-ova, na engleskom, dok ne stigne mejl 6.7.
   3. **Developers → Webhooks** → test endpoint → **Add events** →
      `customer.subscription.trial_will_end` (Stripe ga šalje 3 dana pre kraja probe, nezavisno od
      podešavanja mejlova). Lokalni `stripe listen` prosleđuje sve događaje i ne traži izmenu.
@@ -760,8 +764,8 @@ gotovi, 5.1 gotov. Test mod ostaje netaknut — lokalni razvoj i dalje radi nad 
   4. **Radar → Rules:** blokiraj kad je otisak kartice korišćen na više od 2 kupca u 24 h.
   5. **Settings → Personal → Communication preferences:** uključi obaveštenja za sporove i za
      neuspele webhook isporuke.
-  6. **Customer emails:** uključi **Successful payments** i **Refunds** (ili ih ostavi
-     isključene ako je u 2.6 isporučen naš mejl „Uplata primljena").
+  6. **Customer emails:** **Successful payments isključeno** (naš mejl „Uplata primljena" je
+     isporučen u 2.6), **Refunds uključeno**.
 
   **Gotovo kad:** svih pet ekrana je podešeno kao u test modu.
 
