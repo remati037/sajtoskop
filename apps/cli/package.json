@@ -19,7 +19,7 @@
     "@supabase/supabase-js": "^2.112.3",
     "cli-table3": "^0.6.5",
     "commander": "^13.0.0",
-    "dotenv": "^16.4.7",
+    "dotenv": "^17.4.2",
     "p-limit": "^6.2.0",
     "zod": "^4.0.0"
   }
