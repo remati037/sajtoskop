@@ -23,7 +23,8 @@
 import type Stripe from "stripe";
 import { obradiDogadjaj } from "@/lib/billing";
 import { supabaseSkladiste } from "@/lib/billing-skladiste";
-import { stripeServerEnv } from "@/lib/env";
+import { KonfigGreska, stripeServerEnv } from "@/lib/env";
+import { prijaviGresku, prijaviPoruku } from "@/lib/sentry";
 import { stripe } from "@/lib/stripe-server";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,9 @@ export async function POST(req: Request): Promise<Response> {
       "[stripe-webhook] potpis nije prošao:",
       err instanceof Error ? err.message : String(err),
     );
+    // Pogrešan potpis je tuđ zahtev, ne naš kvar — u Sentry ide samo kad fali
+    // podešavanje (`STRIPE_WEBHOOK_SECRET`), jer tada pada SVAKA isporuka.
+    if (err instanceof KonfigGreska) prijaviGresku(err, "api/billing/webhook");
     return new Response("Neispravan potpis.", { status: 401 });
   }
 
@@ -67,6 +71,9 @@ export async function POST(req: Request): Promise<Response> {
     // Bez knjige nema bezbedne deduplikacije. Padni zatvoreno: 500, pa Stripe
     // pokušava ponovo. Dupla isporuka je manja šteta od tiho izgubljene dodele.
     console.error("[stripe-webhook] billing_events nije dostupan:", err);
+    prijaviGresku(err, "api/billing/webhook", {
+      dodatno: { dogadjaj: dogadjaj.id, tip: dogadjaj.type, faza: "billing_events" },
+    });
     return new Response("Deduplikacija nije dostupna.", { status: 500 });
   }
   if (!upisan) {
@@ -80,6 +87,9 @@ export async function POST(req: Request): Promise<Response> {
       // TRAJAN neuspeh: događaj ostaje upisan, odgovor je 200. Ponavljanje ne bi
       // promenilo ishod, a Stripe bi ga vrteo tri dana.
       console.error(`[stripe-webhook] ${dogadjaj.type} ${dogadjaj.id} → ${ishod.radnja}: ${ishod.greska}`);
+      prijaviPoruku(`Stripe ${dogadjaj.type} trajno odbijen: ${ishod.radnja}`, "api/billing/webhook", {
+        dodatno: { dogadjaj: dogadjaj.id, tip: dogadjaj.type, radnja: ishod.radnja, greska: ishod.greska },
+      });
       return Response.json({ ok: false, radnja: ishod.radnja });
     }
     console.log(`[stripe-webhook] ${dogadjaj.type} ${dogadjaj.id} → ${ishod.radnja}`);
@@ -88,6 +98,9 @@ export async function POST(req: Request): Promise<Response> {
     // PROLAZAN neuspeh: skladište je bacilo. Marker se povlači da bi sledeći
     // pokušaj uopšte stigao do obrade, pa 500 — Stripe ponavlja.
     console.error("[stripe-webhook] obrada nije uspela:", err);
+    prijaviGresku(err, "api/billing/webhook", {
+      dodatno: { dogadjaj: dogadjaj.id, tip: dogadjaj.type, faza: "obrada" },
+    });
     await skladiste.obrisiDogadjaj(dogadjaj.id);
     return new Response("Obrada nije uspela.", { status: 500 });
   }

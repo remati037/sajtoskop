@@ -20,6 +20,7 @@ import { requireUserId } from "@/lib/auth";
 import { citajPristup, odbijenica } from "@/lib/pristup";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError, UnlockResponse } from "@/lib/search-types";
+import { prijaviGresku } from "@/lib/sentry";
 import { unlockLead, vecOtkljucan } from "@/lib/unlock";
 import { unlockBodySchema } from "@/lib/unlock-schema";
 
@@ -121,6 +122,10 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json(body, { headers: HEADERS });
   } catch (err) {
     console.error("[api/unlock]", err);
+    prijaviGresku(err, "api/unlock", {
+      korisnik: userId,
+      dodatno: { place: parsed.data.placeId, ponovi: parsed.data.ponovi === true },
+    });
     return greska("Otključavanje trenutno ne radi. Pokušaj ponovo za koji minut.", 500);
   }
 }

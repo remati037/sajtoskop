@@ -49,6 +49,7 @@ import { searchCachedLeads } from "@/lib/search";
 import { cenaIzKesa, COUNTRY, pokrivaKes, stanjeKesa } from "@/lib/search-cache";
 import { searchBodySchema } from "@/lib/search-schema";
 import { PAGE_SIZE, type ScanKind, type SearchResponse } from "@/lib/search-types";
+import { prijaviGresku } from "@/lib/sentry";
 import { formatDatum } from "@/lib/ui-tekst";
 
 export const dynamic = "force-dynamic";
@@ -357,6 +358,10 @@ export async function POST(req: Request): Promise<Response> {
         // Naplata je prošla, pristup postoji — čitanje sme da padne samo na
         // prazan odgovor, nikad na 500 koji bi izgledao kao neuspela naplata.
         console.error("[api/search] keš-čitanje posle naplate pristupa:", err);
+        prijaviGresku(err, "api/search", {
+          korisnik: userId,
+          dodatno: { faza: "kes-posle-pristupa" },
+        });
         result = prazno(page);
       }
 
@@ -399,6 +404,10 @@ export async function POST(req: Request): Promise<Response> {
         : prazno(page);
     } catch (err) {
       console.error("[api/search] keš-čitanje posle naplate:", err);
+      prijaviGresku(err, "api/search", {
+        korisnik: userId,
+        dodatno: { faza: "kes-posle-naplate", posao: jobId },
+      });
       result = prazno(page);
     }
 
@@ -414,6 +423,7 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json(await saOnboardingom(body, kontekst, true), { headers: HEADERS });
   } catch (err) {
     console.error("[api/search]", err);
+    prijaviGresku(err, "api/search", { korisnik: userId });
     return greska("Pretraga trenutno ne radi. Pokušaj ponovo za koji minut.", 500);
   }
 }

@@ -70,6 +70,21 @@ else
   else
     echo "OK: nema Claude prompta u klijentskom bundle-u."
   fi
+
+  # ── 4. Sentry SDK u bundle-u (checklista 2.1) ────────────
+  # Sentry je SAMO serverski (`src/instrumentation.ts`). Klijentski SDK je
+  # namerno odbijen (F11 §13, `lib/dnevnik-gresaka.ts`), a jedan import
+  # `@sentry/nextjs` iz "use client" fajla bi ga tiho vratio. Traže se ime SDK-a
+  # (`sentry.javascript.*`) i globalni `__SENTRY__` — string literali koje svaki
+  # Sentry build nosi i posle minifikacije — ne gola reč „sentry": nju ima i
+  # filter mejlova u `packages/shared/src/emails.ts`.
+  if grep -rlE "sentry\\.javascript|__SENTRY__" "$STATIC" 2>/dev/null | grep -q .; then
+    echo "PROBLEM: Sentry SDK pronađen u klijentskom bundle-u:"
+    grep -rlE "sentry\\.javascript|__SENTRY__" "$STATIC" 2>/dev/null
+    fail=1
+  else
+    echo "OK: nema Sentry SDK-a u klijentskom bundle-u."
+  fi
 fi
 
 exit "$fail"
