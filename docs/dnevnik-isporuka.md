@@ -609,3 +609,15 @@ Otpala: landing je napravljen van repoa.
 - **Neprovereno u Stripe-u:** §7.1 i §7.5 pretpostavljaju da Stripe na neuspeloj obnovi drži `current_period_end` na starom datumu. Po Stripe dokumentaciji period se pomera na obnovi bez obzira na naplatu. Ako je tako, `past_due` nalog zadržava pun pristup ceo novi period, a posle `deleted` postaje `otkazan` do tog datuma, a mejl to verno prenosi. Proverava se u N4 (plan testiranja); popravka, ako treba, je posebna isporuka.
 - Mejl o sporu nema dodatni ključ: `created` stiže jednom po sporu, grana ne baca, pa je gruba brana (`evt_…`) dovoljna. Resend ipak dobija `Idempotency-Key: spor:<dp_…>`.
 - Stavka 2.2 u checklisti ostaje otvorena dok N4 i `stripe trigger charge.dispute.created` ne pošalju mejl uživo.
+
+### Tekst o kešu, test za `svix-id`, ostaci bete
+**Isporučeno:** 29. septembar 2026 · bez migracije · izvor: sitne izmene posle D10 i dfb52a7
+
+- Prečica „Pretraga prospekata" na kontrolnoj tabli više ne kaže da je keš besplatan: „pristup listi plaćaš jednom, 1–3 kredita po dubini, i važi 30 dana" (§14.3).
+- Isto obećanje je stajalo još na dva mesta i ispravljeno je: kartica kredita u bočnoj traci (`okvir-aplikacije.tsx`, obe varijante) i **uslovi korišćenja, §4** („Pretraga po onome što je već skenirano ne troši kredite"). Uslovi sada kažu da se pristup listi plaća i kad je lista već skenirana, važi 30 dana, a za to vreme otvaranje i filtriranje ne troše kredite. U admin konzoli je iz naslova kolone „Pretrage" izbačeno „besplatnih iz keša". Dva zastarela komentara (`ui-tekst.ts`, `admin/korisnici/[id]`) usklađena.
+- `test/clerk-webhook.ts`, sekcija 4: prava ruta i pravi `verifyWebhook` nad zahtevom sa Svix potpisom; lažni su samo `@/lib/supabase`, `profile`, `admin` i `sentry`. Test proverava sledeće: telo bez `id` → 200 i marker `webhook_events` sa `svix-id`; telo sa svojim `id` se ignoriše; izmenjen `svix-id` obara potpis (400, bez markera); statički, `eventId` ima jedan izvor i proverava se tek posle potpisa. Kad se vrati stara greška (ID iz tela), test pada u pet provera.
+
+**Odstupanja koja i danas važe:**
+- Grep `beta|paddle` u `apps/web/src` ne nalazi „Paddle" nigde. „Beta" ostaje namerno na tri mesta: **Beta dnevnik** je termin iz tabele terminologije; `user.beta_open` / `user.beta_expiry` su ključevi radnji u `admin_audit` i vide se sirovi u reviziji, ali preimenovanje bi razdvojilo istoriju (komentar u `lib/admin.ts`); `plan === "beta"` u `admin-radnje.ts` je odbrana od stare vrednosti. Sve ostalo su komentari.
+- **Nije popravljeno, samo nađeno:** `webhook_events` insert u Clerk ruti nema `on conflict do nothing` (ni upsert sa `ignoreDuplicates`), pa Svix retry već obrađenog događaja dobija grešku 23505 → 500 „Deduplikacija nije dostupna" i Sentry prijavu umesto `duplicate: true`. Grana `if (!marker)` se zato nikad ne izvršava. Profili su i dalje idempotentni po `ref_id`, pa ne nastaje šteta u podacima, ali Svix ponavlja do odustajanja. Popravka je posebna isporuka.
+- `CLAUDE.md` u tabeli terminologije i dalje kaže „pretraga po kešu je besplatna". Nije menjan jer je van ove isporuke.

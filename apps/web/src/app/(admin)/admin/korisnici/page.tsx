@@ -158,7 +158,7 @@ export default async function Page({
                     </th>
                     <th
                       className="py-2.5 text-right font-medium"
-                      title="Pretraga — i besplatnih iz keša i plaćenih skeniranja"
+                      title="Pretraga — i iz keša i skeniranjem"
                     >
                       Pretrage
                     </th>

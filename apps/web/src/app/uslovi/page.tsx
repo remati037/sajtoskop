@@ -92,8 +92,10 @@ export default function Page() {
         <p>
           Korišćenje se plaća u kreditima. <strong>Jedan kredit</strong> je jedan otključan
           prospekt ili jedna stranica skeniranja (do <span className="num">20</span> rezultata).
-          Pretraga po onome što je već skenirano ne troši kredite. Aktuelne cene planova i
-          paketa stoje na <TekstLink href="/cenovnik">cenovniku</TekstLink>.
+          Pristup listi (grad i niša) plaća se jednom, i kad je lista već skenirana, a važi{" "}
+          <span className="num">30</span> dana — za to vreme njeno otvaranje i filtriranje ne
+          troše kredite. Aktuelne cene planova i paketa stoje na{" "}
+          <TekstLink href="/cenovnik">cenovniku</TekstLink>.
         </p>
         <p>
           <strong>Prodavac je {prodavac}, SAD.</strong> Naplatu obrađuje Stripe: on vodi
