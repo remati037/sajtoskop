@@ -20,6 +20,7 @@
     "build": "pnpm --filter @sajtoskop/web build",
     "test": "pnpm -r test",
     "worker": "pnpm --filter @sajtoskop/worker start",
+    "sentry:proba": "pnpm --filter @sajtoskop/worker sentry:proba",
     "stripe:seed": "tsx scripts/stripe-seed.ts",
     "stripe:sat": "tsx scripts/stripe-sat.ts",
     "docs:pdf": "tsx scripts/docs-pdf.ts",

@@ -507,7 +507,7 @@ Stanje na 16. septembar 2026. Otvorene stavke imaju broj stavke iz
 - [ ] `pg_dump` cron backup, 7 dana, off-site, jednom vraćen — skripta postoji, cron i vraćanje **1.4**
 - [x] Dependabot + `pnpm audit` u CI
 - [ ] Kanarinci u bazi — **2.5**
-- [ ] Sentry sa brisanjem ličnih podataka — **2.1**
+- [ ] Sentry sa brisanjem ličnih podataka — kod isporučen (samo server, `ocistiSentryDogadjaj`); DSN i probna greška — **2.1**
 - [ ] Detekcija deljenja naloga → ponuda većeg plana
 
 **Zaštita brenda**

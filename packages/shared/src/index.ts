@@ -262,3 +262,6 @@ export { cirToLat, foldForSearch, slugify } from "./translit";
 
 // ── csv (samo (de)serijalizacija, upis radi pozivalac) ─────
 export { CSV_BOM, fromCsv, toCsv } from "./csv";
+
+// ── Sentry: brisanje ličnih podataka pre slanja (checklista 2.1) ─
+export { ocistiSentryDogadjaj, ocistiTekst, sentryPrikupljanje } from "./sentry-scrub";

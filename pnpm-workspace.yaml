@@ -9,6 +9,10 @@ allowBuilds:
   sharp: true
   # eslint koristi unrs-resolver (native); build je bezbedan.
   unrs-resolver: true
+  # Tranzitivno uz @sentry/nextjs. Postinstall skida binarni alat za upload
+  # sourcemap-a, koji ide samo uz `withSentryConfig` — a njega namerno nema
+  # (Sentry je samo serverski, v. apps/web/src/lib/sentry-opcije.ts).
+  '@sentry/cli': false
 
 minimumReleaseAgeExclude:
   - '@clerk/backend@3.15.1'

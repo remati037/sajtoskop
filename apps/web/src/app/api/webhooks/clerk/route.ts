@@ -23,7 +23,8 @@ import { NextRequest } from "next/server";
 import { RADNJE, upisiAudit } from "@/lib/admin";
 import { otkaziPretplateNaloga } from "@/lib/otkazivanje";
 import { createProfileFromWebhook, obrisiProfil, stripeKupacZaNalog } from "@/lib/profile";
-import { webhookSecret } from "@/lib/env";
+import { KonfigGreska, webhookSecret } from "@/lib/env";
+import { prijaviGresku } from "@/lib/sentry";
 import { adminSupabase } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -70,6 +71,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     event = await verifyWebhook(req, { signingSecret: webhookSecret() });
   } catch (err) {
     console.error("[clerk-webhook] potpis nije prošao:", err);
+    // Kao kod Stripe-a: pogrešan potpis nije naš kvar, nedostajuća tajna jeste.
+    if (err instanceof KonfigGreska) prijaviGresku(err, "api/webhooks/clerk");
     return new Response("Neispravan potpis.", { status: 400 });
   }
 
@@ -90,6 +93,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     // ponavlja dok migracija 0018 ne stigne, a dupla isporuka je manja šteta
     // od tiho izgubljenog događaja (krediti su ionako idempotentni po ref_id).
     console.error("[clerk-webhook] webhook_events nije dostupan:", greskaMarkera.message);
+    prijaviGresku(new Error(`webhook_events: ${greskaMarkera.message}`), "api/webhooks/clerk", {
+      dodatno: { dogadjaj: eventId, tip: event.type, faza: "webhook_events" },
+    });
     return new Response("Deduplikacija nije dostupna.", { status: 500 });
   }
 
@@ -161,6 +167,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       // odluka za Svix: ponovi. Profil je u prvom slučaju NETAKNUT — i to je
       // tačno ono što se hoće (v. `lib/otkazivanje.ts`).
       console.error("[clerk-webhook] kaskada nije uspela:", err);
+      prijaviGresku(err, "api/webhooks/clerk", {
+        korisnik: obrisanId,
+        dodatno: { dogadjaj: eventId, tip: event.type, faza: "kaskada" },
+      });
       await obrisiMarker(eventId);
 
       await upisiAudit({
@@ -197,6 +207,11 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ ok: true, reason: result.reason });
   } catch (err) {
     console.error("[clerk-webhook] upis u bazu nije uspeo:", err);
+    // Samo ID-jevi — `event.data` nosi mejl i ime korisnika.
+    prijaviGresku(err, "api/webhooks/clerk", {
+      korisnik: userId,
+      dodatno: { dogadjaj: eventId, tip: event.type, faza: "profil" },
+    });
     await obrisiMarker(eventId);
     // 500 namerno — hoću da Svix pokuša ponovo.
     return new Response("Upis nije uspeo.", { status: 500 });

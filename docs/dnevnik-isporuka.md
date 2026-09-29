@@ -566,3 +566,27 @@ Otpala: landing je napravljen van repoa.
 - Greška čitanja knjige → bez trake (ranije isto: `imaKupljenPaket` je na grešku vraćao `true`).
 - Pravilo 3 u CLAUDE.md već je nosilo rečenicu o 0035, pa nije dopisivano ponovo.
 - Checklista nije imala deo sa poznatim rizicima; napravljen je `## Poznati rizici` pre go / no-go.
+
+### Sentry za serverske greške (checklista 2.1)
+**Isporučeno:** 29. septembar 2026 · bez migracije · izvor: checklista 2.1
+
+- `@sentry/nextjs` (web) i `@sentry/node` (worker), oba `^10.75.0`. Sentry se podiže samo kad postoji `SENTRY_DSN`; prazno = ništa se ne šalje (i `captureException` je no-op).
+- Web: `src/instrumentation.ts` (`register` + `onRequestError`) hvata ono što ispadne iz server komponenti, ruta i middleware-a; opcije su u `lib/sentry-opcije.ts` (bez `server-only`, jer ga učitava i edge). Četiri rute grešku hvataju same, pa prijavljuju eksplicitno kroz `prijaviGresku` / `prijaviPoruku` (`lib/sentry.ts`), sa tagom `oblast` i samo ID-jevima u `extra`:
+  - `/api/billing/webhook`: `billing_events` nedostupan, prolazan pad obrade, **trajno odbijen događaj** (200 ka Stripe-u, ali poruka u Sentry), i `KonfigGreska` pri proveri potpisa;
+  - `/api/webhooks/clerk`: `webhook_events`, kaskada brisanja, upis profila, `KonfigGreska`;
+  - `/api/search`: glavni 500 i oba degradirana keš-čitanja posle naplate;
+  - `/api/unlock`: 500.
+- Worker (`src/lib/sentry.ts`): konačan pad posla (`fail_job` → `final`, uz broj vraćenih kredita za `scan`), poslovi koje žetva proglasi palim, pad `main()`. Neuhvaćene greške procesa prijavljuju integracije SDK-a, i to bez gašenja procesa. `payload` posla se ne šalje.
+- Lični podaci, dve linije: `dataCollection` (`sentryPrikupljanje()`) gasi skupljanje tela, kolačića, query stringa, zaglavlja van uske liste i promenljivih okvira; `beforeSend` = `ocistiSentryDogadjaj` (`packages/shared/src/sentry-scrub.ts`) briše mejl, telefon, URL/domen prospekta iz svakog stringa, telo, kolačiće, query string i sva zaglavlja osim `accept`, `content-length`, `content-type`, `host`, `user-agent` i `x-vercel-id`; `user` zadržava samo Clerk ID. Test: `packages/shared/test/sentry-scrub.ts`.
+- `pnpm check:secrets` pada ako se Sentry SDK pojavi u `.next/static` (`sentry.javascript` / `__SENTRY__`).
+- `pnpm sentry:proba` šalje jednu grešku sa izmišljenim kontaktom kroz put workera — za korak 4 checkliste.
+- `.env.example`: `SENTRY_DSN`, `SENTRY_ENVIRONMENT` (samo worker). Roadmap H0.1 obrisan.
+
+**Odstupanja koja i danas važe:**
+- Nema `withSentryConfig` ni `instrumentation-client.ts`: nema klijentskog SDK-a, izmene CSP-a ni upload-a sourcemap-a. Stek na Vercelu je zato iz sagrađenog koda, ne iz izvora. Postinstall za `@sentry/cli` je zabranjen u `pnpm-workspace.yaml`.
+- Verzija je 10.75, ne najnovija 11.x: 11.1.0 je izašao dan pre isporuke i pnpm ga je pustio samo uz dopisane izuzetke od `minimumReleaseAge`, pa je vraćen. `sentryPrikupljanje()` ne nosi polja kojih 10.75 nema, a TS višak polja ovde ne javlja; pri nadogradnji uporedi ključeve sa `DataCollection`.
+- Tracing je isključen (`tracesSampleRate: 0`), samo greške.
+- Pogrešan potpis webhooka se ne prijavljuje (tuđ zahtev); prijavljuje se samo nedostajuća tajna.
+- Grad i niša iz `/api/search` ne idu u Sentry (isto pravilo kao `dnevnik-gresaka.ts`); Clerk ID ide kao `user.id`.
+- Hostovi infrastrukture (Supabase, Stripe, Clerk, Google API, Anthropic, Resend, Vercel, naš domen) ostaju u tekstu bez query stringa; svaki drugi domen je `[url]`, pa i onaj koji nije prospekt.
+- Stavka 2.1 u checklisti ostaje otvorena: DSN na Vercel i server i probna greška su ručni koraci.
