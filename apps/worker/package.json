@@ -22,7 +22,7 @@
     "@sentry/node": "^10.75.0",
     "@supabase/supabase-js": "^2.112.3",
     "ipaddr.js": "^2.5.0",
-    "p-limit": "^6.2.0",
+    "p-limit": "^7.3.3",
     "playwright": "1.62.1",
     "sharp": "^0.34.5",
     "zod": "^4.0.0"
