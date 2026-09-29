@@ -17,11 +17,19 @@ import { cistkaZastarelo, refundScan } from "./lib/db-writes";
 import { loadRootEnv } from "./lib/env";
 import { claimJob, completeJob, deferJob, enqueueJob, failJob, reapStuckJobs } from "./lib/queue";
 import { closeBrowser } from "./lib/screenshot";
+import {
+  isprazniSentry,
+  pokreniSentry,
+  prijaviKonacanPad,
+  prijaviPadStarta,
+  prijaviZetvu,
+} from "./lib/sentry";
 import { supabaseAdmin } from "./lib/supabase";
 import { HANDLERS } from "./jobs";
 import type { JobContext, JobResult } from "./jobs";
 
 loadRootEnv();
+const sentryUkljucen = pokreniSentry();
 
 const CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY ?? 3));
 
@@ -96,12 +104,14 @@ async function runOne(slot: number): Promise<boolean> {
       // Konačan pad plaćenog skeniranja znači da je korisnik dao kredit ni za
       // šta (F9 §2). Odloženi posao (`defer_job` iznad) nije pad i ne vraća se —
       // on će se izvršiti čim Googleova kvota stigne.
+      let vraceno: number | null = null;
       if (job.type === "scan") {
-        const vraceno = await refundScan(job.id);
+        vraceno = await refundScan(job.id);
         if (vraceno > 0) log(`[${slot}] ${label} vraćeno ${vraceno} kredita`);
       }
 
       log(`[${slot}] ${label} PAO konačno — ${message}`);
+      prijaviKonacanPad(err, job, vraceno);
     } else {
       log(`[${slot}] ${label} pao, sledeći pokušaj ${nextRun?.toISOString()} — ${message}`);
     }
@@ -194,6 +204,7 @@ async function reaperLoop(): Promise<void> {
       if (requeued > 0 || failed > 0) {
         log(`žetva: ${requeued} vraćeno u red, ${failed} odustalo`);
       }
+      prijaviZetvu(failed);
 
       await refundFailedScans();
 
@@ -332,7 +343,10 @@ async function main(): Promise<void> {
     log("UPOZORENJE: GOOGLE_MAPS_API_KEY nije postavljen — scan poslovi će padati.");
   }
 
-  log(`worker start · ${CONCURRENCY} radnika · žetva na ${STUCK_MINUTES} min`);
+  log(
+    `worker start · ${CONCURRENCY} radnika · žetva na ${STUCK_MINUTES} min · ` +
+      `Sentry ${sentryUkljucen ? "uključen" : "isključen (nema SENTRY_DSN)"}`,
+  );
 
   await Promise.all([
     ...Array.from({ length: CONCURRENCY }, (_, i) => workerLoop(i + 1)),
@@ -343,11 +357,16 @@ async function main(): Promise<void> {
   // Chromium ne umire sa Node procesom — bez ovoga `docker compose down` ostavi
   // zombi renderere koji drže memoriju do sledećeg restarta hosta.
   await closeBrowser();
+  await isprazniSentry();
 
   log("worker stao");
 }
 
-main().catch((err: unknown) => {
+main().catch(async (err: unknown) => {
   console.error(`\n${err instanceof Error ? err.message : String(err)}\n`);
+  // Pad starta ne prolazi kroz `uncaughtException` (uhvaćen je ovde), pa ga
+  // Sentry ne bi video — a `process.exit` ne čeka mrežu.
+  prijaviPadStarta(err);
+  await isprazniSentry();
   process.exit(1);
 });
