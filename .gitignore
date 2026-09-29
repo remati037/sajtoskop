@@ -28,3 +28,6 @@ apps/web/.clerk/
 .pnpm-store/
 .env.prod
 supabase/seed-lokalni.sql
+
+# spisak kanarinaca (scripts/kanarinci.ts) — nazivi, telefoni i domeni nikad u repo
+scripts/kanarinci.local.json

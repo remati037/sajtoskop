@@ -1,8 +1,8 @@
 // apps/web/src/app/(admin)/admin/page.tsx
 // Pregled sistema (F12 §3.4).
 //
-// Šest kartica, sve iz baze, jedan poziv `admin_overview` i nijedan spoljni
-// servis. Ovaj ekran postoji da bih za pet sekundi znao da li nešto gori — zato
+// Šest kartica iz jednog poziva `admin_overview`, sedma („Aktivacija",
+// checklista 2.5) iz `admin_aktivacija`, sve iz baze i nijedan spoljni servis. Ovaj ekran postoji da bih za pet sekundi znao da li nešto gori — zato
 // je i jedini na kom sme da se pojavi crvena boja, i to za tačno dve stvari:
 // budžet preko 80 % i posao koji čeka duže od 30 minuta.
 //
@@ -17,13 +17,17 @@ import {
   Gauge,
   ListChecks,
   MessageSquareHeart,
+  Sprout,
   Users,
 } from "lucide-react";
+import type { AdminAktivacija } from "@sajtoskop/shared";
 import { RAZLOG_KREDITA } from "@/lib/ui-tekst";
 import { requireAdminPage } from "@/lib/admin";
 import {
   budzetKriticno,
+  citajAktivaciju,
   citajPregled,
+  DANA_AKTIVACIJE,
   poslovKriticno,
   PRAG_CEKANJA_SEC,
   trajanje,
@@ -44,7 +48,15 @@ export default async function Page() {
   // Prva linija svake strane pod `/admin` (pravilo 13). Layout se ne računa.
   await requireAdminPage();
 
-  const p = await citajPregled();
+  // Aktivacija ne sme da obori pregled: ekran postoji da se vidi da li nešto
+  // gori, a budžet i red poslova ne zavise od ove kartice.
+  const [p, a] = await Promise.all([
+    citajPregled(),
+    citajAktivaciju().catch((err: unknown) => {
+      console.error("[admin] aktivacija:", err);
+      return null;
+    }),
+  ]);
 
   const budzetCrven = budzetKriticno(p.budzet);
   const posloviCrveni = poslovKriticno(p.poslovi);
@@ -216,6 +228,11 @@ export default async function Page() {
             napomena={p.baza.stari_google > 0 ? "traže refresh pre serviranja" : "nema takvih"}
           />
         </Kartica>
+
+        {/* ── 7. AKTIVACIJA ───────────────────────────────────── */}
+        {/* Checklista 2.5. Definicije brojeva su u zaglavlju migracije 0036;
+            isti poziv vraća i `scripts/metrike.sql`, sa registracijama po danu. */}
+        <KarticaAktivacije a={a} />
       </dl>
 
       <p className="mt-6 text-xs text-fg-muted">
@@ -231,6 +248,66 @@ export default async function Page() {
         imaju detalje iza ovih brojeva.
       </p>
     </div>
+  );
+}
+
+// ── aktivacija ───────────────────────────────────────────────
+
+function KarticaAktivacije({ a }: { a: AdminAktivacija | null }) {
+  if (!a) {
+    return (
+      <Kartica naslov="Aktivacija" ikona={<Sprout />} vrednost="—" podnaslov="nije pročitano">
+        <Red naziv="Stanje" vrednost="greška" napomena="detalji su u logu servera" />
+      </Kartica>
+    );
+  }
+
+  const registrovano = a.registracije.reduce((zbir, d) => zbir + d.broj, 0);
+  const planovi = Object.entries(a.pretplate);
+  const aktivnih = planovi.reduce((zbir, [, s]) => zbir + s.aktivna, 0);
+  const uProbi = planovi.reduce((zbir, [, s]) => zbir + s.proba, 0);
+  const kasni = planovi.reduce((zbir, [, s]) => zbir + s.kasni, 0);
+  const paketa = a.paketi.reduce((zbir, k) => zbir + k.kupljeno, 0);
+
+  return (
+    <Kartica
+      naslov="Aktivacija"
+      ikona={<Sprout />}
+      vrednost={String(a.sa_otkljucavanjem)}
+      podnaslov={`od ${a.nalozi} naloga otključalo prospekt`}
+    >
+      <Red
+        naziv={`Registracije ${DANA_AKTIVACIJE} dana`}
+        vrednost={String(registrovano)}
+        napomena={`danas ${a.registracije[0]?.broj ?? 0}`}
+      />
+      <Red naziv="Bar jedna lista" vrednost={String(a.sa_listom)} />
+      <Red naziv="Sva četiri koraka" vrednost={String(a.ceo_onboarding)} />
+      <Red
+        naziv="Vratili se drugog dana"
+        vrednost={String(a.vratili_se)}
+        napomena={`od ${a.mogli_da_se_vrate} registrovanih pre danas`}
+      />
+      <Red
+        naziv="Aktivne pretplate"
+        vrednost={String(aktivnih)}
+        napomena={planovi.map(([plan, s]) => `${plan} ${s.aktivna}`).join(" · ")}
+      />
+      <Red
+        naziv="U probi"
+        vrednost={String(uProbi)}
+        napomena={kasni > 0 ? `još ${kasni} kasni sa naplatom` : undefined}
+      />
+      <Red
+        naziv="Kupljeni paketi"
+        vrednost={String(paketa)}
+        napomena={
+          a.paketi.length > 0
+            ? a.paketi.map((k) => `${k.krediti} kr × ${k.kupljeno}`).join(" · ")
+            : "nijedan"
+        }
+      />
+    </Kartica>
   );
 }
 

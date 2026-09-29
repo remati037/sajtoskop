@@ -396,6 +396,114 @@ Svaka stavka je jedna sesija. Prompt se kopira u prazan prozor Claude Code-a u o
 - [ ] **2.5 · Kanarinci i metrike aktivacije** — može i prve nedelje posle otvaranja
   Kanarinci su lažni biznisi po kojima prepoznaš da je neko izvukao bazu; metrike su broj
   ljudi koji stignu do prve poruke i vrate se drugog dana.
+
+  **Kod isporučen 29. 9. 2026** (`docs/dnevnik-isporuka.md`, migracija `0036`). Ostaju
+  ručni koraci:
+
+  **A. Migracija na produkciju** (5 min)
+  1. Supabase → produkcijski projekat → **SQL Editor** → **New query**.
+  2. Otvori `supabase/migrations/0036_kanarinci_metrike.sql`, kopiraj ceo fajl, nalepi → **Run**.
+     Očekivano: „Success. No rows returned". Migracija je idempotentna, pa ponovo pokretanje
+     ne smeta.
+  3. Provera, u novom upitu:
+     ```sql
+     select count(*) from canaries;            -- 0
+     select admin_aktivacija(7);               -- jsonb sa brojevima
+     ```
+  4. Nalepi ceo `scripts/metrike.sql` → Run. Očekivano: redovi 1–5, tri reda
+     „aktivne pretplate", redovi „registracije …" za 30 dana.
+  5. Tek sad pusti kod (merge → Vercel deploy). Kartica „Aktivacija" na `/admin` pokazuje
+     iste brojeve (za 7 dana). Worker ne treba ponovo da se diže, jer njegov kod nije menjan.
+
+  **B. Izbor kombinacija** (10 min)
+  6. SQL Editor:
+     ```sql
+     select city_slug, niche_slug, scan_count, last_results_count
+     from search_cache order by scan_count desc limit 20;
+     ```
+  7. Izaberi 5–10 kombinacija koje ljudi stvarno skeniraju: **jedan kanarinac po
+     kombinaciji**, raspoređeno po više gradova i niša. Zapiši `grad` i `nisa` tačno kako
+     piše u rezultatu (slug, npr. `novi-sad`, `stomatolog`).
+  8. Za svaku otvori listu u aplikaciji (admin nalog ne troši kredite) i pogledaj 3–4 suseda:
+     kako zvuče nazivi, kakve su ocene i broj ocena. Kanarinac treba da liči na njih.
+
+  **C. Domeni i stranice** (1–2 h, jednom)
+  9. Kupi 5–10 jeftinih domena (`.rs`, `.co.rs`, `.in.rs` ili `.com`), **svaki zaseban**:
+     poddomeni jednog domena bi otkrili da su kanarinci povezani. Kod registracije uključi
+     skrivanje ličnih podataka, ako registrar to nudi. Ne koristi Remati ni svoje ime u nazivu.
+  10. Nazivi domena liče na firmu: `ordinacija-<prezime>.rs`, `<ime>-stolarija.rs` i slično.
+      Pre kupovine proveri na Google Mapsu i u pretrazi da firma sa tim imenom ne postoji u
+      tom gradu.
+  11. Hosting: najjednostavnije je jedan statički host (Cloudflare Pages, Netlify ili bilo
+      koji jeftin hosting) sa svih 10 domena. Svaki domen dobija **svoj** `index.html`.
+      Obavezno je da host beleži posete (access log ili analitika).
+  12. Stranica: jedna HTML strana sa nazivom, adresom, telefonom i dve-tri rečenice o
+      delatnosti. Treba da bude osrednje loša, kao susedi sa „Ružan" ocenom: bez
+      `<meta name="viewport">`, sitan font, tabele, stara slika. Tako dobija realan Ugly Score.
+      **Ne stavljaj** `robots.txt` koji zabranjuje pristup: worker ga poštuje i onda ne bi
+      napravio audit.
+  13. Proveri da svaki domen odgovara: `curl -sI https://<domen>` → `200`. Ovo mora da radi
+      **pre** koraka 20, inače worker upiše sajt kao `mrtav`.
+  14. Posete iz workera prepoznaješ po `Sajtoskop/1.0` u User-Agent-u. Svaka druga poseta
+      znači da je neko otvorio sajt kanarinca, što je trag sam po sebi.
+
+  **D. Telefon** (jednom)
+  15. Najbolje je jedna prepaid SIM kartica samo za kanarince: svaki poziv ili poruka na nju
+      znači da je neko koristio podatke. Može i jedan broj za sve kanarince; trag po nalogu
+      onda daje domen, ne telefon.
+  16. Piši ga kao Google: `06x xxxxxxx` (razmak posle prefiksa, bez `+381`). Skripta odbija
+      drugi oblik.
+
+  **E. Spisak** (15 min)
+  17. `cp scripts/kanarinci.primer.json scripts/kanarinci.local.json` i popuni po jedan objekat
+      za svakog kanarinca:
+      - `oznaka`: kratka i trajna (`k1`, `k2`…). **Nikad je ne menjaj**, jer nova oznaka pravi
+        novog kanarinca.
+      - `naziv`, `adresa`: izmišljena firma, prava ulica tog grada.
+      - `grad`, `nisa`: slug iz koraka 7.
+      - `telefon`: iz koraka 16.
+      - `sajt`: `https://<domen>` iz koraka 9.
+      - `ocena`, `brojOcena`: kao kod suseda (npr. 4.3 i 17), ili `null` za oba.
+  18. `git status` ne sme da pokaže `kanarinci.local.json` (u `.gitignore` je). Sačuvaj kopiju
+      u menadžeru lozinki ili na disku van laptopa: bez fajla i dalje imaš `canaries` u bazi,
+      ali ne i koji domen pripada kom nazivu, ako ih izmeniš.
+
+  **F. Upis na produkciju** (5 min)
+  19. Worker na Hetzneru mora da radi: `docker compose -f apps/worker/docker-compose.yml ps` →
+      `Up`.
+  20. Pregled, bez upisa. Produkcijske promenljive se prosleđuju samo ovoj komandi, a `.env`
+      ostaje lokalni:
+      ```bash
+      env $(grep -E '^(NEXT_PUBLIC_SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY)=' .env.prod | tr -d "\"'" | xargs) \
+        pnpm kanarinci
+      ```
+      Očekivano: jedan red `+ nov` po kanarincu i „Pregled — ništa nije upisano". Na grešku u
+      spisku skripta kaže tačno koje polje ne valja.
+  21. Ista komanda sa ` -- --pisi` na kraju. Očekivano: „Upisano N (N novih), N poslova za
+      audit. Vidljivi su do <datum>".
+  22. Posle 2–5 minuta ista komanda sa ` -- --izvestaj`. Kod svakog kanarinca treba da piše
+      `vidljiv još 30 d · ok/ruzan (nivo 1) · otključalo 0`.
+      - `bez audita`: worker još radi ili ne radi. Proveri logove workera.
+      - `mrtav`: domen nije odgovarao. Popravi sajt, pa u SQL Editoru
+        `delete from website_audits where place_id = '<place_id iz izveštaja>';`
+        i ponovi korak 21.
+
+  **G. Provera u aplikaciji** (10 min, plan testiranja 13.7)
+  23. Sa admin nalogom (ne troši kredite) otvori jednu od tih lista. Kanarinac je tu, sa
+      bendom i bez telefona, kao svaki zaključan prospekt.
+  24. DevTools → Network → odgovor `/api/search` → pretraži `canar` i `kanarin`: nema pogodaka.
+  25. Otključaj ga, pa izvezi CSV sa `/lista`. Red izgleda kao ostali, bez dodatne kolone.
+  26. Ponovi `--izvestaj`: pokazuje tvoj nalog sa `[admin]`. To je očekivano i nije trag.
+
+  **H. Rutina**
+  27. Podsetnik u kalendaru, **svakih 25 dana**: komanda iz koraka 21 (`--pisi`), pa
+      `--izvestaj`. Bez toga kanarinac posle 30 dana nestaje iz pretrage. Isti poziv obnavlja
+      i audit.
+  28. Kad kanarinca nađeš negde (tuđ sajt, oglas, CSV, poziv na SIM): odmah `--izvestaj` i
+      sačuvaj izlaz, snimak ekrana sa URL-om i datumom i log posete sa hosta. Ništa ne briši iz
+      baze: `unlocks` i `canaries` su dokaz.
+
+  Prompt (iskorišćen):
   ```
   Pročitaj CLAUDE.md, docs/bezbednost.md (Sloj 2, kanarinci) i docs/tok-i-onboarding.md
   §4.9. (1) scripts/kanarinci.ts: 5–10 izmišljenih biznisa sa telefonom i domenom koje
@@ -406,7 +514,8 @@ Svaka stavka je jedna sesija. Prompt se kopira u prazan prozor Claude Code-a u o
   Blok na /admin samo ako staje bez preprojektovanja ekrana. Ažuriraj docs/dnevnik-isporuka.md.
   ```
 
-  **Gotovo kad:** kanarinci su u bazi, a SQL vraća svih sedam brojeva jednim pozivom.
+  **Gotovo kad:** `--izvestaj` pokazuje 5–10 kanarinaca, svi „vidljiv" i sa auditom, a
+  `scripts/metrike.sql` na produkciji vraća sve redove.
 
 - [ ] **2.6 · Mejl pred kraj probe i potvrda uplate** — obavezno pre live-a
   Stripe mejlovi kupcima su isključeni (§2.2 spec-a naplate), a naših nema: proba prelazi u
@@ -821,6 +930,8 @@ Svesno ostavljeno za posle lansiranja; ne blokira go / no-go, ali se prati.
   `curl -X POST -H "x-cron-secret: $CRON_SECRET" https://app.sajtoskop.com/api/cron/utisci-slike`
 
 **Mesečno**
+- `pnpm kanarinci -- --pisi` (sa produkcijskim `.env`) — kanarinac bez osvežavanja nestaje iz
+  pretrage posle 30 dana. Pa `pnpm kanarinci -- --izvestaj`: ko ih je otključao.
 - 1. u mesecu: godišnji i komp nalozi su dobili dodelu
   (`select user_id, delta, ref_id from credit_ledger where reason = 'monthly_grant' order by id desc limit 20;`).
 - Probno vraćanje backupa (1.4, koraci 8–9).

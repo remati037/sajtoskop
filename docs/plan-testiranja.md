@@ -637,6 +637,18 @@ svake izmene u bazi: **puno osvežavanje** (`Cmd+Shift+R`), ne klik u aplikaciji
 
   **Očekivano:** sve radi u obe teme, tabele skroluju vodoravno na 390 px.
 
+- [ ] **9.5 · Kartica „Aktivacija" (0036, checklista 2.5)**
+  `/admin` → sedma kartica. Uporedi sa SQL-om:
+  ```bash
+  docker exec -i supabase_db_sajtoskop psql -U postgres < scripts/metrike.sql
+  ```
+
+  **Očekivano:** „od N naloga", „Bar jedna lista", „Sva četiri koraka", „Vratili se drugog
+  dana", aktivne pretplate po planu, „U probi" i „Kupljeni paketi" imaju iste brojeve kao
+  redovi 1–5, 11–13 i 21+ iz SQL-a. „Registracije 7 dana" je zbir prvih sedam redova
+  `registracije …`. Admin nalog se ne broji nigde. Kad funkcija ne postoji (migracija nije
+  primenjena), kartica piše „nije pročitano", a ostalih šest radi.
+
 ---
 
 ## 10. Utisci
@@ -774,6 +786,20 @@ ne stiže do `localhost` bez tunela).
 
   **Očekivano:** običan cenovnik, bez greške, ništa se ne izvršava; `?plan=pro&ciklus=godisnje`
   preselektuje Pro godišnje („Tvoj izbor"); `?paket=200` skroluje do Dopune 200.
+
+- [ ] **13.7 · Kanarinac izgleda kao pravi prospekt (0036)**
+  Spisak u `scripts/kanarinci.local.json` (oblik: `kanarinci.primer.json`) →
+  `pnpm kanarinci -- --pisi` → worker odradi `enrich_basic`. Nalog B otvori listu te
+  kombinacije, otključa kanarinca, pa izveze CSV.
+  ```sql
+  select l.* from search_listing('RS','<grad>','<nisa>',false,false,false,null,1,50) l
+  where l.place_id in (select place_id from canaries);
+  ```
+
+  **Očekivano:** u odgovoru `/api/search`, `/api/unlock` i u CSV-u nema ključa ni vrednosti
+  koja ga razlikuje od suseda (`canar`, `kanarin`, dodatna kolona); telefon je u obliku
+  „060 1234567" kao kod ostalih. `pnpm kanarinci -- --izvestaj` pokazuje nalog B sa
+  vremenom otključavanja. `pnpm --filter web test` (`test/kanarinci.ts`) prolazi.
 
 ---
 
