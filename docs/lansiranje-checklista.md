@@ -316,7 +316,7 @@ Svaka stavka je jedna sesija. Prompt se kopira u prazan prozor Claude Code-a u o
   serverska strana.
   1. [sentry.io](https://sentry.io) → nalog → dva projekta: **Next.js** (`sajtoskop-web`) i
      **Node** (`sajtoskop-worker`) → sačuvaj oba DSN-a.
-  2. Prompt:
+  2. Prompt — **kod isporučen 29. 9. 2026** (`docs/dnevnik-isporuka.md`); ostaju koraci 3 i 4.
      ```
      Pročitaj CLAUDE.md i docs/bezbednost.md. Dodaj Sentry SAMO na serverskoj strani:
      apps/web (route handleri, server komponente, middleware) i apps/worker. Bez
@@ -330,10 +330,23 @@ Svaka stavka je jedna sesija. Prompt se kopira u prazan prozor Claude Code-a u o
      pnpm typecheck, pnpm test, pnpm --filter @sajtoskop/web lint, pnpm build.
      Ažuriraj docs/dnevnik-isporuka.md.
      ```
-  3. `SENTRY_DSN` na Vercel (Production) i u `.env` na serveru; Vercel redeploy, worker
-     `up -d --build`.
-  4. Namerno izazovi grešku (npr. pogrešan potpis na webhook ruti nije greška — koristi test
-     koji sesija ostavi) i proveri da je stigla u Sentry.
+  3. `SENTRY_DSN` na Vercel (Production) i u `.env` na serveru (v. `.env.example`, sekcija
+     Sentry); Vercel redeploy, worker `docker compose -f apps/worker/docker-compose.yml up -d --build`.
+     U logu workera pri startu mora da piše `Sentry uključen`.
+  4. Probna greška. Pogrešan potpis na webhook ruti namerno NIJE greška i ne ide u Sentry.
+     - Worker, na serveru:
+       ```bash
+       docker compose -f apps/worker/docker-compose.yml exec worker \
+         node --import tsx apps/worker/src/sentry-proba.ts
+       ```
+     - Web projekat, sa laptopa (isti `beforeSend`, drugi DSN):
+       ```bash
+       SENTRY_DSN=<dsn projekta sajtoskop-web> pnpm sentry:proba
+       ```
+     U oba projekta treba da stigne issue „Sentry proba…" sa `[mejl]`, `[telefon]` i `[url]`
+     umesto izmišljenih podataka iz poruke. Original u Sentry-ju = stani i javi.
+     Ožičenje same Vercel funkcije ova proba ne dokazuje; to se vidi na prvom stvarnom padu
+     (tag `oblast`: `api/billing/webhook`, `api/webhooks/clerk`, `api/search`, `api/unlock`).
 
   **Gotovo kad:** probna greška iz weba i iz workera vidi se u Sentry-ju, bez ličnih podataka.
 

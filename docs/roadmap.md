@@ -24,7 +24,6 @@ Jedna stavka = jedna sesija sa Claude-om (L i XL se dele na faze navedene uz sta
 
 | ID | Stavka | Horizont | Trud | Zavisi od |
 |---|---|---|---|---|
-| H0.1 | Sentry za serverske greške | H0 | M | checklista 2.1 |
 | H0.2 | Mejlovi: pad naplate korisniku, spor tebi | H0 | S | checklista 2.2 |
 | H0.3 | Mejl pred kraj probe i potvrda uplate | H0 | S | checklista 2.6 |
 | H0.4 | Sitne ispravke teksta i test za `svix-id` | H0 | S | checklista 2.3 |
@@ -40,7 +39,7 @@ Jedna stavka = jedna sesija sa Claude-om (L i XL se dele na faze navedene uz sta
 | H1.8 | Razlog pada analize sa workera na kartici | H1 | S | — |
 | H1.9 | Prazan `/pipeline` za nalog sa otključanim prospektima | H1 | S | odluka |
 | H2.1 | Javna tabla „Plan razvoja" (predlozi i glasanje) | H2 | L | H1.1, H1.4 |
-| H2.2 | Utisci v3, faza 2: automatske greške, GitHub, niti, „Moje prijave" v2 | H2 | L | H1.4, H0.1 |
+| H2.2 | Utisci v3, faza 2: automatske greške, GitHub, niti, „Moje prijave" v2 | H2 | L | H1.4, Sentry (checklista 2.1) |
 | H2.3 | Mejlovi — retencija i novosti | H2 | M | H1.1, H2.1 |
 | H2.4 | Povratna sprega „Potpisan" u skoringu | H2 | L | podaci iz upotrebe |
 | H2.5 | Radar: nove firme bez sajta u praćenim kombinacijama | H2 | L | H1.1 |
@@ -65,7 +64,6 @@ Jedna stavka = jedna sesija sa Claude-om (L i XL se dele na faze navedene uz sta
 Sve stavke su u `docs/lansiranje-checklista.md`, sekcija 2, sa gotovim promptom. Ovde samo zašto
 spadaju u H0:
 
-- **H0.1 Sentry** — pad webhooka ili workera danas vidiš samo ako gledaš log u tom trenutku.
 - **H0.2 i H0.3 mejlovi** — Stripe mejlovi kupcima su isključeni, a naših nema: proba prelazi u
   naplatu bez upozorenja, kupac nema potvrdu uplate, a spor ima rok za odgovor. To su
   najčešći razlozi za sporove i zahteve za povraćaj.
@@ -438,7 +436,7 @@ tabla (§7) je dodatak za ideje, ne za bugove.
 **2. Automatski signal grešaka (H2.2).**
 - Serverske greške iz API ruta i poslovi koji padnu konačno grupišu se po otisku (ruta + tip
   greške + prva linija poruke, bez ličnih podataka) u tabelu `error_groups`: broj pojava, broj
-  naloga, prva i poslednja pojava. Ako je Sentry (H0.1) podešen, otisak je Sentry issue ID i tabela
+  naloga, prva i poslednja pojava. Ako je Sentry (checklista 2.1) podešen, otisak je Sentry issue ID i tabela
   čuva samo vezu.
 - Prijava sa istom rutom ili poslom u roku od 10 minuta se sama veže za grupu → u panelu:
   „3 prijave · 17 pojava · 9 naloga".
