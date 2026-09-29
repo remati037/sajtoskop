@@ -678,8 +678,8 @@ function KarticaKredita({
 
         <p className="mt-2 text-[11px] leading-tight text-fg-muted">
           {imaDodelu
-            ? "Obnavlja se prvog u mesecu. Keš je besplatan, novo skeniranje 1–3 kredita po dubini."
-            : "Kupljeni krediti ne ističu. Keš je besplatan, novo skeniranje 1–3 kredita po dubini."}
+            ? "Obnavlja se prvog u mesecu. Pristup listi 1–3 kredita po dubini, važi 30 dana."
+            : "Kupljeni krediti ne ističu. Pristup listi 1–3 kredita po dubini, važi 30 dana."}
         </p>
       </Link>
 

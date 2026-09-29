@@ -54,7 +54,7 @@ const PRECICE = [
   {
     href: "/pretraga",
     naslov: "Pretraga prospekata",
-    opis: "Grad i niša — sve što je u kešu je besplatno, novo skeniranje 1–3 kredita po dubini.",
+    opis: "Grad i niša — pristup listi plaćaš jednom, 1–3 kredita po dubini, i važi 30 dana.",
     Ikona: Search,
   },
   {

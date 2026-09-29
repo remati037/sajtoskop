@@ -16,7 +16,14 @@
 //   · STATIČKI: da ruta `user.deleted` zaista zove otkazivanje PRE
 //     `obrisiProfil` i da pad vraća 500. Regresija koje se plašim nije „vratila
 //     je pogrešan status" nego „neko je preuredio redosled".
+//
+// [dfb52a7] ID događaja iz `svix-id` ZAGLAVLJA. Ruta ga je čitala iz polja
+// `id` u telu, koje Clerk ne šalje — svaki ispravno potpisan događaj je vraćao
+// 400 i nijedan nije stigao do baze. Sekcija 4 pušta PRAVU rutu i pravi
+// `verifyWebhook` nad zahtevom potpisanim kao što Svix potpisuje; lažni su samo
+// baza, profil, revizija i Sentry.
 
+import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -26,15 +33,62 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const webSrc = path.resolve(here, "../src");
 const stubs = pathToFileURL(path.resolve(here, "../../../scripts/lib/next-stubs.ts")).href;
 
+// Moduli koje ruta webhooka uvozi, a koji bi van Next-a tražili bazu, Stripe ili
+// Sentry. Stanje deli sa testom kroz `globalThis.__clerkWebhook` (sekcija 4).
+// Ključ je TAČAN specifikator iz rute — `lib/otkazivanje.ts` i ostali uvoze
+// relativno, pa ih ovo ne dotiče.
+const LAZNI_MODULI: Record<string, string> = {
+  "@/lib/supabase": `
+    const s = () => globalThis.__clerkWebhook;
+    export function adminSupabase() {
+      return {
+        from(tabela) {
+          return {
+            insert(red) {
+              s().markeri.push({ tabela, ...red });
+              return { select: () => ({ maybeSingle: async () => ({ data: { event_id: red.event_id }, error: null }) }) };
+            },
+            delete() {
+              const upit = { eq: () => upit, then: (ok) => ok({ error: null }) };
+              return upit;
+            },
+          };
+        },
+      };
+    }`,
+  "@/lib/profile": `
+    const s = () => globalThis.__clerkWebhook;
+    export async function createProfileFromWebhook(userId, email, refId) {
+      s().profili.push({ userId, email, refId });
+      return { reason: "created" };
+    }
+    export async function obrisiProfil() { return false; }
+    export async function stripeKupacZaNalog() { return null; }`,
+  "@/lib/admin": `
+    export const RADNJE = { KASKADA: "user.cascade" };
+    export async function upisiAudit() {}`,
+  "@/lib/sentry": `
+    export function prijaviGresku(err) { globalThis.__clerkWebhook.greske.push(String(err)); }`,
+};
+
 registerHooks({
   resolve(specifier, context, next) {
     if (["server-only", "next/navigation", "@clerk/nextjs/server"].includes(specifier)) {
       return { url: stubs, shortCircuit: true };
     }
+    if (specifier in LAZNI_MODULI) {
+      return { url: `lazno:${specifier}`, shortCircuit: true };
+    }
     if (specifier.startsWith("@/")) {
       return next(pathToFileURL(path.join(webSrc, specifier.slice(2))).href, context);
     }
     return next(specifier, context);
+  },
+  load(url, context, next) {
+    if (url.startsWith("lazno:")) {
+      return { format: "module", source: LAZNI_MODULI[url.slice("lazno:".length)], shortCircuit: true };
+    }
+    return next(url, context);
   },
 });
 
@@ -220,6 +274,117 @@ console.log("\nuser.deleted: prvo Stripe, pa baza");
   const lib = readFileSync(path.join(webSrc, "lib/otkazivanje.ts"), "utf8");
   check(/import "server-only"/.test(lib), "`lib/otkazivanje.ts` je server-only");
   check(/prorate: false/.test(lib), "`prorate: false` stoji u kodu, ne u komentaru");
+}
+
+// ═══════════════════════════════════════════════════════════
+// 4. ID DOGAĐAJA IZ `svix-id` ZAGLAVLJA (dfb52a7)
+// ═══════════════════════════════════════════════════════════
+console.log("\nID događaja dolazi iz `svix-id` zaglavlja, ne iz tela");
+
+{
+  type Stanje = {
+    markeri: { tabela: string; provider: string; event_id: string }[];
+    profili: { userId: string; email: string | null; refId: string }[];
+    greske: string[];
+  };
+  const stanje: Stanje = { markeri: [], profili: [], greske: [] };
+  (globalThis as Record<string, unknown>).__clerkWebhook = stanje;
+
+  // Svix tajna je `whsec_` + base64 ključ; potpis je HMAC-SHA256 nad
+  // `${svix-id}.${svix-timestamp}.${telo}` (isto što proverava `verifyWebhook`).
+  const kljuc = Buffer.from("test-kljuc-za-clerk-webhook-32b!");
+  process.env.CLERK_WEBHOOK_SIGNING_SECRET = `whsec_${kljuc.toString("base64")}`;
+
+  const potpisan = (svixId: string, telo: string, potpisId = svixId): Request => {
+    const ts = String(Math.floor(Date.now() / 1000));
+    const potpis = createHmac("sha256", kljuc).update(`${potpisId}.${ts}.${telo}`).digest("base64");
+    return new Request("https://app.sajtoskop.test/api/webhooks/clerk", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "svix-id": svixId,
+        "svix-timestamp": ts,
+        "svix-signature": `v1,${potpis}`,
+      },
+      body: telo,
+    });
+  };
+
+  // Oblik koji Clerk stvarno šalje: na vrhu `data`, `object`, `type`,
+  // `timestamp`, `instance_id` — BEZ `id`.
+  const dogadjaj = (userId: string, dodatno: Record<string, unknown> = {}): string =>
+    JSON.stringify({
+      data: {
+        id: userId,
+        primary_email_address_id: "idn_1",
+        email_addresses: [{ id: "idn_1", email_address: "test@sajtoskop.test" }],
+      },
+      object: "event",
+      type: "user.created",
+      timestamp: Date.now(),
+      instance_id: "ins_test",
+      ...dodatno,
+    });
+
+  const { POST } = await import("../src/app/api/webhooks/clerk/route");
+  type Zahtev = Parameters<typeof POST>[0];
+  const posalji = (r: Request): Promise<Response> => POST(r as Zahtev);
+
+  // a) Pravi Clerk događaj, telo bez `id`.
+  {
+    const odg = await posalji(potpisan("msg_iz_zaglavlja_1", dogadjaj("user_wh_1")));
+    check(odg.status === 200, `potpisan događaj bez \`id\` u telu → 200 (dobijeno ${odg.status})`);
+    check(
+      stanje.markeri.length === 1 &&
+        stanje.markeri[0]?.tabela === "webhook_events" &&
+        stanje.markeri[0]?.provider === "clerk" &&
+        stanje.markeri[0]?.event_id === "msg_iz_zaglavlja_1",
+      `marker u \`webhook_events\` nosi \`svix-id\` (${stanje.markeri[0]?.event_id ?? "nema markera"})`,
+    );
+    check(
+      stanje.profili.length === 1 && stanje.profili[0]?.refId === "signup:user_wh_1",
+      "događaj je stigao do upisa profila",
+    );
+  }
+
+  // b) Telo nosi SVOJ `id` — i dalje se ne čita.
+  {
+    stanje.markeri.length = 0;
+    const odg = await posalji(
+      potpisan("msg_iz_zaglavlja_2", dogadjaj("user_wh_2", { id: "evt_iz_tela" })),
+    );
+    check(odg.status === 200, `telo sa \`id\` → 200 (dobijeno ${odg.status})`);
+    check(
+      stanje.markeri[0]?.event_id === "msg_iz_zaglavlja_2",
+      `\`id\` iz tela se ignoriše, marker je iz zaglavlja (${stanje.markeri[0]?.event_id ?? "nema markera"})`,
+    );
+  }
+
+  // c) Zaglavlje se ne može podmetnuti: potpis pokriva i `svix-id`.
+  {
+    stanje.markeri.length = 0;
+    const odg = await posalji(potpisan("msg_podmetnut", dogadjaj("user_wh_3"), "msg_potpisan"));
+    check(odg.status === 400, `izmenjen \`svix-id\` obara potpis → 400 (dobijeno ${odg.status})`);
+    check(stanje.markeri.length === 0, "bez ispravnog potpisa nema markera");
+  }
+
+  // d) Statički: ID se uzima SAMO iz zaglavlja, a proverava tek posle potpisa.
+  {
+    const ruta = readFileSync(path.join(webSrc, "app/api/webhooks/clerk/route.ts"), "utf8");
+    const kod = ruta.replace(/\/\/.*$/gm, "");
+    check(
+      /const eventId = req\.headers\.get\("svix-id"\)/.test(kod) &&
+        (kod.match(/\beventId\s*=/g) ?? []).length === 1,
+      "`eventId` ima jedan izvor: `req.headers.get(\"svix-id\")`",
+    );
+    check(!/\bevent\.id\b|\bbody\.id\b|\bpayload\.id\b/.test(kod), "nigde se ne čita `event.id` iz tela");
+    check(
+      kod.indexOf("verifyWebhook(req") > 0 && kod.indexOf("verifyWebhook(req") < kod.indexOf("if (!eventId)"),
+      "provera prisustva ID-ja stoji POSLE `verifyWebhook` — zaglavlju se veruje tek uz potpis",
+    );
+  }
+
+  check(stanje.greske.length === 0, `nijedna greška nije prijavljena Sentry-ju (${stanje.greske.join("; ")})`);
 }
 
 console.log(fail === 0 ? "\nSve prošlo." : `\n${fail} palo.`);

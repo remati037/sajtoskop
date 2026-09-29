@@ -356,7 +356,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                       {s.niche_slug && ` · ${NISA.get(s.niche_slug) ?? s.niche_slug}`}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
-                      {/* Keš je besplatan, `api` je plaćeno skeniranje (F9). Ova
+                      {/* Keš ne zove Google, `api` je skeniranje (F9). Ova
                           razlika je jedini razlog zbog kog istorija pretraga uopšte
                           stoji u konzoli. */}
                       <Badge variant={s.source === "api" ? "warning" : "neutral"} size="sm">

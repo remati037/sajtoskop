@@ -20,7 +20,7 @@ import type { SearchSummary } from "./search-types";
  * Razlog stavke u knjizi kredita, na srpskom.
  *
  * „Skeniranje", ne „Pretraga" (F9, odluka 8): plaća se poziv Google-u, a ne čin
- * pretraživanja — pretraga po kešu je i dalje besplatna.
+ * pretraživanja. Od S25 (D10) se plaća i pristup kešu, ali kroz isti razlog.
  *
  * Stoji ovde, a ne uz ekran `/krediti`, jer isti izvod čita i korisnik i admin
  * (F12 §3.2). Dve kopije istog spiska bi značile da nov razlog u knjizi u jednom
