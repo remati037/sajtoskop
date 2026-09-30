@@ -75,7 +75,7 @@ export function PipelineUvoz() {
       <DialogTrigger asChild>
         <Button type="button" variant="outline">
           <Upload className="h-4 w-4" />
-          Uvezi Sheet
+          Uvezi iz tabele
         </Button>
       </DialogTrigger>
 
@@ -86,7 +86,7 @@ export function PipelineUvoz() {
             Kolone: <span className="font-mono">naziv</span>,{" "}
             <span className="font-mono">telefon</span>, <span className="font-mono">grad</span>,{" "}
             <span className="font-mono">status</span>, <span className="font-mono">beleska</span>.
-            Grad je obavezan, ostalo nije.
+            Obavezan je samo grad.
           </DialogDescription>
         </DialogHeader>
 
@@ -106,9 +106,9 @@ export function PipelineUvoz() {
               className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
             />
             <span>
-              Otključaj prospekte kojih nemam —{" "}
-              <strong className="text-fg">troši kredit po prospektu</strong>. Bez ovoga
-              uvoz postavlja status samo onome što je već otključano.
+              Otključaj i one koje nemam.{" "}
+              <strong className="text-fg">Troši 1 kredit po prospektu.</strong> Bez ovoga se
+              menja samo status već otključanih.
             </span>
           </label>
 
@@ -143,8 +143,8 @@ function Izvestaj({ i }: { i: UvozIzvestaj }) {
       <ul className="space-y-1 text-fg-muted">
         {i.zakljucano > 0 && (
           <li>
-            {i.zakljucano} {redova(i.zakljucano)} je uparen, ali ti prospekti nisu otključani —
-            uključi kvačicu iznad da ih otključaš.
+            {i.zakljucano} {redova(i.zakljucano)} je pronađen, ali nije otključan. Uključi
+            kvačicu iznad da ih otključaš.
           </li>
         )}
         {i.bezKredita > 0 && (
@@ -154,8 +154,8 @@ function Izvestaj({ i }: { i: UvozIzvestaj }) {
         )}
         {i.dvosmisleno > 0 && (
           <li>
-            {i.dvosmisleno} {redova(i.dvosmisleno)} odgovara na više prospekata — dopiši telefon
-            da bi uparivanje bilo jednoznačno.
+            {i.dvosmisleno} {redova(i.dvosmisleno)} odgovara na više prospekata. Dopiši telefon
+            da bude jasno koji je.
           </li>
         )}
         {i.nenadjeno > 0 && (

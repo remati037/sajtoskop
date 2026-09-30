@@ -23,7 +23,7 @@ import { FaliMikro } from "@/components/fali-mikro";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Pipeline" };
+export const metadata: Metadata = { title: "Praćenje kontakata" };
 
 export default async function Page() {
   // Prva linija svake zaštićene stranice — ni middleware ni layout ovo ne rade.
@@ -60,11 +60,11 @@ export default async function Page() {
   return (
     <div className="mx-auto w-full max-w-[110rem] px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
-        naslov="Pipeline"
+        naslov="Praćenje kontakata"
         opis={
           <>
-            Prevuci karticu da promeniš status. Kopiranje poruke samo prebacuje prospekt u
-            „Kontaktiran" — nazad ga vraćaš ti, ne alat.
+            Prevuci karticu da promeniš status. Kad kopiraš poruku, prospekt sam prelazi u
+            „Kontaktiran“. Nazad ga vraćaš samo ti.
           </>
         }
       >
@@ -75,13 +75,13 @@ export default async function Page() {
           pa tek onda ide prazno stanje. Obrnuto bi značilo da RLS koji ne
           prepoznaje korisnika izgleda kao „nemaš nijedan prospekt". */}
       {!profile ? (
-        <VezaGreska sta="Pipeline" />
+        <VezaGreska sta="Kontakti" />
       ) : !imaRedova ? (
         <>
         <PraznoStanje
           ikona={<KanbanSquare />}
-          naslov="Pipeline je prazan dok ne pošalješ prvu poruku"
-          opis="Kad kopiraš poruku, klik na „Kontaktiran“ dovodi prospekt ovde. Pet kolona: Nekontaktiran → Kontaktiran → Odgovorio → Potpisan → Nezainteresovan."
+          naslov="Još nikog nisi kontaktirao"
+          opis="Kopiraj poruku otključanom prospektu i on se pojavljuje ovde, u koloni „Kontaktiran“."
         >
           <Button asChild variant="primary">
             <Link href={kartice.length > 0 ? "/lista" : "/pretraga"}>Idi na otključane prospekte</Link>

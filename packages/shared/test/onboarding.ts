@@ -80,7 +80,7 @@ console.log("\ntekst doslovno iz §4.5–§4.8");
 check(KORACI.length === 4, "četiri koraka");
 check(
   KORACI.map((k) => k.naslov).join(" | ") ===
-    "Prva lista | Prvi prospekt | Prva poruka | Prvi u pipeline-u",
+    "Prva lista | Prvi prospekt | Prva poruka | Prvi u praćenju",
   "naslovi koraka (§4.5)",
 );
 check(
@@ -93,24 +93,24 @@ check(!(HINT_KLJUCEVI as readonly string[]).includes(TRAKA_SKRIVENA), "oznaka sa
 check(TACKE["nema-sajt"].naslov === "Ovo je najbolji prospekt.", "tačka 1, naslov");
 check(
   TACKE["nema-sajt"].telo ===
-    "Firma ima ocene na Googlu, a nema sajt — ne moraš da ubeđuješ da je sajt loš, samo da ga nema.",
+    "Ima ocene na Googlu, a nema sajt. Ne moraš da ga ubeđuješ da mu je sajt loš.",
   "tačka 1, telo",
 );
 check(
-  TACKE.otkljucaj.naslov === "Otključavanje otvara telefon, mejl, snimke sajta i gotovu poruku." &&
-    TACKE.otkljucaj.telo === "Košta 1 kredit; prvi je besplatan. Isti prospekt se ne plaća dvaput.",
+  TACKE.otkljucaj.naslov === "Otključaj za telefon, mejl, snimke sajta i gotovu poruku." &&
+    TACKE.otkljucaj.telo === "Košta 1 kredit, prvi je besplatan. Isti prospekt ne plaćaš dvaput.",
   "tačka 2",
 );
 check(
   TACKE.poruka.naslov === "Poruka je napisana za kanal koji si izabrao." &&
     TACKE.poruka.telo ===
-      "Promeni tab za mejl ili Instagram; „Napiši drugačije“ pravi novu verziju bez kredita.",
+      "Promeni tab za mejl ili Instagram. „Napiši drugačije“ pravi novu verziju bez kredita.",
   "tačka 3",
 );
 check(
   TACKE.pipeline.naslov === "Označi kad pošalješ." &&
     TACKE.pipeline.telo ===
-      "Pipeline pamti koga si kontaktirao, ko je odgovorio i ko je potpisao — i posle 30 dana znaš gde si stao.",
+      "Praćenje kontakata pamti koga si kontaktirao, ko je odgovorio i ko je potpisao.",
   "tačka 4",
 );
 check(TACKA_JASNO === "Jasno", "dugme tačke");

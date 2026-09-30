@@ -25,6 +25,7 @@ import type { ApiError, SearchResponse } from "@/lib/search-types";
 import { plural } from "@/lib/ui-tekst";
 import { Combobox } from "./combobox";
 import { Button } from "./ui/button";
+import { InfoSavet } from "./ui/info-savet";
 import { ZnakSaImenom } from "./znak";
 
 export type NisaCarobnjaka = {
@@ -54,33 +55,33 @@ const TEKST = {
   ekran1: {
     eyebrow: "PRVI KORAK OD TRI",
     naslov: "Gde tražiš klijente?",
-    lede: "Prikazujem samo gradove za koje već imam gotove liste — prva lista stiže odmah, bez čekanja.",
+    lede: "Prikazujem samo gradove sa gotovim listama, pa prva lista stiže odmah.",
     placeholder: "Grad…",
-    fusnota: "Grad koji ne vidiš ovde možeš da skeniraš kasnije, sa pretrage.",
+    fusnota:
+      "Grad koji ne vidiš ovde možeš kasnije da skeniraš sa pretrage. Skeniranje znači da Sajtoskop uživo pretražuje Google Maps za taj grad i nišu.",
   },
   ekran2: {
     eyebrow: "DRUGI KORAK OD TRI",
     naslov: "Kome praviš sajtove?",
-    ledePosle:
-      "Zelena brojka je koliko firmi u niši uopšte nema sajt — to su najlakši razgovori.",
-    fusnota: "Kad izabereš, nišu i grad pamtim kao podrazumevane za pretragu. Menjaš ih kad hoćeš.",
+    ledePosle: "Zelena brojka su firme bez sajta, sa njima je razgovor najlakši.",
+    fusnota: "Nišu i grad pamtim za pretragu. Možeš da ih promeniš kad hoćeš.",
   },
   ekran3: {
     eyebrow: "TREĆI KORAK OD TRI",
     naslov: "Kako obično kontaktiraš firme?",
-    fusnota: "Poruku pišem u kanalu koji izabereš; ostala dva su uvek na klik.",
+    fusnota: "Poruku pišem za kanal koji izabereš. Ostala dva su uvek na klik.",
   },
   ekran4: {
     eyebrow: "SPREMNO",
     ledeUvod: "Lista je gotova i stiže odmah.",
     fusnota:
-      "Lista ti ostaje 30 dana. Sve što je u njoj već je proverio Sajtoskop bot — telefon, sajt, kako radi na telefonu.",
+      "Lista ti ostaje 30 dana. Sajtoskop je već proverio svaku firmu u njoj: telefon, sajt i kako sajt radi na telefonu.",
     otvaram: "Otvaram…",
     istekla: "Ova lista je upravo istekla, osvežavanje košta isto",
   },
   prazno: {
     naslov: "Još nema gotovih lista",
-    lede: "Prva lista za tvoj grad nastaje kad je neko skenira — možeš to da budeš ti. Skeniranje košta 1 kredit za 20 firmi.",
+    lede: "Prvu listu za svoj grad možeš da napraviš sam. Skeniranje košta 1 kredit za 20 firmi.",
     dugme: "Idi na pretragu",
   },
 } as const;
@@ -101,7 +102,7 @@ type Props = {
   krediti: number;
   /** `dopuna` bez paketa, sa netaknutim kreditima dobrodošlice (§4.2, ekran 4). */
   besplatni: boolean;
-  /** „Komp pristup do …, N kredita" iznad naslova prvog ekrana (§1.13). */
+  /** „Besplatan pristup do …, N kredita" iznad naslova prvog ekrana (§1.13). */
   kompRed: string | null;
   /** `?ponovo=1` — preselekcija, bez preskakanja u bazi (§4.8). */
   ponovo: boolean;
@@ -301,7 +302,12 @@ export function PocetakEkran({ gradovi, pocetno, krediti, besplatni, kompRed, po
           )}
 
           <p className="eyebrow">{podaci.eyebrow}</p>
-          <h1 className="h2 mt-3">{podaci.naslov}</h1>
+          {/* [čišćenje UI-a] Fusnota ekrana je u oblačiću pored naslova, ne
+              ispod dugmeta. */}
+          <div className="mt-3 flex items-center gap-2">
+            <h1 className="h2">{podaci.naslov}</h1>
+            <InfoSavet label="Objašnjenje">{podaci.fusnota}</InfoSavet>
+          </div>
 
           {/* Tačkice 1–4, bez brojača „1 od 4" (§4.2). */}
           <div aria-hidden className="mt-3 flex gap-1.5">
@@ -462,8 +468,8 @@ export function PocetakEkran({ gradovi, pocetno, krediti, besplatni, kompRed, po
                     Košta{" "}
                     <strong className="font-semibold text-fg">
                       <span className="num">{cena}</span> {plural(cena, "kredit", "kredita", "kredita")}
-                    </strong>{" "}
-                    — imaš{" "}
+                    </strong>
+                    , imaš{" "}
                     <strong className="num font-semibold text-fg">{krediti}</strong>.
                   </>
                 )}
@@ -511,7 +517,6 @@ export function PocetakEkran({ gradovi, pocetno, krediti, besplatni, kompRed, po
             </Button>
           </div>
 
-          <p className="mt-6 text-xs leading-relaxed text-fg-muted">{podaci.fusnota}</p>
         </form>
       </main>
     </div>

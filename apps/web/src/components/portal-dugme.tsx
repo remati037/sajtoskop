@@ -52,7 +52,7 @@ export function PortalDugme({ children, className }: Props) {
       window.location.assign(telo.url);
     } catch (err) {
       console.error("[portal]", err);
-      setGreska("Portal se trenutno ne otvara. Pokušaj za koji minut.");
+      setGreska("Stranica za plaćanje se trenutno ne otvara. Pokušaj za koji minut.");
       setUToku(false);
     }
   }, [uToku]);
@@ -63,7 +63,7 @@ export function PortalDugme({ children, className }: Props) {
         {uToku ? (
           <>
             <Loader2 className="animate-spin" aria-hidden />
-            Otvaram portal
+            Otvaram
           </>
         ) : (
           <>

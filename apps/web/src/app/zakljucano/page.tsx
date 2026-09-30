@@ -107,14 +107,14 @@ export default async function Page() {
                     <span className="num">{formatDatum(potrosio)}</span>
                   </>
                 )}
-                , a rok za čitanje je prošao
+                , a rok da gledaš i izvoziš svoj rad je prošao
                 {rokCitanja && (
                   <>
                     {" "}
                     <span className="num">{formatDatum(rokCitanja)}</span>
                   </>
                 )}
-                . Ništa nije obrisano — sa planom se sve vraća.
+                . Ništa nije obrisano, sa planom se sve vraća.
               </p>
             </>
           ) : (
@@ -123,20 +123,20 @@ export default async function Page() {
               <p className="mt-3 text-sm leading-relaxed text-fg-muted">
                 Pun pristup ti je prestao{" "}
                 <span className="num">{formatDatum(pristup.punDo as string)}</span>. Posle toga si
-                imao još mesec dana da otvaraš svoje prospekte i izvezeš ih —
+                imao još mesec dana da otvaraš svoje prospekte i izvezeš ih.
                 {rokCitanja ? (
                   <>
                     {" "}
-                    taj rok je istekao <span className="num">{formatDatum(rokCitanja)}</span>.
+                    Taj rok je istekao <span className="num">{formatDatum(rokCitanja)}</span>.
                   </>
                 ) : (
-                  " i taj rok je istekao."
+                  " I taj rok je istekao."
                 )}
               </p>
 
               <p className="mt-3 text-sm leading-relaxed text-fg-muted">
                 <strong className="font-semibold text-fg">Ništa nije obrisano.</strong> Otključani
-                prospekti, pipeline, beleške i poruke stoje tačno kako si ih ostavio i vraćaju se u
+                prospekti, praćenje kontakata, beleške i poruke stoje tačno kako si ih ostavio i vraćaju se u
                 istom trenutku u kom nalog ponovo dobije pristup.
               </p>
             </>
@@ -157,9 +157,8 @@ export default async function Page() {
 
           {!cekaPlan && (
             <p className="mt-6 border-t border-border pt-4 text-xs leading-relaxed text-fg-muted">
-              Krediti koje si ranije dokupio nisu nestali — oni ne ističu i čekaju te. Paket kredita
-              se, međutim, kupuje samo uz aktivan plan, probu ili komp pristup, pa se pristup vraća
-              planom.
+              Krediti koje si ranije kupio nisu nestali. Ne ističu i čekaju te. Nov paket se kupuje
+              samo uz aktivan plan, probu ili besplatan pristup, pa se pristup vraća planom.
             </p>
           )}
         </div>

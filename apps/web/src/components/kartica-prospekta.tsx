@@ -90,6 +90,7 @@ import { usePristup } from "./pristup-provider";
 import { SnimakPreklop } from "./snimak";
 import { useUtisci } from "./utisci-provider";
 import { VodjenaTacka } from "./vodjena-tacka";
+import { useObavestenje } from "./ui/obavestenja";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 
@@ -181,7 +182,7 @@ export function KarticaProspekta(props: KarticaProps) {
   const [modal, setModal] = useState<"potvrda" | "plan" | null>(null);
   const [nePitaj, setNePitaj] = useState(false);
   const [greska, setGreska] = useState<string | null>(null);
-  const [obavestenje, setObavestenje] = useState<string | null>(null);
+  const obavesti = useObavestenje();
   const [preklop, setPreklop] = useState(false);
   const [status, setStatus] = useState<LeadStatusValue | null>(pipelineStatus);
 
@@ -275,7 +276,6 @@ export function KarticaProspekta(props: KarticaProps) {
 
     setModal(null);
     setGreska(null);
-    setObavestenje(null);
     setOtkljucavam(true);
     povratni.current.onOtkljucavanje?.(placeId);
 
@@ -319,7 +319,7 @@ export function KarticaProspekta(props: KarticaProps) {
         ishod: o.enrichJobId !== null ? "radi" : ponovi ? "pao" : null,
       });
 
-      if (o.alreadyUnlocked && !ponovi) setObavestenje(kartica.vecOtkljucan(o.lead.name));
+      if (o.alreadyUnlocked && !ponovi) obavesti(kartica.vecOtkljucan(o.lead.name));
       if (!o.alreadyUnlocked) {
         povratni.current.onNovoOtkljucano?.();
         // Balans u bočnoj traci crta serverski layout.
@@ -406,12 +406,6 @@ export function KarticaProspekta(props: KarticaProps) {
         }}
       />
 
-      {obavestenje && (
-        <p role="status" className="mx-5 mb-3 rounded-lg bg-bg-subtle px-3 py-2 text-xs text-fg-muted">
-          {obavestenje}
-        </p>
-      )}
-
       {lead.isUnlocked ? (
         <BlokPoruke
           lead={lead}
@@ -453,7 +447,6 @@ export function KarticaProspekta(props: KarticaProps) {
               {labelaDugmeta}
             </Button>
           </VodjenaTacka>
-          <p className="mt-2 text-center text-xs text-fg-muted">{kartica.otkljucajOpis}</p>
 
           {greska && (
             <div role="alert" className="mt-3 rounded-lg border border-danger/25 bg-danger-wash px-3 py-2 text-xs text-danger">
@@ -1281,7 +1274,7 @@ function BlokPoruke({
         <p className="eyebrow">{kartica.poruka}</p>
         <div className="flex items-center gap-2">
           <label className="relative inline-flex items-center">
-            <span className="sr-only">Pipeline</span>
+            <span className="sr-only">Status u praćenju kontakata</span>
             <KanbanSquare className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-fg-faint" aria-hidden />
             <select
               value={status ?? "nekontaktiran"}

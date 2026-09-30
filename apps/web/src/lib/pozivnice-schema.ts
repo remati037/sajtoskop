@@ -185,7 +185,7 @@ export const POSLE_POZIVNICE: Record<AccessInviteKind, string> = {
 };
 
 /**
- * „Komp pristup do 11. oktobra 2026, 300 kredita." (§9.4)
+ * „Besplatan pristup do 11. oktobra 2026, 300 kredita." (§9.4)
  *
  * Isti tekst na dva mesta — u odgovoru rute i na kontrolnoj tabli posle
  * redirekcije — pa jedna funkcija. Krediti su ZBIR obe kase, jer to je ono
@@ -193,11 +193,11 @@ export const POSLE_POZIVNICE: Record<AccessInviteKind, string> = {
  */
 export function porukaKompa(kompDo: string | null, krediti: number): string {
   const rok = kompDo ? `do ${formatDatum(kompDo)}` : "bez roka";
-  return `Komp pristup ${rok}, ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`;
+  return `Besplatan pristup ${rok}, ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`;
 }
 
 export const PORUKA_PRVOG_MESECA =
-  "Prvi mesec gratis je tvoj. Izaberi plan — popust se primenjuje sam, pri plaćanju.";
+  "Prvi mesec gratis je tvoj. Izaberi plan, popust se primenjuje sam pri plaćanju.";
 
 export type IshodPrihvatanja =
   | { ok: true; kind: AccessInviteKind; poruka: string; dalje: string }
@@ -236,7 +236,7 @@ export function ishodPrihvatanja(
   return {
     ok: true,
     kind: "komp",
-    poruka: komp ? porukaKompa(komp.kompDo, komp.krediti) : "Komp pristup je otvoren.",
+    poruka: komp ? porukaKompa(komp.kompDo, komp.krediti) : "Besplatan pristup je otvoren.",
     dalje: POSLE_POZIVNICE.komp,
   };
 }

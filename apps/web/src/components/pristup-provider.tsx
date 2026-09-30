@@ -189,11 +189,11 @@ function ModalPristupa({
           {jeIstek && pristup && pristup.stanje === "grace" ? (
             <p>
               Liste i prospekti koje si već otvorio ostaju ti do{" "}
-              <span className="num">{formatDatum(pristup.citanjeDo)}</span> — zajedno sa porukama,
-              pipeline-om i izvozom. Posle tog datuma ni to, ali se ništa ne briše.
+              <span className="num">{formatDatum(pristup.citanjeDo)}</span>, zajedno sa porukama,
+              praćenjem kontakata i izvozom. Posle tog datuma ni to, ali se ništa ne briše.
             </p>
           ) : (
-            <p>Sve što si već otključao ostaje ti i dalje, zajedno sa pipeline-om.</p>
+            <p>Sve što si već otključao ostaje ti i dalje, zajedno sa praćenjem kontakata.</p>
           )}
 
           {jeIstek && uzrok === "besplatni" ? (
@@ -211,7 +211,7 @@ function ModalPristupa({
           ) : (
             <p>
               Put dalje je <strong className="font-semibold text-fg">plan</strong>. Paketi kredita
-              se kupuju samo uz aktivan plan, probu ili komp pristup — oni dopunjuju pristup, ne
+              se kupuju samo uz aktivan plan, probu ili besplatan pristup. Oni dopunjuju pristup, ne
               zamenjuju ga.
             </p>
           )}

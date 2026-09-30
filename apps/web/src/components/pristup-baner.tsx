@@ -38,6 +38,7 @@ import type { TrakaDopune } from "@/lib/traka-dopune";
 import { formatDatum, plural, redniDan } from "@/lib/ui-tekst";
 import { AktivirajOdmah, type AktivacijaProbe } from "./aktiviraj-odmah";
 import { PortalDugme } from "./portal-dugme";
+import { InfoSavet } from "./ui/info-savet";
 
 const OKVIR_INFO = "border-b border-info/25 bg-info-wash px-4 py-3 sm:px-6 lg:px-8";
 const OKVIR_WARN = "border-b border-warn/30 bg-warn-wash px-4 py-3 sm:px-6 lg:px-8";
@@ -46,7 +47,7 @@ const OKVIR_WARN = "border-b border-warn/30 bg-warn-wash px-4 py-3 sm:px-6 lg:px
  * Link, ne dugme: traka je na svakom ekranu i uvek je uz primarno dugme te
  * strane, a dva primarna dugmeta po ekranu ne postoje (§7.1).
  */
-const LINK = "shrink-0 self-start text-xs font-medium text-accent-text underline underline-offset-4 hover:no-underline";
+const LINK = "shrink-0 self-start sm:self-auto text-xs font-medium text-accent-text underline underline-offset-4 hover:no-underline";
 
 /** Generički ulaz na planove sa landinga i iz onboardinga (§1.2, §1.12). */
 const PLANOVI_PRO = "/cenovnik?plan=pro&ciklus=mesecno";
@@ -86,12 +87,12 @@ export function PristupBaner({
       <div role="status" className={OKVIR_INFO}>
         <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <Info className="hidden h-4 w-4 shrink-0 text-info-text sm:block" aria-hidden />
-          <p className="min-w-0 flex-1 text-xs leading-relaxed">
-            <span className="font-medium text-info-text">Probni krediti su potrošeni.</span>{" "}
-            <span className="text-fg-muted">
-              Aktiviraj plan odmah ili sačekaj{" "}
-              <span className="num">{formatDatum(pristup.probaDo)}</span>.
-            </span>
+          <p className="flex min-w-0 flex-1 items-center gap-1 text-xs leading-relaxed">
+            <span className="font-medium text-info-text">Probni krediti su potrošeni.</span>
+            <InfoSavet label="Objašnjenje: proba">
+              Plan možeš da aktiviraš odmah ili da sačekaš{" "}
+              <span className="num">{formatDatum(pristup.probaDo)}</span>, kad kreće sam.
+            </InfoSavet>
           </p>
           {aktivacijaProbe ? (
             <AktivirajOdmah aktivacija={aktivacijaProbe} size="sm" className="self-start sm:self-auto" />
@@ -113,26 +114,30 @@ export function PristupBaner({
 
     return (
       <div role="status" className={OKVIR_INFO}>
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
-          <Info className="mt-0.5 hidden h-4 w-4 shrink-0 text-info-text sm:block" aria-hidden />
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-fg-muted">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <Info className="hidden h-4 w-4 shrink-0 text-info-text sm:block" aria-hidden />
+          <p className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-xs leading-relaxed text-fg-muted">
             {trakaDopune.grana === "onboarding" ? (
               <>
-                Nemaš plan. Dobio si{" "}
-                <span className="num">{ONBOARDING_CREDITS}</span>{" "}
-                {plural(ONBOARDING_CREDITS, "kredit", "kredita", "kredita")} da probaš: jedna
-                lista, jedan prospekt.{" "}
-                <strong className="font-semibold text-fg">Plan počinje sa {PROBA_UKRATKO}.</strong>
+                <span>
+                  Nemaš plan. Dobio si <span className="num">{ONBOARDING_CREDITS}</span>{" "}
+                  {plural(ONBOARDING_CREDITS, "kredit", "kredita", "kredita")} da probaš.
+                </span>
+                <InfoSavet label="Objašnjenje: plan">
+                  Dovoljno za jednu listu i jedan prospekt. Plan počinje sa {PROBA_UKRATKO}.
+                </InfoSavet>
               </>
             ) : trakaDopune.grana === "paket" ? (
               // Platio je — nije na probi, pa ni „probaj" ni prodaja probe.
-              <>
+              <span>
                 Imaš <span className="num">{n}</span> {kredita} iz paketa.
-              </>
+              </span>
             ) : (
               <>
-                Nemaš plan. Imaš <span className="num">{n}</span> {kredita}.{" "}
-                <strong className="font-semibold text-fg">Plan počinje sa {PROBA_UKRATKO}.</strong>
+                <span>
+                  Nemaš plan. Imaš <span className="num">{n}</span> {kredita}.
+                </span>
+                <InfoSavet label="Objašnjenje: plan">Plan počinje sa {PROBA_UKRATKO}.</InfoSavet>
               </>
             )}
           </p>
@@ -147,53 +152,60 @@ export function PristupBaner({
   if (pristup.stanje !== "grace" && pristup.stanje !== "otkazan") return null;
 
   // ── grace, po uzroku (§2.3) ─────────────────────────────────
+  // [čišćenje UI-a] Vidljiva je jedna rečenica i put dalje; datumi i šta još
+  // radi stoje u oblačiću. Ovo je jedino mesto koje upozorava na grace —
+  // `/krediti` ga više ne ponavlja.
   if (pristup.stanje === "grace") {
     const citanjeDo = pristup.citanjeDo ? formatDatum(pristup.citanjeDo) : null;
 
     return (
       <div role="status" className={OKVIR_WARN}>
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
-          <AlertTriangle className="mt-0.5 hidden h-4 w-4 shrink-0 text-warn-text sm:block" aria-hidden />
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <AlertTriangle className="hidden h-4 w-4 shrink-0 text-warn-text sm:block" aria-hidden />
 
-          <div className="min-w-0 flex-1 text-xs leading-relaxed">
+          <p className="flex min-w-0 flex-1 items-center gap-1 text-xs leading-relaxed">
             {uzrokGrace === "naplata" ? (
               // §2.2, dan 8.
-              <p className="text-fg-muted">
-                <span className="font-medium text-warn-text">Naplata nije prošla.</span>{" "}
-                {pristup.punDo && (
-                  <>
-                    Kartica je odbijena <span className="num">{formatDatum(pristup.punDo)}</span>.{" "}
-                  </>
+              <>
+                <span className="font-medium text-warn-text">
+                  Naplata nije prošla, ažuriraj karticu da nastaviš.
+                </span>
+                {(pristup.punDo || citanjeDo) && (
+                  <InfoSavet label="Objašnjenje: naplata">
+                    {pristup.punDo && (
+                      <>
+                        Kartica je odbijena <span className="num">{formatDatum(pristup.punDo)}</span>.{" "}
+                      </>
+                    )}
+                    {citanjeDo && (
+                      <>
+                        Do <span className="num">{citanjeDo}</span> možeš da gledaš i izvoziš svoje
+                        prospekte.
+                      </>
+                    )}
+                  </InfoSavet>
                 )}
-                Ažuriraj karticu i plan se nastavlja
-                {citanjeDo ? (
-                  <>
-                    ; do <span className="num">{citanjeDo}</span> možeš da čitaš svoje prospekte.
-                  </>
-                ) : (
-                  "."
-                )}
-              </p>
+              </>
             ) : uzrokGrace === "besplatni" ? (
-              // §1.12, posle oba kredita dobrodošlice. [posle S30] Prvo ono što
-              // se desilo (kredita nema), pa šta NE radi, pa šta ostaje — bez
-              // prodaje u istoj rečenici; put dalje je link desno.
-              <p className="text-fg-muted">
-                <span className="font-medium text-warn-text">Nemaš više kredita.</span>{" "}
-                Nove pretrage, skeniranja i otključavanja ne rade
-                {citanjeDo ? (
-                  <>
-                    ; liste i prospekti koje si već otvorio ostaju ti do{" "}
-                    <span className="num">{citanjeDo}</span>.
-                  </>
-                ) : (
-                  "."
-                )}
-              </p>
+              // §1.12, posle oba kredita dobrodošlice. Bez prodaje u istoj
+              // rečenici; put dalje je link desno.
+              <>
+                <span className="font-medium text-warn-text">Nemaš više kredita.</span>
+                <InfoSavet label="Objašnjenje: krediti">
+                  Nove pretrage i otključavanja ne rade.
+                  {citanjeDo && (
+                    <>
+                      {" "}
+                      Liste i prospekti koje si već otvorio ostaju ti do{" "}
+                      <span className="num">{citanjeDo}</span>.
+                    </>
+                  )}
+                </InfoSavet>
+              </>
             ) : (
               // §2.3, „sve ostalo". Izlaz je plan — paket se u grace-u ne kupuje.
               <>
-                <p className="font-medium text-warn-text">
+                <span className="font-medium text-warn-text">
                   Pristup ti je istekao
                   {pristup.punDo ? (
                     <>
@@ -203,20 +215,22 @@ export function PristupBaner({
                   ) : (
                     "."
                   )}
-                </p>
-                {citanjeDo && (
-                  <p className="mt-1 text-fg-muted">
-                    Do <span className="num">{citanjeDo}</span> možeš da otvaraš svoje prospekte,
-                    vodiš pipeline i izvezeš oba CSV-a. Pretraga, skeniranje i otključavanje ne rade
-                    dok ne uzmeš plan.
-                  </p>
-                )}
+                </span>
+                <InfoSavet label="Objašnjenje: pristup">
+                  {citanjeDo && (
+                    <>
+                      Do <span className="num">{citanjeDo}</span> možeš da gledaš svoje prospekte i
+                      praćenje kontakata i da izvezeš CSV.{" "}
+                    </>
+                  )}
+                  Pretraga i otključavanje ne rade dok ne uzmeš plan.
+                </InfoSavet>
               </>
             )}
-          </div>
+          </p>
 
           {uzrokGrace === "naplata" ? (
-            <PortalDugme className="shrink-0 self-start">Ažuriraj karticu</PortalDugme>
+            <PortalDugme className="shrink-0 self-start sm:self-auto">Ažuriraj karticu</PortalDugme>
           ) : uzrokGrace === "besplatni" ? (
             <Link href={PLANOVI_PRO} className={LINK}>
               Pogledaj planove
@@ -234,34 +248,19 @@ export function PristupBaner({
   // ── otkazan ─────────────────────────────────────────────────
   return (
     <div role="status" className={OKVIR_INFO}>
-      <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
-        <Info className="mt-0.5 hidden h-4 w-4 shrink-0 text-info-text sm:block" aria-hidden />
+      <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <Info className="hidden h-4 w-4 shrink-0 text-info-text sm:block" aria-hidden />
 
-        <div className="min-w-0 flex-1 text-xs leading-relaxed">
-          {probaOtkazana ? (
-            <>
-              <p className="font-medium text-info-text">
-                Proba je otkazana i traje do{" "}
-                <span className="num">{formatDatum(pristup.trajeDo)}</span>.
-              </p>
-              <p className="mt-1 text-fg-muted">
-                Kartica se neće naplatiti. Do tada radi sve; posle toga imaš još mesec dana da
-                izvezeš svoje prospekte i pipeline.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="font-medium text-info-text">
-                Pretplata je otkazana i traje do{" "}
-                <span className="num">{formatDatum(pristup.trajeDo)}</span>.
-              </p>
-              <p className="mt-1 text-fg-muted">
-                Do tada radi sve kao i do sada. Posle toga imaš još mesec dana da izvezeš svoje
-                prospekte i pipeline.
-              </p>
-            </>
-          )}
-        </div>
+        <p className="flex min-w-0 flex-1 items-center gap-1 text-xs leading-relaxed">
+          <span className="font-medium text-info-text">
+            {probaOtkazana ? "Proba je otkazana" : "Pretplata je otkazana"} i važi do{" "}
+            <span className="num">{formatDatum(pristup.trajeDo)}</span>.
+          </span>
+          <InfoSavet label="Objašnjenje: otkazivanje">
+            {probaOtkazana ? "Kartica se neće naplatiti. " : "Do tada radi sve. "}
+            Posle toga imaš još mesec dana da izvezeš svoj rad.
+          </InfoSavet>
+        </p>
 
         <Link href="/cenovnik" className={LINK}>
           Pogledaj planove

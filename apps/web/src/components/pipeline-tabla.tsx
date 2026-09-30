@@ -163,7 +163,7 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
       }
     } catch {
       izmeni(placeId, { note: stari?.note ?? null });
-      setGreska("Beleška nije sačuvana — nema veze sa serverom.");
+      setGreska("Beleška nije sačuvana. Nema veze sa serverom.");
     }
   }
 
@@ -182,7 +182,7 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-bg-elev p-4 shadow-sm">
         <label className="min-w-[14rem] flex-1">
-          <Label>Pretraži pipeline</Label>
+          <Label>Pretraži kontakte</Label>
           <div className="relative">
             <Search
               aria-hidden
@@ -212,10 +212,6 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
       </div>
 
       {greska && <Alert variant="danger">{greska}</Alert>}
-
-      {/* Kartica preko kolona (F11 §2.1): prvi potpisan posao je jedini trenutak
-          u kom se uopšte pita za preporuku. */}
-      <UtisakKartica kljuc="prvi-potpisan" />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         {KOLONE.map((k) => {
@@ -280,6 +276,10 @@ export function PipelineTabla({ kartice, cityLabels, nicheLabels }: Props) {
           );
         })}
       </div>
+
+      {/* Kartica ispod table (F11 §2.1): prvi potpisan posao je jedini trenutak
+          u kom se uopšte pita za preporuku. Pitanje nikad ne stoji iznad kolona. */}
+      <UtisakKartica kljuc="prvi-potpisan" />
 
       {otvoren && (
         <PorukePanel

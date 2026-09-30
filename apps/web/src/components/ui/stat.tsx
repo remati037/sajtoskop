@@ -6,11 +6,13 @@
 // znači, „12 od 30" i tri četvrtine prazne trake znače sve.
 
 import { cn } from "@/lib/cn";
+import { InfoSavet } from "./info-savet";
 
 export function StatKartica({
   naslov,
   vrednost,
   podnaslov,
+  info,
   ikona,
   odUkupno,
   className,
@@ -19,6 +21,8 @@ export function StatKartica({
   naslov: string;
   vrednost: string;
   podnaslov?: string;
+  /** Objašnjenje brojke, u oblačiću iza ikonice „i" pored naslova. */
+  info?: React.ReactNode;
   ikona?: React.ReactNode;
   /** `[iskorišćeno, granica]` — crta traku napunjenosti. */
   odUkupno?: [number, number];
@@ -40,8 +44,9 @@ export function StatKartica({
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <dt className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">
+        <dt className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-fg-muted">
           {naslov}
+          {info && <InfoSavet label={`Objašnjenje: ${naslov}`}>{info}</InfoSavet>}
         </dt>
         {ikona && (
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-wash text-accent-text [&_svg]:h-3.5 [&_svg]:w-3.5">

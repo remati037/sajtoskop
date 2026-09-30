@@ -19,6 +19,7 @@
 // „2 kredita", ne „2 kredit".
 
 import { FolderOpen, Layers, RefreshCw, Search, Zap } from "lucide-react";
+import { PLACES_PAGE_SIZE } from "@sajtoskop/shared";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { formatDatum, plural } from "@/lib/ui-tekst";
@@ -29,7 +30,10 @@ export type SkeniranjePredlog = {
   razlog: SkeniranjeRazlog;
   /** Cena izabrane dubine u kreditima: 1 „Brzo", 2 „Standardno", 3 „Duboko". */
   cost: number;
-  /** Šta piše na dugmetu dubine — „Brzo" / „Standardno" / „Duboko". */
+  /**
+   * Natpis izabrane veličine liste („40 firmi"). Modal ga od čišćenja UI-a ne
+   * crta (crta `maxRezultata`), ali ga ekran i dalje šalje.
+   */
   dubinaLabela: string;
   /** Do koliko prospekata izabrana dubina ide (20 / 40 / 60). */
   maxRezultata: number;
@@ -63,18 +67,18 @@ function kredita(n: number): string {
 }
 
 const RADNJA: Record<SkeniranjeRazlog, string> = {
-  prvo: "Skeniranje",
-  isteklo: "Osvežavanje",
+  prvo: "Nova lista",
+  isteklo: "Osvežavanje liste",
   rucno: "Ponovno skeniranje",
-  plice: "Dublje skeniranje",
-  kes: "Pristup iz keša",
+  plice: "Veća lista",
+  kes: "Gotova lista",
 };
 
 const POTVRDA_GLAGOL: Record<SkeniranjeRazlog, string> = {
   prvo: "Skeniraj",
   isteklo: "Osveži",
   rucno: "Skeniraj ponovo",
-  plice: "Skeniraj dublje",
+  plice: "Skeniraj",
   kes: "Otvori",
 };
 
@@ -114,99 +118,78 @@ export function SkeniranjeModal({
           </DialogTitle>
           <DialogDescription>
             {predlog.cityLabel} · {predlog.nicheLabel} ·{" "}
-            <span className="num">{predlog.dubinaLabela}</span>
+            <span className="num">do {predlog.maxRezultata} firmi</span>
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 px-5 py-4 text-sm">
           <p className="text-fg-muted">
             {razlog === "prvo" && (
-              <>Ova kombinacija još nije u kešu. Google se poziva uživo i to traje do dva minuta.</>
+              <>Ova lista još ne postoji. Sajtoskop je sada skenira uživo na Google Maps, obično za manje od minuta.</>
             )}
             {razlog === "isteklo" && (
               <>
-                Podaci su poslednji put povučeni <span className="num">{datum}</span> i stariji su
-                od 30 dana, pa se više ne prikazuju. Google se poziva iznova.
+                Poslednje skeniranje je bilo <span className="num">{datum}</span>, pre više od 30
+                dana. Zato skeniramo ponovo.
               </>
             )}
             {razlog === "rucno" && (
               <>
-                Podaci su od <span className="num">{datum}</span> i još važe — ovo skeniranje nije
-                neophodno. Povlači sveže stanje sa Google Maps-a i pomera rok za novih 30 dana.
+                Podaci su od <span className="num">{datum}</span> i još važe. Novo skeniranje donosi
+                sveže stanje i produžava pristup za 30 dana.
               </>
             )}
             {razlog === "plice" && (
               <>
-                Ova kombinacija JESTE u kešu i podaci nisu stari — skenirana je{" "}
-                <span className="num">{datum}</span>, ali samo{" "}
-                <span className="num">
-                  {predlog.kesiranaDubina ?? 1}{" "}
-                  {plural(predlog.kesiranaDubina ?? 1, "stranicu", "stranice", "stranica")}
-                </span>
-                . Za{" "}
-                <span className="num">
-                  {predlog.dubinaLabela.toLowerCase()} (do {predlog.maxRezultata} prospekata)
-                </span>{" "}
-                Google mora da se pozove ponovo, i to se plaća.
+                Gotova lista od <span className="num">{datum}</span> ima samo do{" "}
+                <span className="num">{(predlog.kesiranaDubina ?? 1) * PLACES_PAGE_SIZE} firmi</span>. Za listu do{" "}
+                <span className="num">{predlog.maxRezultata} firmi</span> skeniramo ponovo.
               </>
             )}
             {razlog === "kes" && (
               <>
-                Ova kombinacija je u kešu, skenirana <span className="num">{datum}</span>. Lista
-                stiže odmah, bez čekanja na Google — plaća se pristup, po broju stranica koje
-                stvarno postoje.
+                Lista je skenirana <span className="num">{datum}</span> i stiže odmah, bez čekanja.
               </>
-            )}{" "}
-            {razlog === "kes"
-              ? "Pristup ti važi 30 dana od skeniranja: listanje, filteri i osvežavanje ne troše ništa."
-              : "Posle skeniranja imaš pristup ovoj kombinaciji 30 dana, do te dubine — listanje i filteri ne troše ništa."}
+            )}
           </p>
 
           <dl className="grid grid-cols-2 gap-y-2 rounded-xl border border-border bg-bg-subtle px-4 py-3 text-xs">
-            <dt className="text-fg-muted">Dubina</dt>
-            <dd className="num text-right font-medium">
-              {predlog.dubinaLabela} · do {predlog.maxRezultata}
-            </dd>
+            <dt className="text-fg-muted">Veličina liste</dt>
+            <dd className="num text-right font-medium">do {predlog.maxRezultata} firmi</dd>
 
             {!neograniceno && (
               <>
-                <dt className="text-fg-muted">
-                  Cena{" "}
-                  <span className="text-[11px]">
-                    ({predlog.cost} {plural(predlog.cost, "stranica", "stranice", "stranica")})
-                  </span>
-                </dt>
+                <dt className="text-fg-muted">Cena</dt>
                 <dd className="num text-right font-medium">{kredita(predlog.cost)}</dd>
 
                 <dt className="text-fg-muted">Imaš</dt>
                 <dd className="num text-right font-medium">{predlog.creditsLeft}</dd>
 
-                <dt className="text-fg-muted">Posle skeniranja</dt>
-                <dd className="num text-right font-medium">{dovoljno ? posle : "—"}</dd>
+                <dt className="text-fg-muted">Ostaje ti</dt>
+                <dd className="num text-right font-medium">{dovoljno ? posle : "nedovoljno"}</dd>
               </>
             )}
           </dl>
 
           {neograniceno ? (
             <p className="text-xs text-fg-muted">
-              Admin nalog — krediti se ne troše. Dnevni limit skeniranja i Google budžet važe i
+              Admin nalog, krediti se ne troše. Dnevni limit skeniranja i Google budžet važe i
               dalje.
             </p>
           ) : !dovoljno ? (
             <p className="text-xs text-danger">
-              Nemaš dovoljno kredita za ovu dubinu
-              {predlog.cost > 1 ? " — probaj plići izbor" : ""}. Ono što si već platio otvara
-              se i dalje.
+              Nemaš dovoljno kredita za ovu listu.
+              {predlog.cost > 1 ? " Probaj manju listu." : ""} Liste koje si već platio otvaraš i
+              dalje.
             </p>
           ) : razlog === "kes" ? (
             <p className="text-xs text-fg-muted">
-              Sve što je u kešu stiže odmah, po istoj ceni kao skeniranje — manje kad firmi ima
-              manje.
+              Lista ti je otvorena 30 dana bez novih kredita.
             </p>
           ) : (
             <p className="text-xs text-fg-muted">
-              Ako Google nađe manje firmi nego što tražiš, razliku vraćamo; ako ne nađe nijednu,{" "}
-              {predlog.cost === 1 ? "kredit ti se vraća" : `sva ${predlog.cost} kredita ti se vraćaju`}.
+              Lista ti je otvorena 30 dana. Ako nađemo manje firmi nego što tražiš, razliku
+              vraćamo.
             </p>
           )}
         </div>

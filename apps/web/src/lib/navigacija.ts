@@ -29,14 +29,14 @@ export const NAVIGACIJA: NavGrupa[] = [
     naslov: "Rad",
     stavke: [
       { href: "/pretraga", label: "Pretraga", Ikona: Search, opis: "Nađi prospekte po gradu i niši" },
-      { href: "/lista", label: "Moja lista", Ikona: ListChecks, opis: "Otključani prospekti i CSV" },
-      { href: "/pipeline", label: "Pipeline", Ikona: KanbanSquare, opis: "Kanban od kontakta do potpisa" },
+      { href: "/lista", label: "Moja lista", Ikona: ListChecks, opis: "Otključani prospekti i izvoz u CSV" },
+      { href: "/pipeline", label: "Praćenje kontakata", Ikona: KanbanSquare, opis: "Od prvog kontakta do potpisa" },
     ],
   },
   {
     naslov: "Nalog",
     stavke: [
-      { href: "/krediti", label: "Krediti", Ikona: Coins, opis: "Stanje i izvod iz knjige" },
+      { href: "/krediti", label: "Krediti", Ikona: Coins, opis: "Stanje i istorija kredita" },
       {
         href: "/utisci",
         label: "Moje prijave",

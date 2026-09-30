@@ -668,3 +668,26 @@ Otpala: landing je napravljen van repoa.
 - Stripe potvrda **povraćaja** ostaje uključena, na engleskom, dok ne stigne naš mejl 6.7.
 - Mejl „Uplata primljena" delimično preklapa roadmap 6.1 („Plan je aktivan", H1.2). Kad se 6.1 bude gradio, treba ga spojiti s ovim mejlom, a ne slati dva mejla na isti `invoice.paid`.
 - Stavka 2.6 ostaje otvorena do koraka 5 (N2 pod test satom, mejl uživo) i dok se u Stripe-u ne isključi „Successful payments".
+
+### Čišćenje korisničkih ekrana: info ikonice, oblačići potvrde, rečnik
+**Isporučeno:** 30. septembar 2026 · bez migracije · izvor: zahtev „previše teksta, ne znam gde da gledam"
+
+- Nova komponenta `components/ui/info-savet.tsx`: ikonica „i" pored naslova i oblačić na hover, fokus i dodir (Radix tooltip sa kontrolisanim stanjem). `ZaglavljeStranice.opis`, `NaslovSekcije.info` i `StatKartica.info` je koriste same, pa su podnaslovi svih ekrana (i admin konzole, jer je komponenta ista) sada iza ikonice.
+- Nova komponenta `components/ui/obavestenja.tsx` (`useObavestenje()`): potvrde uspeha (plaćena lista, izvoz, već otključan prospekt) su oblačić dole u sredini koji nestaje posle 6 s. Greške i upozorenja koja traže radnju ostaju `Alert`.
+- Rečnik u korisničkom UI-u: keš i kombinacija → **gotova lista**, dubina → **Veličina liste: 20 / 40 / 60 firmi**, Pipeline → **Praćenje kontakata**, knjiga → **Istorija kredita**, komp → **besplatan pristup**, bez „lead", „grace" i „režim čitanja". Crtice su izbačene iz vidljivog teksta, a rasponi se pišu „1 do 3". Tabele u `CLAUDE.md` i `dizajn-sistem.md` §10 su ažurirane, a pravila su u `CLAUDE.md` („Tekst na ekranu") i §7.4.1.
+- Raspored:
+  - Pretraga: „Gotove liste" su podrazumevano sklopljene, a dupli naslov je obrisan. Cena je jedan red sa „i".
+  - Pitanja za utisak su na svim ekranima ispod sadržaja.
+  - Krediti: upozorenja koja je već davala traka na vrhu su obrisana iz bloka pretplate. Na vrhu je ukupno sa podelom na mesečne i kupljene, a pravila su u ikonici.
+  - Bočna traka: pomoćni red ispod kredita je obrisan. „Prvih pet minuta" se ne prikazuje kad su sva četiri koraka urađena.
+  - Vodič prikazuje samo naslove koraka.
+  - `TrakaKvara` i `VezaGreska` korisniku daju jednu običnu rečenicu, a tehnički uzrok je pod „Tehnički detalji".
+- Testovi sa tekstom su ažurirani (`stanja-skeniranja`, `kartica`, `pozivnice`, `cenovnik`, shared `onboarding`). Plan testiranja ima novu sekciju „Čišćenje ekrana".
+
+**Odstupanja koja i danas važe:**
+- `DUBINA_OPIS.labela` (Brzo/Standardno/Duboko) ostaje u `packages/shared`, jer je čita CLI. Web veličinu računa iz `maxResults`.
+- `RAZLOG_KREDITA` deli i admin konzola, pa i admin vidi nove nazive razloga („Otključan prospekt", „Mesečni krediti"…). Admin `STANJE_PRISTUPA` i admin filter „Pipeline" u utiscima nisu dirani.
+- Utisci poslati sa `/pipeline` od sada nose ime ekrana „Praćenje kontakata" (`naslovZaPutanju`). Admin filtrira po URL-u, pa se ništa ne kvari.
+- Kartica kredita u bočnoj traci objašnjenje ima kao `title`, ne kao info ikonicu, jer bi dugme u linku bilo neispravan HTML.
+- Na `/krediti` u otkazanom stanju rečenica o planu („otkazana, važi do …") ponavlja traku na vrhu. Ostavljeno je namerno, jer je to red o stanju plana.
+- Odloženo: kontrolna tabla sa jednom glavnom radnjom (predlog D).

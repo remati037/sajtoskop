@@ -21,9 +21,13 @@
 // otkazao pretplatu u svojoj glavi, i ne sme da pomisli da će mu kartica biti
 // naplaćena.
 //
-// `past_due` (kartica pala pri obnovi) dobija upozorenje sa portalom iznad
-// svega ostalog — to je jedino stanje u kome čovek MORA nešto da uradi da ne
-// bi izgubio pristup, a portal je jedino mesto gde to može.
+// `past_due` (kartica pala pri obnovi) dobija upozorenje sa portalom — to je
+// jedino stanje u kome čovek MORA nešto da uradi da ne bi izgubio pristup, a
+// portal je jedino mesto gde to može. Kad pređe u grace, upozorenje nosi traka
+// na vrhu (`PristupBaner`), ne ovaj blok.
+//
+// [čišćenje UI-a] Raspored: gore ukupno kredita i podela (mesečni / kupljeni),
+// dugmad desno, pa pretplata. Pravila kasa su u oblačiću „i".
 
 import Link from "next/link";
 import { ArrowRight, Coins, Wallet } from "lucide-react";
@@ -33,12 +37,12 @@ import {
   jeNeograniceno,
   smeDaKupiPaket,
   TRIAL_DAYS,
-  uzrokGrace,
   type Pristup,
 } from "@sajtoskop/shared";
 import { formatDatum, imePlana, redniDan } from "@/lib/ui-tekst";
 import type { PretplataZaEkran } from "@/lib/pretplata";
 import { Alert } from "@/components/ui/alert";
+import { InfoSavet } from "@/components/ui/info-savet";
 import { Button } from "@/components/ui/button";
 import { AktivirajOdmah, type AktivacijaProbe } from "@/components/aktiviraj-odmah";
 import { PortalDugme } from "@/components/portal-dugme";
@@ -88,40 +92,58 @@ export function PretplataBlok({
   // [0029] Admin nalog: ni plan ni paket nemaju šta da mu ponude.
   const neograniceno = jeNeograniceno(pristup);
   const naplataPala = pretplata?.status === "past_due";
-  // [S30, §2.3] Isti izvor uzroka kao baner u okviru aplikacije.
-  const uzrok = uzrokGrace(pristup, pretplata);
+
+  // [čišćenje UI-a] Pravila kasa stoje u oblačiću, ne na ekranu: pročitaju se
+  // jednom, a broj se gleda svaki put.
+  const infoKrediti = (
+    <>
+      {pristup?.stanje === "proba" ? (
+        <>
+          Probni krediti važe do kraja probe. Prvom naplatom postaje ih tačno{" "}
+          <span className="num">{aktivacija?.krediti ?? mesecnaDodela}</span>, ne sabiraju se.
+        </>
+      ) : mesecnaDodela > 0 ? (
+        <>
+          Mesečni krediti se obnavljaju{" "}
+          <span className="num">{formatDatum(sledecaDodelaKredita())}</span>: tada ih ima tačno{" "}
+          <span className="num">{mesecnaDodela}</span>, ne sabiraju se sa ostatkom.
+        </>
+      ) : (
+        <>Mesečnih kredita nema dok nalog nema plan ili besplatan pristup.</>
+      )}{" "}
+      Kupljeni krediti ne ističu i obnova ih ne dira. Prvo se troše{" "}
+      {pristup?.stanje === "proba" ? "probni" : "mesečni"}, pa kupljeni.
+    </>
+  );
 
   return (
     <section className="rounded-2xl border border-border bg-bg-elev shadow-sm">
-      {/* ── 1. pretplata ──────────────────────────────────── */}
+      {/* ── 1. krediti: jedan broj, pa podela ─────────────────── */}
       <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
-            Pretplata
+          <div className="flex items-center gap-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
+              Krediti
+            </p>
+            {!neograniceno && <InfoSavet label="Objašnjenje: Krediti">{infoKrediti}</InfoSavet>}
+          </div>
+          <p className="mt-1 text-3xl font-semibold tracking-tight">
+            {neograniceno ? "Neograničeno" : <span className="num">{izPretplate + dokupljeni}</span>}
           </p>
-          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            {pristup?.stanje === "proba" ? (
-              <>
-                <span className="text-lg font-semibold tracking-tight">
-                  Proba do <span className="num">{formatDatum(pristup.probaDo)}</span>
-                </span>
-                <span className="text-sm text-fg-muted">
-                  · {imePlana(pretplata?.plan ?? plan)}
-                  {ciklus && `, ${ciklus}`}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="text-lg font-semibold tracking-tight">
-                  {neograniceno ? "Admin nalog" : imePlana(plan)}
-                </span>
-                {ciklus && <span className="text-sm text-fg-muted">· {ciklus}</span>}
-              </>
-            )}
-          </p>
-          <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-fg-muted">
-            <Recenica pristup={pristup} pretplata={pretplata} aktivacija={aktivacija} />
-          </p>
+          {!neograniceno && (
+            <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+              <div className="flex items-center gap-1.5">
+                <Wallet className="h-3.5 w-3.5 text-accent-text" aria-hidden />
+                <dt className="text-fg-muted">{pristup?.stanje === "proba" ? "Probni" : "Mesečni"}</dt>
+                <dd className="num font-medium">{izPretplate}</dd>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Coins className="h-3.5 w-3.5 text-accent-text" aria-hidden />
+                <dt className="text-fg-muted">Kupljeni</dt>
+                <dd className="num font-medium">{dokupljeni}</dd>
+              </div>
+            </dl>
+          )}
         </div>
 
         {/* Jedno primarno dugme na ekranu (§7.1). Šta ono nudi zavisi od toga
@@ -151,40 +173,58 @@ export function PretplataBlok({
         </div>
       </div>
 
-      {naplataPala && (
-        <div className="px-5 pb-5 sm:px-6 sm:pb-6">
-          <Alert variant="warning">
+      {/* ── 2. pretplata: ime plana i jedna rečenica ──────────── */}
+      <div className="border-t border-border p-5 sm:p-6">
+        <div className="flex items-center gap-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
+            Pretplata
+          </p>
+          {imaStripeKupca && (
+            <InfoSavet label="Objašnjenje: Pretplata">
+              Otkazivanje, promenu kartice ili plana i račune menjaš na stranici za plaćanje. Račun
+              stiže mejlom posle svake naplate.
+            </InfoSavet>
+          )}
+        </div>
+        <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          {pristup?.stanje === "proba" ? (
+            <>
+              <span className="text-base font-semibold tracking-tight">
+                Proba do <span className="num">{formatDatum(pristup.probaDo)}</span>
+              </span>
+              <span className="text-sm text-fg-muted">
+                · {imePlana(pretplata?.plan ?? plan)}
+                {ciklus && `, ${ciklus}`}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-base font-semibold tracking-tight">
+                {neograniceno ? "Admin nalog" : imePlana(plan)}
+              </span>
+              {ciklus && <span className="text-sm text-fg-muted">· {ciklus}</span>}
+            </>
+          )}
+        </p>
+        <p className="mt-1 max-w-xl text-sm leading-relaxed text-fg-muted">
+          <Recenica pristup={pristup} pretplata={pretplata} aktivacija={aktivacija} />
+        </p>
+
+        {/* [čišćenje UI-a, F] Grace (pala naplata, istek, potrošeni besplatni
+            krediti) ima traku na vrhu svakog ekrana (`PristupBaner`) i ovde se
+            više ne ponavlja. Ostaje samo `past_due` dok period još traje:
+            stanje je tada `aktivan`, pa traka ćuti, a čovek MORA da ažurira
+            karticu da ne bi izgubio pristup. */}
+        {naplataPala && pristup?.stanje !== "grace" && (
+          <Alert variant="warning" className="mt-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              {pristup?.stanje === "grace" ? (
-                // [S30, §2.2] Dan 8: period je prošao, nalog čita.
-                <p>
-                  <span className="font-medium">Naplata nije prošla.</span>{" "}
-                  <span className="text-fg-muted">
-                    {pristup.punDo && (
-                      <>
-                        Kartica je odbijena <span className="num">{formatDatum(pristup.punDo)}</span>.{" "}
-                      </>
-                    )}
-                    Ažuriraj karticu i plan se nastavlja
-                    {pristup.citanjeDo ? (
-                      <>
-                        ; do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da
-                        čitaš svoje prospekte.
-                      </>
-                    ) : (
-                      "."
-                    )}
-                  </span>
-                </p>
-              ) : (
-                <p>
-                  <span className="font-medium">Naplata nije prošla. Ažuriraj karticu.</span>{" "}
-                  <span className="text-fg-muted">
-                    Stripe pokušava ponovo narednih dana. Dok period ne istekne radi sve; posle toga
-                    pristup prelazi u režim čitanja.
-                  </span>
-                </p>
-              )}
+              <p>
+                <span className="font-medium">Naplata nije prošla. Ažuriraj karticu.</span>{" "}
+                <span className="text-fg-muted">
+                  Pokušaćemo ponovo narednih dana. Ako ne uspe, moći ćeš samo da gledaš i izvoziš
+                  svoj rad.
+                </span>
+              </p>
               {imaStripeKupca && <PortalDugme className="shrink-0">Ažuriraj karticu</PortalDugme>}
             </div>
             {/* [S29 §5.3 D] Kartica ume da padne i kad je sve u redu sa njom.
@@ -192,146 +232,9 @@ export function PretplataBlok({
                 ovaj ekran (pravilo 8). Odavde ide samo ono što je čovek video. */}
             <PrijaviGresku ctx={{ greska: "Naplata nije prošla." }} className="mt-2" />
           </Alert>
-        </div>
-      )}
-
-      {pristup?.stanje === "grace" && !naplataPala && (
-        <div className="px-5 pb-5 sm:px-6 sm:pb-6">
-          <Alert variant="warning">
-            {uzrok === "besplatni" ? (
-              // [S30, §1.12] Posle oba kredita dobrodošlice.
-              <>
-                <span className="font-medium">Nemaš više kredita.</span>{" "}
-                <span className="text-fg-muted">
-                  {pristup.citanjeDo && (
-                    <>
-                      Liste i prospekti koje si već otvorio ostaju ti do{" "}
-                      <span className="num">{formatDatum(pristup.citanjeDo)}</span>.{" "}
-                    </>
-                  )}
-                  Za nove liste i otključavanja treba plan — {TRIAL_DAYS} dana probe, kartica se
-                  naplaćuje {redniDan(TRIAL_DAYS + 1)} dana.
-                </span>
-              </>
-            ) : (
-              // [S30, §2.3] „Sve ostalo" — izlaz je plan, ne paket.
-              <>
-                <span className="font-medium">
-                  Pristup ti je istekao
-                  {pristup.punDo ? (
-                    <>
-                      {" "}
-                      <span className="num">{formatDatum(pristup.punDo)}</span>.
-                    </>
-                  ) : (
-                    "."
-                  )}
-                </span>{" "}
-                <span className="text-fg-muted">
-                  {pristup.citanjeDo && (
-                    <>
-                      Do <span className="num">{formatDatum(pristup.citanjeDo)}</span> možeš da
-                      otvaraš svoje prospekte, vodiš pipeline i izvezeš oba CSV-a.{" "}
-                    </>
-                  )}
-                  Skeniranje i otključavanje ne rade dok ne uzmeš plan — krediti koje vidiš ispod
-                  te čekaju.
-                </span>
-              </>
-            )}
-          </Alert>
-        </div>
-      )}
-
-      {imaStripeKupca && (
-        <p className="px-5 pb-5 text-xs leading-relaxed text-fg-muted sm:px-6 sm:pb-6">
-          Otkazivanje, izmena kartice, promena plana i preuzimanje računa idu kroz Stripe portal.
-          Račun stiže mejlom posle svake naplate, u ime prodavca.
-        </p>
-      )}
-
-      {/* ── 2. dve kase ───────────────────────────────────── */}
-      <div className="border-t border-border p-5 sm:p-6">
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
-            Krediti
-          </p>
-          <p className="text-sm text-fg-muted">
-            ukupno{" "}
-            <span className="num text-base font-semibold text-fg">{izPretplate + dokupljeni}</span>
-          </p>
-        </div>
-
-        {/* `gap-px` na `bg-border` — mreža bez dvostrukih linija (§7.2), i bez
-            ugnježđene kartice: dva polja dele istu površinu. */}
-        <div className="mt-3 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
-          <Kasa
-            ikona={<Wallet aria-hidden />}
-            naslov={pristup?.stanje === "proba" ? "Probni" : "Iz pretplate"}
-            iznos={izPretplate}
-            objasnjenje={
-              pristup?.stanje === "proba" ? (
-                <>
-                  Važe do kraja probe. Prvom naplatom se postavljaju na{" "}
-                  <span className="num">{aktivacija?.krediti ?? mesecnaDodela}</span> kredita plana
-                  — ne sabiraju se.
-                </>
-              ) : mesecnaDodela > 0 ? (
-                <>
-                  Obnavlja se{" "}
-                  <span className="num">{formatDatum(sledecaDodelaKredita())}</span> — tada se
-                  postavlja na <span className="num">{mesecnaDodela}</span>, ne sabira.
-                  Neiskorišćeno se ne prenosi.
-                </>
-              ) : (
-                <>Nema mesečne dodele dok nalog nema plan ni komp pristup.</>
-              )
-            }
-          />
-          <Kasa
-            ikona={<Coins aria-hidden />}
-            naslov="Dokupljeni"
-            iznos={dokupljeni}
-            objasnjenje={
-              <>
-                <strong className="font-medium text-fg">Ne ističu.</strong> Krediti iz paketa
-                stoje dok ih ne potrošiš i mesečna dodela ih ne dira. Nov paket se kupuje uz
-                aktivan plan ili komp pristup.
-              </>
-            }
-          />
-        </div>
-
-        <p className="mt-3 text-xs leading-relaxed text-fg-muted">
-          Troši se prvo ono što ističe, pa dokupljeno — jedini redosled koji je u tvoju korist.
-        </p>
+        )}
       </div>
     </section>
-  );
-}
-
-function Kasa({
-  ikona,
-  naslov,
-  iznos,
-  objasnjenje,
-}: {
-  ikona: React.ReactNode;
-  naslov: string;
-  iznos: number;
-  objasnjenje: React.ReactNode;
-}) {
-  return (
-    <div className="bg-bg-elev p-4">
-      <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-wash text-accent-text [&_svg]:h-3.5 [&_svg]:w-3.5">
-          {ikona}
-        </span>
-        <p className="text-xs font-medium text-fg-muted">{naslov}</p>
-      </div>
-      <p className="num mt-2 text-2xl font-semibold tracking-tight">{iznos}</p>
-      <p className="mt-1 text-xs leading-relaxed text-fg-muted">{objasnjenje}</p>
-    </div>
   );
 }
 
@@ -352,7 +255,7 @@ function Recenica({
   aktivacija: AktivacijaProbe | null;
 }) {
   if (!pristup) {
-    return <>Stanje naloga se trenutno ne čita. Krediti ispod su poslednje što je pročitano.</>;
+    return <>Stanje naloga trenutno ne možemo da pročitamo. Krediti su po poslednjem čitanju.</>;
   }
 
   // Grananje ide po `pristup.stanje`, ne po kopiji te vrednosti u zasebnoj
@@ -362,16 +265,16 @@ function Recenica({
     case "komp":
       return pristup.punDo ? (
         <>
-          Komp pristup do <span className="num">{formatDatum(pristup.punDo)}</span>. Do tada radi
-          sve; posle toga imaš još mesec dana da izvezeš svoj rad.
+          Besplatan pristup do <span className="num">{formatDatum(pristup.punDo)}</span>. Posle
+          toga imaš još mesec dana da izvezeš svoj rad.
         </>
       ) : pristup.admin ? (
         <>
-          Skeniranje i otključavanje ne troše kredite. Dnevni limiti su kao na Advanced planu, a
-          Google budžet važi i dalje.
+          Skeniranje i otključavanje ne troše kredite. Dnevna ograničenja su kao na Advanced
+          planu.
         </>
       ) : (
-        <>Komp pristup, neograničeno. Krediti stižu svakog meseca dok komp traje.</>
+        <>Besplatan pristup bez roka. Krediti stižu svakog meseca.</>
       );
 
     case "proba":
@@ -379,8 +282,8 @@ function Recenica({
         <>
           {DAN_NAPLATE} dana kartica se naplaćuje{" "}
           <span className="num">{formatEur(aktivacija.eur)}</span> za {aktivacija.imePlana} i
-          dobijaš <span className="num">{aktivacija.krediti}</span> kredita. Ako potrošiš probne
-          kredite ranije, možeš da aktiviraš plan odmah.
+          dobijaš <span className="num">{aktivacija.krediti}</span> kredita. Plan možeš da
+          aktiviraš i ranije.
         </>
       ) : (
         // Ključ pretplate van kataloga (ručno napravljena u panelu): iznos se
@@ -409,33 +312,31 @@ function Recenica({
     case "otkazan":
       return pretplata?.status === "trialing" ? (
         <>
-          Proba otkazana, traje do <span className="num">{formatDatum(pristup.trajeDo)}</span>.
-          Kartica se neće naplatiti, a do tada radi sve kao i do sada.
+          Proba otkazana, važi do <span className="num">{formatDatum(pristup.trajeDo)}</span>.
+          Kartica se neće naplatiti.
         </>
       ) : (
         <>
-          Pretplata je otkazana i neće se obnoviti, ali traje do{" "}
-          <span className="num">{formatDatum(pristup.trajeDo)}</span>. Do tog datuma radi sve kao i
-          do sada.
+          Pretplata je otkazana i važi do{" "}
+          <span className="num">{formatDatum(pristup.trajeDo)}</span>. Do tada radi sve.
         </>
       );
 
     case "dopuna":
       return (
         <>
-          Nemaš pretplatu i radiš na kupljenim kreditima. Pristup traje dok ih ima, sa Starter
-          dnevnim limitima.
+          Nemaš pretplatu, trošiš kupljene kredite. Dnevna ograničenja su kao na Starter planu.
         </>
       );
 
     case "grace":
-      // Datumi stoje u upozorenju ispod — dva puta isti datum u dva susedna
-      // pasusa je šum, ne naglasak.
-      return <>Pristup je istekao. Detalji i rokovi su odmah ispod.</>;
+      // Datumi i put dalje stoje u traci na vrhu ekrana (`PristupBaner`) —
+      // dva puta isti datum na istom ekranu je šum, ne naglasak.
+      return <>Pristup je istekao.</>;
 
     case "zakljucan":
       // Do ovog ekrana ne stiže — `zahtevajCitanje()` ga odvodi na
       // `/zakljucano`. Grana postoji da unija ostane iscrpna.
-      return <>Pristup je istekao i grace period je prošao.</>;
+      return <>Pristup je istekao.</>;
   }
 }

@@ -112,18 +112,23 @@ Ako predlažeš kod koji povećava broj Places poziva, reci mi to eksplicitno pr
 
 | Kod | UI |
 |---|---|
-| lead / business | prospekt |
+| lead / business | prospekt — nikad „lead" |
 | unlock | otključaj |
-| scan (plaćen Places poziv) | skeniranje — nikad „pretraga", pretraga po kešu je besplatna |
+| scan (plaćen Places poziv) | skeniranje; gde se prvi put pojavi na ekranu, objašnjenje ide u info ikonicu |
+| cache / keš, kombinacija grad+niša | gotova lista / gotove liste — nikad „keš" ni „kombinacija" |
+| depth (brzo/standardno/duboko) | Veličina liste: 20 / 40 / 60 firmi (oznake `DUBINA_OPIS.labela` ostaju za CLI) |
+| pipeline (ekran, kanban) | Praćenje kontakata — nikad „pipeline" ni „kanban"; ruta ostaje `/pipeline` |
+| credit_ledger | Istorija kredita; dve kase su „mesečni" i „kupljeni" krediti |
 | ugly score | Ugly Score (ne prevodi) |
-| band | Solidan / Osrednji / Ružan / Katastrofa |
+| band | Solidan / Osrednji / Ružan / Katastrofa; opšta reč je „ocena" |
 | kanban kolone | Nekontaktiran / Kontaktiran / Odgovorio / Potpisan / Nezainteresovan |
 | credits | krediti |
 | feedback | utisak — nikad „feedback" ni „povratna informacija" |
 | feedback sa statusom | prijava (ekran „Moje prijave") |
 | prompt / survey | pitanje; nikad „anketa" |
 | changelog | Beta dnevnik |
-| komp (bivša beta) | komp pristup — nikad „beta nalog" |
+| komp (bivša beta) | besplatan pristup — nikad „komp" ni „beta nalog" u korisničkom UI-u (admin konzola sme „komp") |
+| grace | „možeš samo da gledaš i izvoziš" — nikad „grace" ni „režim čitanja" |
 | trial | proba — nikad „trial" |
 | invite (pristupna) | pozivnica |
 | admin panel | admin konzola |
@@ -174,3 +179,13 @@ ovi idu u njega.
   pet razdvojivih boja; dokument plavu ima samo kao `--glow-2`
 - `--scrim` — zavesa ispod modala i mobilne fioke; ne može kroz `--bg` jer je u svetloj
   temi bela
+
+### Tekst na ekranu
+
+- **Objašnjenja stoje iza ikonice „i"** (`components/ui/info-savet.tsx`), ne kao sivi pasus.
+  `ZaglavljeStranice.opis`, `NaslovSekcije.info` i `StatKartica.info` to rade sami. Vidljivo
+  ostaje: naslov, podatak, jedna rečenica praznog stanja, i greška ili upozorenje koje traži radnju.
+- **Potvrda uspeha je oblačić** (`useObavestenje()` iz `components/ui/obavestenja.tsx`), ne zeleni
+  `Alert` između forme i rezultata.
+- **Pitanja za utisak nikad iznad glavnog sadržaja.**
+- **Bez crtica u vidljivom tekstu** („—", „–"); rasponi se pišu „1 do 3".

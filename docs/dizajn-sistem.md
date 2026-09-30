@@ -626,6 +626,18 @@ Okvir nosi kontejner, ne sam input — input je transparentan unutar njega.
 Status tačka koja pulsira dok posao radi (`--warn` u toku, `--accent` gotovo) —
 `pulse-ring` keyframe je u sekciji 8.
 
+### 7.4.1 Info ikonica i oblačić potvrde
+
+Ekran pokazuje **šta je šta**; **zašto i kako** se čita na zahtev.
+
+- **Info ikonica** (`components/ui/info-savet.tsx`): lucide `Info` 14 px u `text-fg-faint`,
+  odmah posle naslova (`flex items-center gap-1`). Na hover i fokus, a na telefonu na dodir,
+  otvara oblačić: `bg-bg-elev`, `border-border`, `shadow-card`, `text-xs text-fg-muted`, najviše
+  18rem. U njega idu podnaslovi stranica, pomoćne rečenice, fusnote i pravila o kreditima.
+  **Nikad** greška ni upozorenje koje traži radnju.
+- **Oblačić potvrde** (`components/ui/obavestenja.tsx`, `useObavestenje()`): dole u sredini,
+  nestaje posle 6 s, najviše dva odjednom. Samo za potvrdu uspeha; greška ostaje `Alert`.
+
 ### 7.5 Tabela
 
 ```tsx
@@ -870,6 +882,10 @@ Kod je engleski, sve što korisnik vidi je **srpski, latinica, sa dijakritikom**
 | band | Solidan / Osrednji / Ružan / Katastrofa |
 | kanban kolone | Nekontaktiran / Kontaktiran / Odgovorio / Potpisan / Nezainteresovan |
 | credits | krediti |
+| keš, kombinacija | gotova lista |
+| dubina | Veličina liste: 20 / 40 / 60 firmi |
+| pipeline | Praćenje kontakata |
+| knjiga kredita | Istorija kredita |
 
 Ton kopija: kratko, konkretno, bez marketinškog naduvavanja. Brojevi umesto
 prideva („58% PVC stolarija u Šapcu nema sajt koji radi", ne „ogroman broj firmi").

@@ -86,8 +86,8 @@ export default async function Page() {
         naslov="Moje prijave"
         opis={
           poslate > 0
-            ? `${poslate} ${poslate === 1 ? "poslata" : "poslate"} · ${resene} ${resene === 1 ? "rešena" : "rešene"}`
-            : 'Sve što pošalješ kroz dugme „Utisak" staje ovde, sa ishodom kad ga obradim.'
+            ? `Ovde je sve što si poslao kroz dugme „Utisak“, sa ishodom. Poslato: ${poslate}, rešeno: ${resene}.`
+            : "Ovde je sve što pošalješ kroz dugme „Utisak“, sa ishodom kad ga obradim."
         }
       />
 
@@ -148,7 +148,7 @@ function PrijavaRed({ prijava }: { prijava: MojaPrijava }) {
           )}
           {red.status === "u_radu" && (
             <span className="text-[11px] text-fg-muted">
-              Još se obrađuje — javljam se kad bude ishoda.
+              Još se obrađuje. Javiću se kad bude ishoda.
             </span>
           )}
         </div>

@@ -44,7 +44,7 @@ const KANAL_LABEL: Record<MessageChannel, string> = {
 
 const KANAL_OPIS: Record<MessageChannel, string> = {
   mejl: "Jedini kanal u kome adresa sajta nije problem.",
-  viber: "Bez linka — link od nepoznatog broja se ne otvara.",
+  viber: "Bez linka. Link od nepoznatog broja niko ne otvara.",
   instagram: "Prva poruka bez ponude. Druga tek kad odgovori.",
 };
 
@@ -175,7 +175,7 @@ function Poruke({
 
         {odgovor.predlog === "poziv" && (
           <span className="ml-auto text-xs text-fg-muted">
-            Broj je fiksni — bolje pozovi nego da pišeš.
+            Broj je fiksni, bolje pozovi nego da pišeš.
           </span>
         )}
       </div>
@@ -192,7 +192,7 @@ function Poruke({
           placeId={placeId}
           kanal={kanal}
           naKontakt={naKontakt}
-          naslov="Druga poruka — šalje se tek kad odgovori"
+          naslov="Druga poruka, tek kad odgovori"
         />
       )}
 
@@ -203,7 +203,7 @@ function Poruke({
           : odgovor.izvor === "status"
             ? "iz stanja sajta"
             : "iz provere HTML-a"}
-        . Pročitaj je pre slanja — ti je potpisuješ.
+        . Pročitaj je pre slanja, ti je potpisuješ.
       </p>
     </div>
   );
@@ -252,7 +252,7 @@ function AiVarijanta({
 
       const json = (await res.json()) as { jobId: number } | ApiError;
       if (!res.ok) {
-        setGreska((json as ApiError).greska ?? "Varijanta nije uspela.");
+        setGreska((json as ApiError).greska ?? "Nova verzija nije uspela.");
         setStanje("greska");
         return;
       }
@@ -261,7 +261,7 @@ function AiVarijanta({
 
       const ok = await sacekajPosao(jobId);
       if (!ok) {
-        setGreska("Pisanje varijante nije uspelo. Šablon iznad je i dalje upotrebljiv.");
+        setGreska("Nova verzija nije uspela. Poruka iznad je i dalje dobra.");
         setStanje("greska");
         return;
       }
@@ -273,7 +273,7 @@ function AiVarijanta({
         // 404 ovde znači da je posao prošao, ali model nije dao ništa što prolazi
         // pravila kopija. Ruta za to vraća rečenicu koja to i kaže.
         const err = (await gotov.json()) as ApiError;
-        setGreska(err.greska ?? "Varijanta nije stigla. Pokušaj ponovo.");
+        setGreska(err.greska ?? "Nova verzija nije stigla. Pokušaj ponovo.");
         setStanje("greska");
         return;
       }
@@ -295,7 +295,7 @@ function AiVarijanta({
         kanal={kanal}
         naKontakt={naKontakt}
         izvor="ai"
-        naslov="Druga verzija — pročitaj je pre nego što je pošalješ"
+        naslov="Nova verzija. Pročitaj je pre slanja."
       />
     );
   }

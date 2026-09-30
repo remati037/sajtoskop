@@ -50,7 +50,7 @@ export function Futer({ className }: { className?: string }) {
               <ZnakSaImenom />
             </a>
             <p className="mt-2.5 max-w-xs text-xs leading-relaxed text-fg-muted">
-              Biznisi u Srbiji kojima sajt ne valja — ili ga uopšte nema.
+              Biznisi u Srbiji kojima sajt ne valja ili ga uopšte nema.
             </p>
           </div>
 

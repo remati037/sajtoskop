@@ -261,7 +261,7 @@ export function UtisakDugme({
             setBug(null);
             setPanel((p) => !p);
           }}
-          title="Pošalji utisak — stiže direktno meni (Ctrl/⌘ + Shift + U)"
+          title="Pošalji utisak, stiže direktno meni (Ctrl/⌘ + Shift + U)"
           className="inline-flex h-11 w-11 items-center justify-center gap-2 rounded-full border border-border-strong bg-bg-elev text-sm font-medium text-fg shadow-sm transition-colors hover:border-fg-muted sm:h-10 sm:w-auto sm:px-4"
         >
           <MessageSquare className="h-4 w-4 text-accent-text" strokeWidth={2.2} />
@@ -275,7 +275,7 @@ export function UtisakDugme({
         {neprocitano > 0 && (
           <Link
             href="/utisci"
-            aria-label={`${neprocitano} ${neprocitano === 1 ? "rešena prijava koju nisi pogledao" : "rešene prijave koje nisi pogledao"} — otvori`}
+            aria-label={`${neprocitano} ${neprocitano === 1 ? "rešena prijava koju nisi pogledao" : "rešene prijave koje nisi pogledao"}, otvori`}
             title="Rešeno je nešto što si prijavio"
             className="num absolute -right-1 -top-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-bg bg-accent px-0.5 text-[10px] font-semibold leading-none text-accent-ink shadow-sm transition-colors hover:bg-accent-hover"
           >
@@ -456,7 +456,7 @@ function UtisakForma({
       // (F11 §6.7, isti razlog iz kog F10 ne kaže „dosta si mi rekao").
       setPotvrda(
         telo.nagrada
-          ? "Poslato. Hvala — dodao sam ti 1 kredit."
+          ? "Poslato. Hvala, dodao sam ti 1 kredit."
           : "Poslato. Javljam se ako bude potrebe.",
       );
       zatvoriPosleTrenutka();

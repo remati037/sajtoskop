@@ -32,7 +32,7 @@ export const KORACI = [
   { kljuc: "pretraga", naslov: "Prva lista", hint: "nema-sajt" },
   { kljuc: "otkljucavanje", naslov: "Prvi prospekt", hint: "otkljucaj" },
   { kljuc: "poruka", naslov: "Prva poruka", hint: "poruka" },
-  { kljuc: "pipeline", naslov: "Prvi u pipeline-u", hint: "pipeline" },
+  { kljuc: "pipeline", naslov: "Prvi u praćenju", hint: "pipeline" },
 ] as const satisfies readonly Korak[];
 
 export const KORAK_KLJUCEVI: readonly KorakKljuc[] = KORACI.map((k) => k.kljuc);
@@ -46,19 +46,19 @@ export const HINT_KLJUCEVI: readonly HintKljuc[] = KORACI.map((k) => k.hint);
 export const TACKE: Record<HintKljuc, { naslov: string; telo: string }> = {
   "nema-sajt": {
     naslov: "Ovo je najbolji prospekt.",
-    telo: "Firma ima ocene na Googlu, a nema sajt — ne moraš da ubeđuješ da je sajt loš, samo da ga nema.",
+    telo: "Ima ocene na Googlu, a nema sajt. Ne moraš da ga ubeđuješ da mu je sajt loš.",
   },
   otkljucaj: {
-    naslov: "Otključavanje otvara telefon, mejl, snimke sajta i gotovu poruku.",
-    telo: "Košta 1 kredit; prvi je besplatan. Isti prospekt se ne plaća dvaput.",
+    naslov: "Otključaj za telefon, mejl, snimke sajta i gotovu poruku.",
+    telo: "Košta 1 kredit, prvi je besplatan. Isti prospekt ne plaćaš dvaput.",
   },
   poruka: {
     naslov: "Poruka je napisana za kanal koji si izabrao.",
-    telo: "Promeni tab za mejl ili Instagram; „Napiši drugačije“ pravi novu verziju bez kredita.",
+    telo: "Promeni tab za mejl ili Instagram. „Napiši drugačije“ pravi novu verziju bez kredita.",
   },
   pipeline: {
     naslov: "Označi kad pošalješ.",
-    telo: "Pipeline pamti koga si kontaktirao, ko je odgovorio i ko je potpisao — i posle 30 dana znaš gde si stao.",
+    telo: "Praćenje kontakata pamti koga si kontaktirao, ko je odgovorio i ko je potpisao.",
   },
 };
 
