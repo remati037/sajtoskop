@@ -213,7 +213,7 @@ console.log("\npaketi kredita");
   );
   check(
     ekran.includes("Paket nije zamena za plan") &&
-      ekran.includes("Paket traži aktivan plan ili komp"),
+      ekran.includes("Paket traži aktivan plan ili besplatan pristup"),
     "kopija kaže i da paket nije zamena za plan i da traži plan",
   );
   // Stara kopija je tvrdila SUPROTNO od pravila koje ruta sada sprovodi. Ostavka
@@ -486,12 +486,12 @@ console.log("\nproba u bloku pretplate i u traci");
     '„Aktiviraj odmah" samo u stanju proba i samo uz poznat iznos',
   );
   check(blok.includes("Proba do") && blok.includes("pristup.probaDo"), 'naslov „Proba do <datum>"');
-  check(blok.includes("Proba otkazana, traje do"), 'otkazana proba: „Proba otkazana, traje do <datum>"');
+  check(blok.includes("Proba otkazana, važi do"), 'otkazana proba: „Proba otkazana, važi do <datum>"');
   check(
     blok.includes("Naplata nije prošla. Ažuriraj karticu.") && blok.includes("naplataPala"),
     "past_due: upozorenje sa portalom",
   );
-  check(blok.includes("Komp pristup, neograničeno"), 'komp bez roka: „neograničeno"');
+  check(blok.includes("Besplatan pristup bez roka"), 'komp bez roka: „Besplatan pristup bez roka"');
   check(
     !/Blok probe i „Aktiviraj odmah" su K2/.test(izvor("components/pretplata-blok.tsx")),
     'stari komentar „K2 dolazi" je otišao',
@@ -551,7 +551,7 @@ console.log("\nobe kase i žice ka /cenovnik");
 
   const blok = izvor("components/pretplata-blok.tsx");
   check(
-    blok.includes("Iz pretplate") && blok.includes("Dokupljeni"),
+    blok.includes("Mesečni") && blok.includes("Kupljeni"),
     "obe kase su imenovane i razdvojene",
   );
   check(

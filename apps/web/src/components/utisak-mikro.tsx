@@ -30,7 +30,7 @@ const MAX_PORUKA = 2000;
 
 /** Potvrda bez nagrade i potvrda sa njom (F11 §6.7). */
 const HVALA = "Zabeleženo. Hvala.";
-const HVALA_SA_KREDITOM = "Poslato. Hvala — dodao sam ti 1 kredit.";
+const HVALA_SA_KREDITOM = "Poslato. Hvala, dodao sam ti 1 kredit.";
 
 type Korak = "pitanje" | "cipovi" | "dopuna" | "hvala" | "greska";
 

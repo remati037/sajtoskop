@@ -29,6 +29,7 @@ import type { PublicLead } from "@/lib/search-types";
 import { cn } from "@/lib/cn";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { InfoSavet } from "./ui/info-savet";
 import { NaslovSekcije } from "./ui/stranica";
 import { formatLcp, psiBand, SEVERITY_LABEL } from "@/lib/ui-tekst";
 
@@ -135,7 +136,7 @@ function NemaSnimka({ lead }: { lead: Otkljucan }) {
   if (dobarLead) {
     return (
       <span
-        title="Sajt se ne otvara — to je najjači mogući argument u poruci vlasniku."
+        title="Sajt se ne otvara. To je najjači argument u poruci vlasniku."
         className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-accent/50 text-[10px] font-semibold leading-tight text-accent-text"
       >
         nema
@@ -154,7 +155,7 @@ function NemaSnimka({ lead }: { lead: Otkljucan }) {
     <span
       title={
         enrichmentProsao
-          ? "Snimak nije dostupan — analiza je gotova, ali screenshot nije sačuvan."
+          ? "Snimak nije dostupan. Analiza je gotova, ali snimak nije sačuvan."
           : "Snimak se pravi. Osveži stranicu za koji trenutak."
       }
       className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-border text-fg-muted/70"
@@ -175,9 +176,14 @@ export function SnimakPreklop({ lead, onClose }: { lead: Otkljucan; onClose: () 
 function Preklop({ lead, onClose }: { lead: Otkljucan; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl" aria-label={`Snimci sajta — ${lead.name}`}>
+      <DialogContent className="max-w-4xl" aria-label={`Snimci sajta: ${lead.name}`}>
         <DialogHeader>
-          <DialogTitle>{lead.name}</DialogTitle>
+          <div className="flex items-center gap-1">
+            <DialogTitle>{lead.name}</DialogTitle>
+            <InfoSavet label="Objašnjenje: snimci">
+              Snimci su privatni i link ističe za 15 minuta. Osveži stranicu ako slika nestane.
+            </InfoSavet>
+          </div>
           {lead.websiteUrl && (
             <a
               href={lead.websiteUrl}
@@ -206,10 +212,6 @@ function Preklop({ lead, onClose }: { lead: Otkljucan; onClose: () => void }) {
           </div>
 
           <Analiza lead={lead} />
-
-          <p className="mt-5 text-[11px] text-fg-muted/80">
-            Snimci su privatni i link ističe za 15 minuta. Osveži stranicu ako slika nestane.
-          </p>
         </div>
       </DialogContent>
     </Dialog>

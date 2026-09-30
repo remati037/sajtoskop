@@ -91,7 +91,7 @@ const svaStanja = [
   const a = stanjeA({ nadjeno: 28, grad: "Brusu", placeno: 2, vraceno: 3 });
   check(a.naslov === "Pronađeno 28 firmi u Brusu", `A naslov: ${a.naslov}`);
   check(
-    a.telo === "Manji grad od očekivanog — naplaćena su 2 kredita, a 3 smo ti vratila.",
+    a.telo === "Grad je manji od očekivanog: naplaćena su 2 kredita, a 3 smo ti vratili.",
     `A telo: ${a.telo}`,
   );
   check(a.akcija === "Vidi listu", "A akcija je Vidi listu");
@@ -103,7 +103,7 @@ const svaStanja = [
   // Slaganje uz broj: 1 kredit, ne „1 kredita".
   const jedan = stanjeA({ nadjeno: 12, grad: "Brusu", placeno: 1, vraceno: 1 });
   check(
-    jedan.telo === "Manji grad od očekivanog — naplaćen je 1 kredit, a 1 smo ti vratila.",
+    jedan.telo === "Grad je manji od očekivanog: naplaćen je 1 kredit, a 1 smo ti vratili.",
     `A za jedan kredit: ${jedan.telo}`,
   );
 }
@@ -123,7 +123,7 @@ const svaStanja = [
   const c = stanjeC({ nisa: "advokate", grad: "Brusu" });
   check(c.naslov === "Nema rezultata za advokate u Brusu", `C naslov: ${c.naslov}`);
   check(
-    c.telo === "Nismo našli ni jednu firmu koja odgovara. Nije naplaćeno.",
+    c.telo === "Nismo našli nijednu firmu koja odgovara. Ništa nije naplaćeno.",
     `C telo: ${c.telo}`,
   );
   check(c.akcija === "Promeni pretragu", "C akcija je Promeni pretragu");
@@ -132,14 +132,14 @@ const svaStanja = [
 {
   const d = stanjeD({ nisa: "advokate", grad: "Brusu" });
   check(d.naslov === "Skeniram advokate u Brusu", `D naslov: ${d.naslov}`);
-  check(d.telo?.startsWith("Obično traje 20–40 sekundi.") === true, `D telo: ${d.telo}`);
+  check(d.telo?.startsWith("Obično traje 20 do 40 sekundi.") === true, `D telo: ${d.telo}`);
   check(d.akcija === null, "D nema radnju — skeniranje traje");
   // Dokument je upućivao na „Moje pretrage", ekran koji ne postoji. Stvarno
-  // mesto je blok `Tvoji pristupi` na dnu iste strane.
+  // mesto je blok „Gotove liste" na dnu iste strane.
   check(d.telo?.includes("Moje pretrage") === false, "D ne upućuje na nepostojeći ekran");
   check(
-    d.telo?.includes("Tvoji pristupi") === true && d.telo.includes("na dnu ove strane"),
-    "D upućuje na blok Tvoji pristupi na dnu strane pretrage",
+    d.telo?.includes("Gotove liste") === true && d.telo.includes("na dnu ove strane"),
+    "D upućuje na blok Gotove liste na dnu strane pretrage",
   );
 }
 

@@ -201,9 +201,9 @@ for (const razlog of RAZLOZI) {
   const doKad = "2026-10-11T12:00:00.000Z";
   const k = S.ishodPrihvatanja({ ok: true, reason: "redeemed", kind: "komp" }, { kompDo: doKad, krediti: 300 });
   check(k.ok && k.dalje === "/pocetak?pozivnica=komp", "komp → /pocetak (S30, §1.13)");
-  check(k.ok && k.poruka.startsWith("Komp pristup do ") && k.poruka.includes("300 kredita"), `komp poruka: „${k.ok ? k.poruka : ""}“`);
+  check(k.ok && k.poruka.startsWith("Besplatan pristup do ") && k.poruka.includes("300 kredita"), `komp poruka: „${k.ok ? k.poruka : ""}“`);
   const b = S.ishodPrihvatanja({ ok: true, reason: "redeemed", kind: "komp" }, { kompDo: null, krediti: 1 });
-  check(b.ok && b.poruka === "Komp pristup bez roka, 1 kredit.", `komp bez roka: „${b.ok ? b.poruka : ""}“`);
+  check(b.ok && b.poruka === "Besplatan pristup bez roka, 1 kredit.", `komp bez roka: „${b.ok ? b.poruka : ""}“`);
   const bezProfila = S.ishodPrihvatanja({ ok: true, reason: "redeemed", kind: "komp" }, null);
   check(bezProfila.ok, "komp je otvoren i kad se profil posle ne pročita — ishod nije pad");
   const m = S.ishodPrihvatanja({ ok: true, reason: "redeemed", kind: "prvi_mesec" }, null);

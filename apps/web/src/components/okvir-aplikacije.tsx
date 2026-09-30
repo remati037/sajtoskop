@@ -48,6 +48,7 @@ import { UtisciProvider } from "./utisci-provider";
 import { Vodic } from "./vodic";
 import { Znak, ZnakSaImenom } from "./znak";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { ObavestenjaProvider } from "./ui/obavestenja";
 
 const SKUPLJEN_KLJUC = "sajtoskop-sidebar-skupljen";
 
@@ -166,6 +167,7 @@ export function OkvirAplikacije({
       <OnboardingProvider pocetno={onboarding}>
       <PristupProvider pristup={pristup} uzrokGrace={uzrokGrace}>
       <TooltipProvider delayDuration={200}>
+      <ObavestenjaProvider>
       {/* Blaga aura iza svega. Prazan ekran bez ovoga izgleda kao prazan list. */}
       <div aria-hidden className="pozadina-aure pointer-events-none fixed inset-0 -z-10 opacity-70" />
 
@@ -304,6 +306,7 @@ export function OkvirAplikacije({
 
         {/* Dugme „Utisak" — na svakom ekranu unutar okvira, nikad na prijavi. */}
         <UtisakDugme traziUtisak={traziUtisak} neprocitano={neprocitano} />
+      </ObavestenjaProvider>
       </TooltipProvider>
       </PristupProvider>
       </OnboardingProvider>
@@ -456,17 +459,26 @@ function TrakaKvara({ poruka }: { poruka: string }) {
       <div className="mx-auto flex max-w-6xl items-start gap-3">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
         <div className="min-w-0 text-xs leading-relaxed">
-          <p className="font-medium text-danger">Baza trenutno ne prepoznaje tvoj nalog.</p>
-          <p className="mt-1 break-words text-fg-muted">
-            <code className="num">{poruka}</code>
+          <p className="font-medium text-danger">
+            Ne možemo da pročitamo tvoj nalog. Krediti i prospekti su sačuvani, probaj ponovo za
+            minut.
           </p>
-          {jeVeza && (
-            <p className="mt-1.5 text-fg-muted">
-              Clerk nije registrovan kao Third-Party Auth provajder u Supabase-u (ili je
-              registrovan sa drugim domenom). Krediti i otključani prospekti su netaknuti — samo
-              se trenutno ne mogu pročitati.
+          {/* [čišćenje UI-a] Tehnički tekst ostaje doslovan, ali sklopljen:
+              korisniku treba jedna rečenica, autoru ceo kod greške. */}
+          <details className="mt-1.5 text-fg-muted">
+            <summary className="cursor-pointer select-none font-medium hover:text-fg">
+              Tehnički detalji
+            </summary>
+            <p className="mt-1 break-words">
+              <code className="num">{poruka}</code>
             </p>
-          )}
+            {jeVeza && (
+              <p className="mt-1.5">
+                Clerk nije registrovan kao Third-Party Auth provajder u Supabase-u, ili je
+                registrovan sa drugim domenom.
+              </p>
+            )}
+          </details>
         </div>
       </div>
     </div>
@@ -592,7 +604,7 @@ function KarticaKredita({
             <InfinityIcon className="h-3.5 w-3.5" aria-hidden />
           </Link>
         </TooltipTrigger>
-        <TooltipContent side="right">Neograničeni krediti — admin nalog</TooltipContent>
+        <TooltipContent side="right">Neograničeni krediti, admin nalog</TooltipContent>
       </Tooltip>
     ) : (
       <div className="rounded-xl border border-border-strong bg-bg-elev shadow-sm">
@@ -637,7 +649,7 @@ function KarticaKredita({
         </TooltipTrigger>
         <TooltipContent side="right">
           {nisko
-            ? `Ostalo ti je ${krediti ?? "—"} kredita — ${smePaket ? "dokupi" : "uzmi plan"}`
+            ? `Ostalo ti je ${krediti ?? 0} kredita, ${smePaket ? "dokupi" : "uzmi plan"}`
             : imaDodelu
               ? `${krediti ?? "—"} od ${mesecni} kredita`
               : `${krediti ?? "—"} kredita, bez roka`}
@@ -650,7 +662,13 @@ function KarticaKredita({
     <div className="rounded-xl border border-border-strong bg-bg-elev shadow-sm">
       <Link
         href="/krediti"
-        title="Krediti se troše na otključavanje prospekata i na skeniranje"
+        // [čišćenje UI-a] Pomoćni red ispod trake je otišao u `title`: bočna
+        // traka je na svakom ekranu, a pravilo se pročita jednom.
+        title={
+          imaDodelu
+            ? "Mesečni krediti se obnavljaju prvog u mesecu. Lista košta 1 do 3 kredita, zavisno od veličine, i važi 30 dana."
+            : "Kupljeni krediti ne ističu. Lista košta 1 do 3 kredita, zavisno od veličine, i važi 30 dana."
+        }
         className="block rounded-xl p-3 transition-colors hover:bg-bg-hover"
       >
         <div className="flex items-baseline justify-between gap-2">
@@ -676,11 +694,6 @@ function KarticaKredita({
           </div>
         )}
 
-        <p className="mt-2 text-[11px] leading-tight text-fg-muted">
-          {imaDodelu
-            ? "Obnavlja se prvog u mesecu. Pristup listi 1–3 kredita po dubini, važi 30 dana."
-            : "Kupljeni krediti ne ističu. Pristup listi 1–3 kredita po dubini, važi 30 dana."}
-        </p>
       </Link>
 
       {/* S21: poziv na akciju kad stanje padne nisko. Odvojen link, ne dugme —

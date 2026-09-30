@@ -80,7 +80,7 @@ export default async function Page() {
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
         naslov="Krediti"
-        opis="Kredit se troši na otključavanje prospekta i na pristup kombinaciji — iz keša odmah, ili skeniranjem. Plaćen pristup važi 30 dana bez daljih kredita."
+        opis="Krediti se troše kad otključaš prospekt ili otvoriš listu za grad i nišu. Plaćena lista važi 30 dana bez novih kredita."
       />
 
       <PretplataBlok
@@ -101,9 +101,10 @@ export default async function Page() {
           raziđe sa druga dva. */}
       <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StatKartica
-          naslov="Nova skeniranja"
+          naslov="Nove pretrage danas"
           vrednost={`${profile.cache_miss_count} / ${plan.cacheMissPerDay}`}
-          podnaslov="danas, van keša"
+          podnaslov="dnevna granica plana"
+          info="Nova pretraga je grad i niša za koje još nema gotove liste, pa Sajtoskop uživo pretražuje Google Maps. Gotove liste se ne računaju."
           ikona={<Radar />}
           odUkupno={[profile.cache_miss_count, plan.cacheMissPerDay]}
         />
@@ -117,11 +118,20 @@ export default async function Page() {
       </dl>
 
       <section className="mt-9">
-        <NaslovSekcije>Istorija</NaslovSekcije>
+        <NaslovSekcije
+          info={
+            <>
+              Svaka promena kredita, redom. Kupljen paket puni kupljene kredite, sve ostalo mesečne.
+              Tekući mesec je <span className="num">{creditMonth()}</span>.
+            </>
+          }
+        >
+          Istorija kredita
+        </NaslovSekcije>
 
         {istorija.length === 0 ? (
           <p className="mt-4 text-sm text-fg-muted">
-            Knjiga je prazna. Prva stavka se pojavljuje kad otključaš prvi prospekt —{" "}
+            Još nema promena. Prva se pojavljuje kad otključaš prvi prospekt:{" "}
             <Link href="/pretraga" className="font-medium text-accent-text underline underline-offset-4">
               idi na pretragu
             </Link>
@@ -173,12 +183,6 @@ export default async function Page() {
           </div>
         )}
       </section>
-
-      <p className="mt-6 text-xs text-fg-muted">
-        Tekući mesec u knjizi je <span className="num">{creditMonth()}</span>. Izvod pokazuje obe
-        kase u istom nizu — „Kupljen paket" puni onu koja ne ističe, sve ostalo onu koja se
-        obnavlja.
-      </p>
     </div>
   );
 }

@@ -87,7 +87,7 @@ export default async function Page() {
     <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
         naslov="Moja lista"
-        opis="Prospekti koje si otključao. Ostaju ti zauvek — otključan lead se nikad ne naplaćuje drugi put."
+        opis="Prospekti koje si otključao. Ostaju tvoji zauvek i isti prospekt nikad ne plaćaš dvaput."
       />
 
       {/* Redosled je bitan: prvo se isključuje mogućnost da je lista prazna zato
@@ -100,7 +100,7 @@ export default async function Page() {
         <PraznoStanje
           ikona={<ListChecks />}
           naslov="Ovde stoji sve što otključaš"
-          opis="Otključan prospekt ostaje tvoj zauvek: telefon, mejl, snimci, problemi i poruka. Odavde ide i CSV za tvoj Sheet."
+          opis="Otključan prospekt ostaje tvoj: telefon, mejl, snimci, problemi i poruka."
         >
           <Button asChild variant="primary">
             <Link href={listaIzCarobnjaka}>Otključaj prvi prospekt</Link>

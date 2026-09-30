@@ -5,7 +5,7 @@
 //
 // Isti obrazac kao panel utiska (`utisak-dugme.tsx`): 360 px, `Esc` i klik van
 // zatvaraju, fokus se vraća na dugme. Sadržaj su ista četiri koraka iz
-// `KORACI`, sa rečenicom iz tačaka (bez „Jasno") i linkom „Pokaži mi" koji vodi
+// `KORACI`: naslov, rečenica iz tačaka u oblačiću „i" (bez „Jasno") i link „Pokaži mi" koji vodi
 // na ekran i ponovo prikazuje tu tačku.
 //
 // Nikad se ne otvara sam (§4.8).
@@ -17,6 +17,7 @@ import { CircleHelp } from "lucide-react";
 import { KORACI, TACKE, VODIC, type HintKljuc } from "@sajtoskop/shared";
 import { useOnboarding } from "./onboarding-provider";
 import { Button } from "./ui/button";
+import { InfoSavet } from "./ui/info-savet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 /** Ekran na kom tačka stoji. */
@@ -107,7 +108,7 @@ export function Vodic() {
         >
           <p className="eyebrow">{VODIC.naslov}</p>
 
-          <ol className="mt-3 space-y-3">
+          <ol className="mt-3 space-y-2.5">
             {KORACI.map((k, i) => {
               const tekst = TACKE[k.hint];
               return (
@@ -116,10 +117,12 @@ export function Vodic() {
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">{k.naslov}</p>
-                    <p className="mt-0.5 text-[13px] leading-snug text-fg-muted">
-                      {tekst.naslov} {tekst.telo}
-                    </p>
+                    <div className="flex items-center gap-1">
+                      <p className="text-sm font-semibold">{k.naslov}</p>
+                      <InfoSavet label={`Objašnjenje: ${k.naslov}`}>
+                        {tekst.naslov} {tekst.telo}
+                      </InfoSavet>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {

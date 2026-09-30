@@ -29,14 +29,17 @@ export function VezaGreska({ sta }: { sta: string }) {
     <Alert variant="warning">
       <p className="font-medium">{sta} trenutno ne mogu da se učitaju.</p>
       <p className="mt-1 max-w-2xl">
-        Tvoj nalog postoji, ali baza ga ne prepoznaje — najverovatnije Clerk nije
-        podešen kao third-party auth provider u Supabase-u, pa RLS politika ne vidi
-        tvoj korisnički ID.
+        Ništa nije izgubljeno: otključani prospekti i krediti su sačuvani. Probaj
+        ponovo za minut.
       </p>
-      <p className="mt-2 max-w-2xl font-medium">
-        Ovo NE znači da si izgubio podatke. Otključani prospekti i krediti stoje u
-        bazi netaknuti — samo se trenutno ne mogu pročitati.
-      </p>
+      {/* Tehnički uzrok je za mene, ne za korisnika — isti obrazac kao TrakaKvara. */}
+      <details className="mt-2 max-w-2xl text-xs">
+        <summary className="cursor-pointer">Tehnički detalji</summary>
+        <p className="mt-1">
+          Baza ne prepoznaje nalog. Najverovatnije Clerk nije podešen kao third-party
+          auth provider u Supabase-u, pa RLS politika ne vidi korisnički ID.
+        </p>
+      </details>
     </Alert>
   );
 }

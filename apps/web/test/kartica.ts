@@ -249,21 +249,21 @@ check(kartica.otkljucaj === "Otključaj za 1 kredit", "otkljucaj");
 check(kartica.otkljucajBesplatno === "Otključaj · prvi je besplatan", "otkljucajBesplatno");
 check(kartica.otkljucajPlan === "Otključaj · treba plan", "otkljucajPlan");
 check(kartica.otkljucajVrati === "Otključaj · vrati pristup", "otkljucajVrati");
-check(kartica.analiziram === "Analiziram sajt na telefonu i desktopu… obično 10–40 s", "analiziram");
+check(kartica.analiziram === "Analiziram sajt na telefonu i računaru… obično 10 do 40 s", "analiziram");
 check(
   kartica.analizaPala ===
-    "Analiza nije stigla. Kredit je skinut i prospekt je tvoj — kontakt je gore. Analizu možeš da tražiš ponovo.",
+    "Analiza nije stigla. Kredit je skinut, prospekt je tvoj i kontakt je gore. Analizu možeš da tražiš ponovo.",
   "analizaPala",
 );
 check(kartica.kopiranoToast === "Kopirano. Označi kao kontaktiran?", "kopiranoToast");
 check(kartica.brojProblema(1) === "1 problem" && kartica.brojProblema(4) === "4 problema" && kartica.brojProblema(5) === "5 problema", "brojProblema");
 check(
   kartica.potvrdaTekst(11) ===
-    "1 kredit — ostaje ti 11. Dobijaš telefon, mejl, sajt, snimke, listu problema i poruku. Isti prospekt se nikad ne naplaćuje drugi put.",
+    "Košta 1 kredit, ostaje ti 11. Dobijaš telefon, mejl, sajt, snimke, listu problema i poruku. Isti prospekt ne plaćaš dvaput.",
   "potvrdaTekst",
 );
-check(kartica.vecOtkljucan("X") === "X je već otključan — kredit nije skinut.", "vecOtkljucan");
-check(kartica.aiLimit(5) === "Dnevni limit AI varijanti (5) je potrošen, sutra ponovo.", "aiLimit");
+check(kartica.vecOtkljucan("X") === "X je već otključan. Kredit nije skinut.", "vecOtkljucan");
+check(kartica.aiLimit(5) === "Danas si potrošio sve nove verzije poruke (5). Sutra opet.", "aiLimit");
 check(kartica.nemaKredita === "Nemaš kredita. Plan počinje sa 7 dana probe i 10 kredita.", "nemaKredita");
 
 // ═══════════════════════════════════════════════════════════

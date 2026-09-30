@@ -281,9 +281,11 @@ async function main(): Promise<void> {
   check(overMonthly?.reason === "monthly_cap", "mesečni cap → monthly_cap");
   const at = (v: string | null | undefined): number =>
     v ? new Date(String(v)).getTime() : 0;
+  // `>=`, ne `>`: poslednjeg dana u mesecu (po LA) „sutra" JESTE prvi u mesecu,
+  // pa su oba roka isti trenutak — sa `>` je provera padala svakog kraja meseca.
   check(
-    at(overMonthly?.retry_after) > at(overDaily?.retry_after),
-    "monthly_cap se odlaže dalje od daily_cap (prvi u mesecu, ne sutra)",
+    at(overMonthly?.retry_after) >= at(overDaily?.retry_after),
+    "monthly_cap se odlaže do prvog u mesecu, nikad pre daily_cap",
   );
 
   const byKind = await one<{ by_kind: Record<string, number> }>(

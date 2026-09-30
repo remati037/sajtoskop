@@ -27,6 +27,7 @@ import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input, Label } from "./ui/input";
+import { useObavestenje } from "./ui/obavestenja";
 import { Izbor } from "./ui/select";
 import { PraznoStanje } from "./ui/stranica";
 
@@ -49,7 +50,8 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday,
   const [grad, setGrad] = useState<string>("");
   const [samoBezSajta, setSamoBezSajta] = useState(false);
   const [izvozim, setIzvozim] = useState(false);
-  const [poruka, setPoruka] = useState<string | null>(null);
+  const [preskoceno, setPreskoceno] = useState(0);
+  const obavesti = useObavestenje();
   const [greska, setGreska] = useState<string | null>(null);
   const [prikazano, setPrikazano] = useState(PO_STRANI);
 
@@ -101,7 +103,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday,
    */
   async function izvezi() {
     setIzvozim(true);
-    setPoruka(null);
+    setPreskoceno(0);
     setGreska(null);
 
     try {
@@ -130,12 +132,10 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday,
       const redova = Number(res.headers.get("X-Sajtoskop-Rows") ?? 0);
       const odsecno = Number(res.headers.get("X-Sajtoskop-Truncated") ?? 0);
 
-      setPoruka(
-        odsecno > 0
-          ? `Izvezeno ${redova} ${plural(redova, "red", "reda", "redova")}. ` +
-              `${odsecno} ${plural(odsecno, "red je", "reda su", "redova je")} preskočeno — dnevni limit je ${exportPerDay}.`
-          : `Izvezeno ${redova} ${plural(redova, "red", "reda", "redova")}.`,
-      );
+      // Potvrda ide u oblačić; preskočeni redovi ostaju na ekranu, jer ti
+      // redovi NISU u fajlu i korisnik mora to da vidi.
+      obavesti(`Izvezeno ${redova} ${plural(redova, "red", "reda", "redova")}.`);
+      setPreskoceno(odsecno);
     } catch {
       setGreska("Nema veze sa serverom. Pokušaj ponovo za koji minut.");
     } finally {
@@ -193,7 +193,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday,
                 : "border-border-strong bg-bg-elev text-fg-muted hover:border-fg-muted hover:text-fg",
             )}
           >
-            Bez funkcionalnog sajta
+            Bez ispravnog sajta
           </button>
 
           <Button
@@ -201,7 +201,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday,
             variant="primary"
             onClick={() => void izvezi()}
             disabled={izvozim || redovi.length === 0}
-            title={`Izvozi otključane prospekte${grad ? " iz izabranog grada" : ""}. Dnevni limit: ${exportPerDay} redova.`}
+            title={`Dnevni limit: ${exportPerDay} redova.`}
             className="ml-auto"
           >
             <Download className="h-4 w-4" />
@@ -211,7 +211,13 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday,
       </Card>
 
       {greska && <Alert variant="danger">{greska}</Alert>}
-      {poruka && <Alert variant="success">{poruka}</Alert>}
+      {preskoceno > 0 && (
+        <Alert variant="warning">
+          <span className="num">{preskoceno}</span>{" "}
+          {plural(preskoceno, "red nije izvezen", "reda nisu izvezena", "redova nije izvezeno")}. Dnevni
+          limit je <span className="num">{exportPerDay}</span>.
+        </Alert>
+      )}
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
         <p className="num">
@@ -220,7 +226,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday,
             : `${vidljivi.length} od ${redovi.length} prospekata`}
         </p>
         <p className="text-xs num text-fg-muted">
-          izvezeno danas: {exportedToday} od {exportPerDay}
+          danas izvezeno: {exportedToday} od {exportPerDay}
         </p>
       </div>
 

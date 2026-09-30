@@ -6,7 +6,7 @@
 // Ovo je „izlog" proizvoda: sve što je bilo ko već skenirao stiže ODMAH, bez
 // čekanja na Google — po istoj ceni kao skeniranje (manje kad firmi ima manje),
 // za pristup od 30 dana. Besplatno je samo ono što je OVAJ korisnik već platio
-// (blok „Tvoji pristupi"). Zato red nosi i broj prospekata bez sajta — to je
+// (blok „Tvoje liste", ranije „Tvoji pristupi"). Zato red nosi i broj prospekata bez sajta — to je
 // jedina cifra koja govori ima li tu posla, a ne samo koliko ima firmi.
 //
 // [S17] Red nosi i DUBINU do koje je kombinacija skenirana. Bez nje korisnik ne
@@ -14,19 +14,20 @@
 // jednu stranicu pokriva „Brzo", a za „Duboko" mora ponovo. Klik na red zato i
 // spušta izabranu dubinu na keširanu (v. `izKesa`).
 //
-// Dva stanja, po tome da li na strani već stoje rezultati:
-//   pre pretrage  — puna lista sa uvodnim tekstom, ovo je glavna stvar na ekranu
-//   posle nje     — jedan sklopljen red; tabela je glavna stvar, lista je pri ruci
+// [čišćenje UI-a] Lista je uvek podrazumevano SKLOPLJENA u jedan red („Gotove
+// liste · N"), i pre i posle pretrage: puna lista sa uvodnim tekstom je ispod
+// forme gurala sve ostalo niz ekran. Objašnjenje cene je u oblačiću uz naslov.
 //
 // Filter ide kroz `foldForSearch` iz shared paketa, isto kao combobox: „Krusevac"
 // nalazi „Kruševac", „nis" nalazi „Niš". Korisnik ne sme da mora da kuca kvačice
 // da bi našao svoj grad.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, Search, Sparkles } from "lucide-react";
 import { DUBINA_OPIS, dubinaZaRezultate, foldForSearch, PLACES_PAGE_SIZE } from "@sajtoskop/shared";
 import { cn } from "@/lib/cn";
 import { Card } from "./ui/card";
+import { InfoSavet } from "./ui/info-savet";
 import { Input } from "./ui/input";
 import type { KesStavka } from "@/lib/search-types";
 import { daniDo, formatDatumKratko, plural } from "@/lib/ui-tekst";
@@ -43,7 +44,10 @@ type Props = {
   nicheLabels: Record<string, string>;
   /** Klik na red popunjava formu: plaćen pristup otvara listu, ostalo ide kroz modal sa cenom. */
   onIzaberi: (city: string, niche: string) => void;
-  /** Na strani već stoje rezultati — lista se povlači u jedan red. */
+  /**
+   * Na strani već stoje rezultati. Lista je od čišćenja UI-a sklopljena u oba
+   * slučaja; prop ostaje jer ekran crta dve instance (pre i posle rezultata).
+   */
   sazeto?: boolean;
   disabled?: boolean;
 };
@@ -53,15 +57,11 @@ export function KesLista({
   cityLabels,
   nicheLabels,
   onIzaberi,
-  sazeto = false,
   disabled,
 }: Props) {
   const [filter, setFilter] = useState("");
-  const [otvorena, setOtvorena] = useState(!sazeto);
-
-  // Rezultati su stigli → lista se sklapa; nova pretraga sa praznim ekranom →
-  // ponovo se otvara. Korisnikov ručni klik važi do sledeće promene stanja.
-  useEffect(() => setOtvorena(!sazeto), [sazeto]);
+  // Podrazumevano sklopljena; otvara je samo korisnikov klik.
+  const [otvorena, setOtvorena] = useState(false);
 
   // Istekle kombinacije stižu u istom nizu (traci cene trebaju), ali u listi
   // keša nemaju šta da traže — po kliku bi tražile Google ponovo.
@@ -78,7 +78,7 @@ export function KesLista({
         })
       : sveze;
 
-    // [S25] „Tvoji pristupi" = ono što je ovaj korisnik PLATIO i još važi —
+    // [S25] „Tvoje liste" (ranije „Tvoji pristupi") = ono što je ovaj korisnik PLATIO i još važi —
     // jedini blok koji se otvara bez kredita. `mine` (tražio ranije) više nije
     // dovoljan razlog za zaseban blok: ranija pretraga bez važećeg pristupa
     // košta isto kao tuđa.
@@ -93,10 +93,11 @@ export function KesLista({
 
   const ukupno = sveze.length;
 
-  // Sklopljena lista bez ijedne stavke nije ni traka ni poruka — samo šum.
-  if (sazeto && ukupno === 0) return null;
+  // Lista bez ijedne stavke nije ni traka ni poruka — samo šum. Cena nove
+  // liste ionako stoji u traci ispod forme.
+  if (ukupno === 0) return null;
 
-  if (sazeto && !otvorena) {
+  if (!otvorena) {
     return (
       <button
         type="button"
@@ -108,7 +109,7 @@ export function KesLista({
       >
         <span className="flex items-center gap-2 text-sm font-medium">
           <Sparkles className="h-4 w-4 text-accent-text" aria-hidden />
-          U kešu
+          Gotove liste
           <span className="num text-fg-muted">· {ukupno}</span>
         </span>
         <span className="flex items-center gap-1.5 text-xs text-fg-muted">
@@ -123,27 +124,14 @@ export function KesLista({
     <Card className="p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-xl">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Sparkles className="h-4 w-4 text-accent-text" aria-hidden />
-            {sazeto ? "U kešu" : "Izaberi grad i nišu."}
+          <h2 className="flex items-center gap-1 text-sm font-semibold">
+            <Sparkles className="mr-1 h-4 w-4 text-accent-text" aria-hidden />
+            Gotove liste
+            <InfoSavet label="Objašnjenje: gotove liste">
+              Liste koje je neko već skenirao stižu odmah i koštaju isto kao skeniranje, manje kad
+              firmi ima manje. Kad platiš, lista ti je otvorena 30 dana bez novih kredita.
+            </InfoSavet>
           </h2>
-          <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-            {ukupno === 0 ? (
-              <>
-                U kešu još nema nijedne kombinacije. Skeniranje košta{" "}
-                <span className="num">1–3 kredita</span>, po izabranoj dubini — i daje ti pristup
-                toj kombinaciji 30 dana.
-              </>
-            ) : (
-              <>
-                Sve što je u kešu stiže odmah, po istoj ceni —{" "}
-                <span className="num">1 kredit po stranici rezultata</span>, do dubine koja piše
-                uz red, i manje kad firmi ima manje. Plaćen pristup važi 30 dana: listanje,
-                filteri i osvežavanje su tada bez kredita. Kombinacija koje nema, koja je starija
-                od 30 dana, ili koju tražiš dublje nego što je skenirana, traži Google ponovo.
-              </>
-            )}
-          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -152,33 +140,32 @@ export function KesLista({
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filtriraj po gradu ili niši"
-              aria-label="Filtriraj kombinacije u kešu"
+              aria-label="Filtriraj gotove liste"
               className="w-full sm:w-56"
             />
           )}
 
-          {sazeto && (
-            <button
-              type="button"
-              onClick={() => setOtvorena(false)}
-              aria-label="Sklopi listu"
-              className="inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
-            >
-              <ChevronDown className="h-4 w-4 rotate-180" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setOtvorena(false)}
+            aria-label="Sklopi listu"
+            aria-expanded={otvorena}
+            className="inline-flex h-10 w-9 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+          >
+            <ChevronDown className="h-4 w-4 rotate-180" />
+          </button>
         </div>
       </div>
 
       {ukupno > 0 &&
         (placeno.length === 0 && ostalo.length === 0 ? (
           <p className="mt-4 text-xs text-fg-muted">
-            Nijedna kombinacija u kešu ne odgovara filteru.
+            Nijedna gotova lista ne odgovara filteru.
           </p>
         ) : (
           <div className="mt-4 space-y-5">
             <Blok
-              naslov="Tvoji pristupi"
+              naslov="Tvoje liste"
               stavke={placeno}
               cityLabels={cityLabels}
               nicheLabels={nicheLabels}
@@ -186,7 +173,7 @@ export function KesLista({
               disabled={disabled}
             />
             <Blok
-              naslov={placeno.length > 0 ? "Ostalo u kešu" : "U kešu"}
+              naslov={placeno.length > 0 ? "Ostale gotove liste" : null}
               stavke={ostalo}
               cityLabels={cityLabels}
               nicheLabels={nicheLabels}
@@ -207,7 +194,8 @@ function Blok({
   onIzaberi,
   disabled,
 }: {
-  naslov: string;
+  /** `null` kad je blok jedini — naslov kartice „Gotove liste" je dovoljan. */
+  naslov: string | null;
   stavke: KesStavka[];
   cityLabels: Record<string, string>;
   nicheLabels: Record<string, string>;
@@ -218,11 +206,13 @@ function Blok({
 
   return (
     <section>
-      <h3 className="text-xs font-medium uppercase tracking-wide text-fg-muted">{naslov}</h3>
+      {naslov && (
+        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-muted">{naslov}</h3>
+      )}
 
       {/* [Faza 5, 5.6] Bez ugnježđenog okvira: spoljna kartica nosi ivicu, lista
           je samo razdelnici (divide-y) — kartica u kartici (D8). */}
-      <ul className="mt-2 divide-y divide-border">
+      <ul className="divide-y divide-border">
         {stavke.map((s) => (
           <li key={`${s.city}:${s.niche}`}>
             <Red
@@ -258,6 +248,11 @@ function Red({
   const rok = pristup ? pristup.expiresAt : stavka.expiresAt;
   const dana = daniDo(rok);
   const uskoro = dana <= USKORO_DANA;
+  // Veličina liste u firmama, isto kao na prekidaču „Veličina liste" iznad.
+  const doFirmi = DUBINA_OPIS[dubinaZaRezultate(stavka.pages * PLACES_PAGE_SIZE)].maxResults;
+  const placenoDo = pristup
+    ? DUBINA_OPIS[dubinaZaRezultate(pristup.pages * PLACES_PAGE_SIZE)].maxResults
+    : null;
 
   return (
     <button
@@ -288,27 +283,24 @@ function Red({
           </span>
         )}
 
-        {/* [S17] Do koje dubine je ovaj red besplatan. Naziv ponude, ne broj
-            stranica: „Brzo" je ono što piše na prekidaču iznad, pa je veza
-            između reda i izbora očigledna bez ijednog objašnjenja. */}
+        {/* [S17] Do koje veličine je ovaj red gotov. Isti izraz kao na prekidaču
+            „Veličina liste" iznad, pa je veza između reda i izbora očigledna. */}
         <span
           title={
-            `Skenirano do ${DUBINA_OPIS[dubinaZaRezultate(stavka.pages * PLACES_PAGE_SIZE)].maxResults} prospekata ` +
-            `(${stavka.pages} ${plural(stavka.pages, "stranica", "stranice", "stranica")}). ` +
-            (pristup
-              ? `Plaćen pristup do ${pristup.pages} ${plural(pristup.pages, "stranice", "stranice", "stranica")}; dublje traži Google ponovo.`
-              : `Iz keša stiže odmah do te dubine; dublje traži Google ponovo.`)
+            placenoDo !== null
+              ? `Plaćeno za listu do ${placenoDo} firmi. Veća lista traži novo skeniranje.`
+              : `Gotova lista do ${doFirmi} firmi. Veća lista traži novo skeniranje.`
           }
           className="num rounded-full border border-border bg-bg-subtle px-2 py-0.5 text-[10px] font-medium text-fg-muted"
         >
-          {DUBINA_OPIS[dubinaZaRezultate(stavka.pages * PLACES_PAGE_SIZE)].labela}
+          do {doFirmi} firmi
         </span>
 
         {/* [Faza 6, 6.4] Parcijalan scan — budžet je stao usred skeniranja, pa
             kombinacija možda nije potpuna (B5). */}
         {stavka.partial && (
           <span
-            title="Skeniranje je prekinuto (budžet). Rezultat možda nije potpun — ponovo skeniranje vraća punu listu."
+            title="Skeniranje je prekinuto, pa lista možda nije potpuna. Novo skeniranje daje punu listu."
             className="rounded-full border border-warn/30 bg-warn-wash px-2 py-0.5 text-[10px] font-medium text-warn-text"
           >
             delimično
@@ -322,7 +314,7 @@ function Red({
               : `još ${dana} ${plural(dana, "dan", "dana", "dana")}`
             : pristup
               ? `plaćeno do ${formatDatumKratko(rok)}`
-              : `u kešu do ${formatDatumKratko(rok)}`}
+              : `dostupna do ${formatDatumKratko(rok)}`}
         </span>
       </span>
     </button>

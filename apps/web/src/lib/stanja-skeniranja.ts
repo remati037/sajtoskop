@@ -64,7 +64,7 @@ export function stanjeA(a: {
     naslov: `Pronađeno ${a.nadjeno} ${plural(a.nadjeno, "firma", "firme", "firmi")} u ${a.grad}`,
     telo:
       a.vraceno > 0
-        ? `Manji grad od očekivanog — ${naplaceno(a.placeno)}, a ${a.vraceno} smo ti vratila.`
+        ? `Grad je manji od očekivanog: ${naplaceno(a.placeno)}, a ${a.vraceno} smo ti vratili.`
         : null,
     akcija: "Vidi listu",
   };
@@ -83,7 +83,7 @@ export function stanjeB(a: { vraceno: number }): StanjeSkeniranja {
 export function stanjeC(a: { nisa: string; grad: string }): StanjeSkeniranja {
   return {
     naslov: `Nema rezultata za ${a.nisa} u ${a.grad}`,
-    telo: "Nismo našli ni jednu firmu koja odgovara. Nije naplaćeno.",
+    telo: "Nismo našli nijednu firmu koja odgovara. Ništa nije naplaćeno.",
     akcija: "Promeni pretragu",
   };
 }
@@ -92,7 +92,7 @@ export function stanjeC(a: { nisa: string; grad: string }): StanjeSkeniranja {
  * D · Skeniranje u toku.
  *
  * Dokument je ovde pisao „Moje pretrage" — ekran koji ne postoji. To je blok
- * `Tvoji pristupi` na dnu `/pretraga` (`kes-lista.tsx`): plaćene kombinacije
+ * „Gotove liste" na dnu `/pretraga` (`kes-lista.tsx`; plaćene su pod „Tvoje liste"): plaćene kombinacije
  * koje se otvaraju bez novih kredita. Rečenica zato upućuje na njega, i to
  * njegovim imenom iz UI-ja — „keš" je interni pojam (pravilo 2) i ne izlazi.
  */
@@ -100,8 +100,8 @@ export function stanjeD(a: { nisa: string; grad: string }): StanjeSkeniranja {
   return {
     naslov: `Skeniram ${a.nisa} u ${a.grad}`,
     telo:
-      "Obično traje 20\u201340 sekundi. Možeš da zatvoriš stranicu — " +
-      "listu ćeš naći u \u201ETvoji pristupi\u201C, na dnu ove strane.",
+      "Obično traje 20 do 40 sekundi. Možeš da zatvoriš stranicu. " +
+      "Listu ćeš naći pod \u201EGotove liste\u201C, na dnu ove strane.",
     akcija: null,
   };
 }

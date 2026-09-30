@@ -27,35 +27,35 @@ import type { SearchSummary } from "./search-types";
  * od dva prikaza ostane neprevede.
  */
 export const RAZLOG_KREDITA: Record<CreditReason, string> = {
-  unlock: "Otključavanje",
+  unlock: "Otključan prospekt",
   scan: "Skeniranje",
-  monthly_grant: "Mesečna dodela",
-  admin: "Ručna izmena",
-  refund: "Povraćaj",
+  monthly_grant: "Mesečni krediti",
+  admin: "Ispravka od podrške",
+  refund: "Vraćen kredit",
   // F11: nagrada za utisak. Uvek pozitivna i uvek kroz `grant_feedback_credits`.
   feedback: "Nagrada za utisak",
   // S16 (0022). „Mesečna dodela" je zauzeta za `monthly_grant`, a razlika je
   // vidljiva korisniku: ovo je dodela koju je pokrenula NAPLATA, ne cron.
-  subscription_grant: "Dodela uz pretplatu",
+  subscription_grant: "Mesečni krediti uz pretplatu",
   // Jedini razlog koji puni kasu koja ne ističe — zato „Kupljen paket", ne
   // „Dopuna": izvod mora da kaže odakle su krediti, ne šta rade.
-  credit_pack: "Kupljen paket",
-  onboarding: "Dobrodošlica",
+  credit_pack: "Kupljeni krediti",
+  onboarding: "Poklon za početak",
   // S20 (0024). Istorijski redovi — od S25 ovaj razlog niko ne piše.
   // [S29] Label više ne govori o beti; sami redovi u knjizi ostaju kakvi jesu.
   beta_grant: "Raniji besplatni paket",
   // S25 (0025). Komp paket je nasledio ulogu beta paketa; proba i istek su
   // Stripe životni ciklus — izvod mora da kaže odakle su krediti došli i kuda
   // su otišli.
-  komp_grant: "Komp paket",
-  trial_grant: "Probni krediti",
-  expire: "Istek pretplate",
+  komp_grant: "Besplatan pristup",
+  trial_grant: "Krediti za probu",
+  expire: "Pretplata istekla, krediti poništeni",
   // 0032. „Povraćaj" je zauzet za `refund` (kredit vraćen za neuspelo
   // skeniranje) — ovde ide suprotan smer: novac je vraćen, krediti odlaze.
-  povracaj: "Vraćen novac",
+  povracaj: "Vraćen novac, krediti oduzeti",
   // 0034. Isti smer kao `refund`, ali sopstveni razlog: skeniranje koje nije
   // dalo listu vraća kredit samo, bez ijedne reči od korisnika.
-  scan_refund: "Vraćeno za skeniranje",
+  scan_refund: "Vraćen kredit za skeniranje",
 };
 
 /**
@@ -120,7 +120,9 @@ export const STANJE_PRISTUPA: Record<
  * Ostala četiri imena su ista kao u katalogu, jer su to imena koja je i kupio.
  */
 export const PLAN_IME: Record<PlanId, string> = {
-  komp: "Komp",
+  // Korisnik ne zna za „komp"; admin konzola ovo ime ne čita (ona ima
+  // `STANJE_PRISTUPA`).
+  komp: "Besplatan pristup",
   dopuna: "Bez pretplate",
   starter: "Starter",
   pro: "Pro",
@@ -350,13 +352,13 @@ export const kartica = {
   problemi: "Konkretni problemi",
   zastoDobar: "Zašto je ovo dobar prospekt",
   brojProblema: (n: number) => `${n} ${plural(n, "problem", "problema", "problema")}`,
-  nemaSajtProblem: "Firma nema sajt — to je ceo problem, i ceo razlog za poruku.",
-  analiziram: "Analiziram sajt na telefonu i desktopu… obično 10–40 s",
-  analizaDuze: "Traje duže nego obično. Kontakt je tvoj, analiza stiže — ili je zatraži ponovo.",
+  nemaSajtProblem: "Firma nema sajt. To je ceo problem i ceo razlog za poruku.",
+  analiziram: "Analiziram sajt na telefonu i računaru… obično 10 do 40 s",
+  analizaDuze: "Traje duže nego obično. Kontakt je tvoj, a analiza stiže. Možeš i da je zatražiš ponovo.",
   analizaPala:
-    "Analiza nije stigla. Kredit je skinut i prospekt je tvoj — kontakt je gore. Analizu možeš da tražiš ponovo.",
+    "Analiza nije stigla. Kredit je skinut, prospekt je tvoj i kontakt je gore. Analizu možeš da tražiš ponovo.",
   sajtNijeOtvoren: (g: string) =>
-    `Sajt se nije otvorio pri analizi (${g}). To može biti privremeno — ili je i vlasniku isto tako.`,
+    `Sajt se nije otvorio pri analizi (${g}). Možda je privremeno, a možda ga ni kupci ne vide.`,
   snimakNijeSacuvan: "Snimak nije sačuvan",
   aiPao: "Analiza problema nije prošla, poruka je iz osnovnih signala.",
   poruka: "Predlog poruke",
@@ -367,7 +369,7 @@ export const kartica = {
   kopiranoToast: "Kopirano. Označi kao kontaktiran?",
   kontaktiran: "Kontaktiran",
   napisiDrugacije: "Napiši drugačije",
-  aiLimit: (n: number) => `Dnevni limit AI varijanti (${n}) je potrošen, sutra ponovo.`,
+  aiLimit: (n: number) => `Danas si potrošio sve nove verzije poruke (${n}). Sutra opet.`,
   osvezenaPoruka: "Osvežena poruka sa analizom",
   otkljucaj: "Otključaj za 1 kredit",
   otkljucajBesplatno: "Otključaj · prvi je besplatan",
@@ -375,11 +377,10 @@ export const kartica = {
   otkljucajVrati: "Otključaj · vrati pristup",
   /** [0029] Admin nalog — bez cene, jer kredit ne troši. */
   otkljucajBezKredita: "Otključaj",
-  otkljucajOpis: "Telefon, mejl, sajt, snimci, problemi i poruka. Ne plaća se dvaput.",
   otkljucavam: "Otključavam…",
   potvrdaNaslov: (ime: string) => `Otključaj ${ime}?`,
   potvrdaTekst: (ostaje: number) =>
-    `1 kredit — ostaje ti ${ostaje}. Dobijaš telefon, mejl, sajt, snimke, listu problema i poruku. Isti prospekt se nikad ne naplaćuje drugi put.`,
+    `Košta 1 kredit, ostaje ti ${ostaje}. Dobijaš telefon, mejl, sajt, snimke, listu problema i poruku. Isti prospekt ne plaćaš dvaput.`,
   /** §7.3, dugme u modalu potvrde (ključ nije u §7.8, tekst jeste u §7.3). */
   potvrdaDugme: "Otključaj · 1 kredit",
   /** §7.3, dugme uz „Nemaš kredita…". */
@@ -387,13 +388,13 @@ export const kartica = {
   nePitajDanas: "Ne pitaj me više danas",
   odustani: "Odustani",
   nemaKredita: "Nemaš kredita. Plan počinje sa 7 dana probe i 10 kredita.",
-  vecOtkljucan: (ime: string) => `${ime} je već otključan — kredit nije skinut.`,
+  vecOtkljucan: (ime: string) => `${ime} je već otključan. Kredit nije skinut.`,
   nemaVeze: "Nema veze sa serverom. Prospekt nije otključan i kredit nije skinut.",
   pokusajPonovo: "Pokušaj ponovo",
   prijaviGresku: "Prijavi grešku",
   solidan: "Sajt izgleda solidno",
   solidanOpis:
-    "Analiza nije našla dovoljno problema za poruku — bolje je ne slati ništa nego izmišljati.",
+    "Analiza nije našla dovoljno problema za poruku. Bolje ništa ne slati nego izmišljati.",
   nemaKanala: "Nema kanala",
   nemaKanalaOpis: "Google nema ni telefon ni mejl za ovu firmu. Poruka je tu ako ih nađeš sam.",
   mapa: "Google Maps",
@@ -420,9 +421,9 @@ export const kartica = {
    */
   zastoMrtav: {
     pre: "Domen ",
-    posle: " ne odgovara. Firma je nekad imala sajt — plaćali su ga, i verovatno bi opet.",
+    posle: " ne odgovara. Firma je nekad platila sajt i verovatno bi opet.",
   },
-  zastoSamoMreze: "Firma živi na Instagramu/Facebooku. Nema mesto na koje Google šalje kupce.",
+  zastoSamoMreze: "Firma postoji samo na Instagramu ili Facebooku. Google nema gde da joj pošalje kupce.",
 } as const;
 
 /** „Mobilni · Viber" / „Fiksni · Poziv" / „Besplatni · Poziv" (§7.2). */

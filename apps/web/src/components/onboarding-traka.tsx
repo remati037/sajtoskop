@@ -12,9 +12,10 @@
 
 import Link from "next/link";
 import { Check } from "lucide-react";
-import { KORACI, TRAKA, uradjeniKoraci, type KorakKljuc } from "@sajtoskop/shared";
+import { KORACI, TRAKA, sviKoraciUradjeni, uradjeniKoraci, type KorakKljuc } from "@sajtoskop/shared";
 import { cn } from "@/lib/cn";
 import { useOnboarding } from "./onboarding-provider";
+import { InfoSavet } from "./ui/info-savet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 /** Kuda vodi neurađen korak (§4.6). */
@@ -38,6 +39,10 @@ function linkKoraka(korak: KorakKljuc, grad: string | null, nisa: string | null)
 export function OnboardingTraka({ skupljen }: { skupljen: boolean }) {
   const onboarding = useOnboarding();
   if (!onboarding?.trakaPrikaz) return null;
+  // Sva četiri urađena: traka nestaje sama, bez „Sakrij". Čisto prikazni uslov,
+  // ništa se ne upisuje; `done_at` posle toga ionako gasi `trakaVidljiva`.
+  // Jedini izuzetak je kratka poruka „Sva četiri…" odmah po četvrtom koraku.
+  if (sviKoraciUradjeni(onboarding.koraci) && !onboarding.zavrsenoUpravo) return null;
 
   const uradjeni = uradjeniKoraci(onboarding.koraci);
   const broj = uradjeni.length;
@@ -122,33 +127,32 @@ export function OnboardingTraka({ skupljen }: { skupljen: boolean }) {
                   >
                     {uradjen && <Check className="h-3 w-3" strokeWidth={3} />}
                   </span>
-                  <span className="min-w-0">
-                    <span className={cn("block text-xs", uradjen ? "text-fg-muted" : "font-medium text-fg")}>
-                      {k.naslov}
-                    </span>
-                    {!uradjen && uputstvo && (
-                      <span className="block text-[11px] italic leading-snug text-fg-muted">
-                        {uputstvo}
-                      </span>
-                    )}
+                  <span className={cn("min-w-0 text-xs", uradjen ? "text-fg-muted" : "font-medium text-fg")}>
+                    {k.naslov}
                   </span>
                 </span>
               );
 
               return (
-                <li key={k.kljuc}>
+                <li key={k.kljuc} className="flex items-center gap-1">
                   {uradjen ? (
-                    <span className="block px-1 py-0.5">
+                    <span className="block min-w-0 flex-1 px-1 py-0.5">
                       <span className="sr-only">Urađeno: </span>
                       {sadrzaj}
                     </span>
                   ) : (
                     <Link
                       href={linkKoraka(k.kljuc, onboarding.grad, onboarding.nisa)}
-                      className="block rounded-md px-1 py-0.5 transition-colors hover:bg-bg-hover"
+                      className="block min-w-0 flex-1 rounded-md px-1 py-0.5 transition-colors hover:bg-bg-hover"
                     >
                       {sadrzaj}
                     </Link>
+                  )}
+                  {/* Uputstvo u oblačiću, van linka: dugme u linku nije ispravan HTML. */}
+                  {!uradjen && uputstvo && (
+                    <InfoSavet label={`Kako: ${k.naslov}`} side="right">
+                      {uputstvo}.
+                    </InfoSavet>
                   )}
                 </li>
               );

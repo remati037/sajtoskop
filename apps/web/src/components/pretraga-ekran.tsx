@@ -67,6 +67,8 @@ import { stanjeA, stanjeB, stanjeC, stanjeD, stanjeF } from "@/lib/stanja-skenir
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
+import { InfoSavet } from "./ui/info-savet";
+import { useObavestenje } from "./ui/obavestenja";
 import { PraznoStanje } from "./ui/stranica";
 import {
   MAX_PAGE,
@@ -112,7 +114,12 @@ type Props = {
 const NISA_ID = "pretraga-nisa";
 
 /** §4.4 — rečenica iznad liste dok prvi prolaz nije završen (S27, tekst zadržan). */
-const ZELENI_BEDZEVI = "Zeleni bedževi su najbolji prospekti — firme koje sajt uopšte nemaju.";
+const ZELENI_BEDZEVI = "Zeleni bedževi su najbolji prospekti: firme koje uopšte nemaju sajt.";
+
+/** „40 firmi": natpis veličine liste. `labela` iz shared paketa ostaje za CLI. */
+function velicina(d: Dubina): string {
+  return `${DUBINA_OPIS[d].maxResults} firmi`;
+}
 
 const PRAZNI_FILTERI: SearchFilters = { onlyNoSite: false, onlySocial: false, onlyDead: false };
 
@@ -338,7 +345,6 @@ export function PretragaEkran({
     setPoslednji(null);
     setData(null);
     setGreska(null);
-    setObavestenje(null);
   }
 
   // Stanje čekanja na worker.
@@ -361,7 +367,8 @@ export function PretragaEkran({
   const naplata = useRef<Zahtev | null>(null);
   /** [0034] Koliko je poslednje skeniranje naplatilo — prvi broj u stanju A. */
   const placeno = useRef<number>(0);
-  const [obavestenje, setObavestenje] = useState<string | null>(null);
+  /** Potvrde uspeha idu u oblačić koji nestane sam, ne u traku iznad liste. */
+  const obavesti = useObavestenje();
 
   /**
    * [S30] Prospekt koji se upravo otključava — „jedan po jedan". Sam tok
@@ -529,7 +536,7 @@ export function PretragaEkran({
               : odgovor.scan.kind === "kes" ? "kes"
               : "prvo",
             cost: odgovor.scan.cost,
-            dubinaLabela: DUBINA_OPIS[odgovor.scan.dubina].labela,
+            dubinaLabela: velicina(odgovor.scan.dubina),
             maxRezultata: DUBINA_OPIS[odgovor.scan.dubina].maxResults,
             kesiranaDubina: odgovor.scan.kesiranaDubina,
             lastScannedAt: odgovor.scan.lastScannedAt,
@@ -544,7 +551,7 @@ export function PretragaEkran({
       // [0034] Stanje F: lista koju korisnik već ima. Nema naplate i nema čekanja.
       if (!odgovor.charged && odgovor.status === "cache" && !odgovor.emptyScan) {
         const f = stanjeF();
-        setObavestenje(`${f.naslov} ${f.telo}`);
+        obavesti(`${f.naslov}. ${f.telo}`);
       }
 
       if (odgovor.charged) {
@@ -555,15 +562,13 @@ export function PretragaEkran({
         // ono što je stvarno skinuto. `dubina` je rezerva za odgovor bez polja.
         const skinuto = odgovor.cost ?? cenaDubine(z.dubina);
         const izKesa = odgovor.status === "cache";
-        setObavestenje(
+        obavesti(
           neograniceno
             ? izKesa
-              ? "Lista je otvorena — admin nalog ne troši kredite."
-              : "Skeniranje je pokrenuto — admin nalog ne troši kredite."
-            : `Skinuto je ${skinuto} ${plural(skinuto, "kredit", "kredita", "kredita")} za ` +
-            (izKesa
-              ? `pristup iz keša (${DUBINA_OPIS[z.dubina].labela.toLowerCase()}). Lista je odmah tu, 30 dana bez daljih kredita.`
-              : `${DUBINA_OPIS[z.dubina].labela.toLowerCase()} skeniranje.`) +
+              ? "Lista je otvorena. Admin nalog ne troši kredite."
+              : "Skeniranje je pokrenuto. Admin nalog ne troši kredite."
+            : `Plaćeno ${skinuto} ${plural(skinuto, "kredit", "kredita", "kredita")}. ` +
+            (izKesa ? "Lista je tu i otvorena ti je 30 dana." : "Skeniranje je pokrenuto.") +
             ` Ostalo ti je ${odgovor.creditsLeft} ` +
             `${plural(odgovor.creditsLeft ?? 0, "kredit", "kredita", "kredita")}.`,
         );
@@ -636,7 +641,7 @@ export function PretragaEkran({
             placeno: placeno.current,
             vraceno: vraceno.current,
           });
-          setObavestenje(a.telo ? `${a.naslov}. ${a.telo}` : a.naslov);
+          obavesti(a.telo ? `${a.naslov}. ${a.telo}` : a.naslov);
         }
       }
       // Kombinacija je od sada u kešu i besplatna — registar i balans (moguć
@@ -768,7 +773,6 @@ export function PretragaEkran({
       return;
     }
 
-    setObavestenje(null);
     const c = cenaZa(city, niche, dubina);
 
     if (c.vrsta === "pristup") {
@@ -787,7 +791,7 @@ export function PretragaEkran({
         : c.vrsta === "kes" ? "kes"
         : "prvo",
       cost: c.cost,
-      dubinaLabela: DUBINA_OPIS[dubina].labela,
+      dubinaLabela: velicina(dubina),
       maxRezultata: DUBINA_OPIS[dubina].maxResults,
       kesiranaDubina: c.vrsta === "plice" ? c.kesiranaDubina : null,
       lastScannedAt: c.vrsta === "prvo" ? null : c.scannedAt,
@@ -802,12 +806,11 @@ export function PretragaEkran({
     if (!city || !niche || samoCitanje) return;
     const c = cenaZa(city, niche, dubina);
 
-    setObavestenje(null);
     naplata.current = { city, niche, f: filters, page: 1, pay: true, force: true, dubina };
     setPredlog({
       razlog: "rucno",
       cost: cenaDubine(dubina),
-      dubinaLabela: DUBINA_OPIS[dubina].labela,
+      dubinaLabela: velicina(dubina),
       maxRezultata: DUBINA_OPIS[dubina].maxResults,
       kesiranaDubina: null,
       lastScannedAt: c.vrsta === "prvo" ? null : c.scannedAt,
@@ -844,7 +847,6 @@ export function PretragaEkran({
     setCity(c);
     setNiche(n);
     if (d !== dubina) setDubina(d);
-    setObavestenje(null);
 
     const cena = cenaZa(c, n, d);
     if (cena.vrsta === "pristup") {
@@ -864,7 +866,7 @@ export function PretragaEkran({
         : cena.vrsta === "kes" ? "kes"
         : "prvo",
       cost: cena.cost,
-      dubinaLabela: DUBINA_OPIS[d].labela,
+      dubinaLabela: velicina(d),
       maxRezultata: DUBINA_OPIS[d].maxResults,
       kesiranaDubina: cena.vrsta === "plice" ? cena.kesiranaDubina : null,
       lastScannedAt: cena.vrsta === "prvo" ? null : cena.scannedAt,
@@ -1013,12 +1015,6 @@ export function PretragaEkran({
 
   return (
     <div className="space-y-6">
-      {/* Kampanjska kartica ide na vrh ekrana, iznad forme (F11 §2.3): NPS se
-          postavlja jednom u životu naloga i ne sme da se traži skrolom. Traka
-          „nisi bio 10 dana" stoji tu iz istog razloga. */}
-      <UtisakKartica kljuc="nps-7" />
-      <UtisakMikro kljuc="zasto-ne-vracas" />
-
       <Card className="overflow-visible p-5">
         <form
           onSubmit={(e) => {
@@ -1080,19 +1076,6 @@ export function PretragaEkran({
         />
       </Card>
 
-      {/* [S29] „Fali" traka postoji na ekranu NAJVIŠE JEDNOM.
-          `UtisakMikro` se crta kad je pitanje aktivno, pa bi dva montirana
-          mesta dala dve iste trake u istom trenutku. Zato je mesto izbor, a ne
-          dva nezavisna uslova: ako je combobox vratio nulu, traka stoji uz
-          formu (tu je i upit nastao); inače stoji ispod praznog rezultata. */}
-      {faliUpit !== null && (
-        <FaliMikro query={faliUpit} naslov="Ne vidiš svoju nišu? Napiši je." />
-      )}
-
-      {/* Incident stoji uz poruku o padu, ne na dnu ekrana: pitanje je ovde
-          usluga, a ne molba (F11 §2.2). */}
-      <UtisakMikro kljuc="posao-pao" />
-
       {greska && (
         <Alert variant="danger">
           {greska}
@@ -1109,12 +1092,6 @@ export function PretragaEkran({
         </Alert>
       )}
 
-      {obavestenje && <Alert variant="success">{obavestenje}</Alert>}
-
-      {/* Pitanje o tačnosti podataka stoji uz potvrdu o otključavanju — tu su i
-          podaci o kojima pita (F11 §2.1). */}
-      <UtisakMikro kljuc="tacnost-podataka" />
-
       {ceka && (
         <TrakaPosla
           posao={posao}
@@ -1127,8 +1104,7 @@ export function PretragaEkran({
         <Alert variant="warning">
           <p className="font-medium">Traje duže nego obično.</p>
           <p className="mt-0.5 opacity-90">
-            Skeniranje se nastavlja u pozadini i kredit je već plaćen. Rezultat će biti ovde kad
-            se vratiš — pristup ti važi 30 dana, bez daljih kredita i bez čekanja.
+            Skeniranje se nastavlja u pozadini i već je plaćeno. Lista će biti ovde kad se vratiš.
           </p>
           {/* [Faza 4, 4.5] Dugme koje ponovo proverava bez nove pretrage. */}
           <Button
@@ -1161,18 +1137,16 @@ export function PretragaEkran({
         <PraznoStanje
           ikona={<Search />}
           naslov="Izaberi grad i nišu"
-          opis="Gore levo. Sve što je u kešu stiže odmah — 1 kredit za 20 firmi; skeniranje nove kombinacije isto toliko. Ako nađemo manje firmi nego što si tražio, razliku vraćamo."
-          fusnota={
+          opis={
             podrazumevaniGrad && podrazumevanaNisa
-              ? `Podrazumevano: ${cityLabels[podrazumevaniGrad] ?? podrazumevaniGrad} · ${nicheLabels[podrazumevanaNisa] ?? podrazumevanaNisa} iz prvih koraka`
-              : undefined
+              ? `Popunili smo ${cityLabels[podrazumevaniGrad] ?? podrazumevaniGrad} · ${nicheLabels[podrazumevanaNisa] ?? podrazumevanaNisa} iz prvih koraka. Promeni ih ili samo pokreni pretragu.`
+              : "Gotova lista stiže odmah, nova se skenira za manje od minuta."
           }
         />
       )}
 
-      {/* Lista keša stoji ODMAH ispod forme dok rezultata nema — tada je ona
-          glavna stvar na ekranu i nosi uvodni tekst. Čim rezultati stignu,
-          sklapa se u jedan red (v. `sazeto`) i propušta tabelu napred. */}
+      {/* Lista keša stoji ispod forme dok rezultata nema, a ispod rezultata
+          kad stignu. U oba slučaja je podrazumevano sklopljena u jedan red. */}
       {!imaRezultat && (
         <KesLista
           stavke={kes}
@@ -1276,10 +1250,6 @@ export function PretragaEkran({
                 )}
               </div>
 
-              {/* Traka iznad tabele (F11 §6.1). Pojavljuje se 3 s pošto tabela
-                  sedne i ne pomera je više nego jednom. */}
-              <UtisakMikro kljuc="prva-lista" />
-
               {onboarding && onboarding.doneAt === null && (
                 <p className="text-sm text-fg-muted">{ZELENI_BEDZEVI}</p>
               )}
@@ -1336,6 +1306,10 @@ export function PretragaEkran({
                   </div>
                 </div>
               )}
+
+              {/* Pitanje o listi (F11 §6.1) stoji ISPOD kartica: pojavljuje se
+                  3 s pošto lista sedne, pa iznad nje bi je pomerilo. */}
+              <UtisakMikro kljuc="prva-lista" />
             </>
           )}
         </section>
@@ -1375,6 +1349,18 @@ export function PretragaEkran({
         />
       )}
 
+      {/* [čišćenje UI-a] Pitanja za utisak stoje ISPOD glavnog sadržaja, nikad
+          iznad forme. Kada se koje pojavi i dalje odlučuje motor (F11).
+          [S29] „Fali" traka postoji na ekranu NAJVIŠE JEDNOM: ako je combobox
+          vratio nulu, ide ova; inače ona ispod praznog rezultata. */}
+      {faliUpit !== null && (
+        <FaliMikro query={faliUpit} naslov="Ne vidiš svoju nišu? Napiši je." />
+      )}
+      <UtisakMikro kljuc="posao-pao" />
+      <UtisakMikro kljuc="tacnost-podataka" />
+      <UtisakMikro kljuc="zasto-ne-vracas" />
+      <UtisakKartica kljuc="nps-7" />
+
       <SkeniranjeModal
         predlog={predlog}
         neograniceno={neograniceno}
@@ -1412,11 +1398,11 @@ function PrekidacDubine({
 
   return (
     <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span className="text-xs font-medium text-fg-muted">Dubina</span>
+      <span className="text-xs font-medium text-fg-muted">Veličina liste</span>
 
       <div
         role="radiogroup"
-        aria-label="Dubina skeniranja"
+        aria-label="Veličina liste"
         // Strelice šetaju kroz tri opcije bez izlaska iz niza. Modul, a ne
         // odsecanje: sa kraja se prelazi na početak, kao u svakom radiogrupu.
         onKeyDown={(e) => {
@@ -1446,31 +1432,26 @@ function PrekidacDubine({
               disabled={disabled}
               onClick={() => promeni(d)}
               className={cn(
-                "relative z-10 flex h-8 items-center justify-center gap-1.5 rounded-full px-3.5 text-xs font-medium transition-colors disabled:opacity-50 sm:px-4",
+                // Dva reda (veličina pa cena): u jednom redu tri opcije ne staju
+                // na telefon.
+                "relative z-10 flex h-10 flex-col items-center justify-center rounded-full px-3.5 text-xs font-medium leading-tight transition-colors disabled:opacity-50 sm:px-5",
                 aktivan ? "text-fg" : "text-fg-muted hover:text-fg",
               )}
             >
-              {opis.labela}
-              <span className="num opacity-70">
-                {opis.maxResults} · {opis.stranica}
-                {opis.stranica === 1 ? " kredit" : " kredita"}
+              <span className="num">{velicina(d)}</span>
+              <span className="num text-[10px] opacity-70">
+                {opis.stranica} {plural(opis.stranica, "kredit", "kredita", "kredita")}
               </span>
             </button>
           );
         })}
       </div>
-
-      <span className="text-xs text-fg-muted num">
-        do {DUBINA_OPIS[vrednost].maxResults} prospekata ·{" "}
-        {DUBINA_OPIS[vrednost].stranica}{" "}
-        {plural(DUBINA_OPIS[vrednost].stranica, "stranica", "stranice", "stranica")} rezultata
-      </span>
     </div>
   );
 }
 
 /**
- * Jedna rečenica ispod forme: da li ovo košta, koliko i zašto (F9 §4.1).
+ * Jedna rečenica ispod forme: da li ovo košta i koliko (F9 §4.1); zašto je u oblačiću.
  *
  * Stoji i pre prve pretrage — cena mora da se vidi PRE klika, ne posle njega.
  *
@@ -1496,20 +1477,28 @@ function TrakaCene({
 }) {
   if (!cena) return null;
 
+  // [čišćenje UI-a] Vidljiva je JEDNA kratka rečenica; datumi, 30 dana pristupa
+  // i povraćaj razlike stoje u oblačiću. Stanja koja traže radnju (nema kredita,
+  // samo plaćeno) ostaju vidljiva.
+  const red = "mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-border pt-3 text-xs";
+
   if (cena.vrsta === "pristup") {
     const dana = daniDo(cena.expiresAt);
 
     return (
-      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-3 text-xs">
-        <span className="font-medium text-accent-text">Plaćeno — otvara se bez kredita</span>
-        <span className="text-fg-muted num">
-          {cena.prazno
-            ? `Skenirano ${formatDatum(cena.scannedAt)} — Google nema nijednu firmu.`
-            : dana <= 0
-              ? `Osveženo ${formatDatum(cena.scannedAt)}. Pristup ističe danas.`
-              : `Osveženo ${formatDatum(cena.scannedAt)}, pristup još ${dana} ${plural(dana, "dan", "dana", "dana")}.`}
-        </span>
-      </p>
+      <div className={red}>
+        <span className="font-medium text-accent-text">Plaćena lista · otvara se bez kredita</span>
+        {dana <= 0 && <span className="text-warn-text">· pristup ističe danas</span>}
+        <InfoSavet label="Objašnjenje: plaćena lista">
+          <span className="num">
+            {cena.prazno
+              ? `Skenirano ${formatDatum(cena.scannedAt)}. Google nema nijednu firmu za ovaj grad i nišu.`
+              : dana <= 0
+                ? `Osveženo ${formatDatum(cena.scannedAt)}. Pristup ističe danas.`
+                : `Osveženo ${formatDatum(cena.scannedAt)}. Pristup važi još ${dana} ${plural(dana, "dan", "dana", "dana")}.`}
+          </span>
+        </InfoSavet>
+      </div>
     );
   }
 
@@ -1517,61 +1506,73 @@ function TrakaCene({
   // cenu koju nalog ionako ne sme da plati.
   if (samoCitanje) {
     return (
-      <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-3 text-xs">
-        <span className="font-medium text-fg">Ova lista nije plaćena</span>
-        <span className="text-fg-muted">
-          Nove liste trenutno ne rade. Ono što si već platio otvara se i dalje.
-        </span>
-      </p>
+      <div className={red}>
+        <span className="font-medium text-fg">Ova lista nije plaćena.</span>
+        <span className="text-fg-muted">Otvaraš samo liste koje si već platio.</span>
+      </div>
     );
   }
 
-  const nemaKredita = !neograniceno && krediti < cena.cost;
   const uKreditima = `${cena.cost} ${plural(cena.cost, "kredit", "kredita", "kredita")}`;
-  // [0029] Admin ne vidi cenu u kreditima — vidi samo odakle podaci stižu.
-  const kosta = neograniceno ? "ide preko Google-a" : `košta ${uKreditima}`;
-  const imas = neograniceno
-    ? "Admin nalog — krediti se ne troše."
-    : `Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")}.`;
+  const imas = `imaš ${krediti}`;
+
+  if (!neograniceno && krediti < cena.cost) {
+    return (
+      <div className={red}>
+        <span className="num font-medium text-danger">
+          {krediti > 0 && cena.cost > 1
+            ? `Ova lista košta ${uKreditima}, ${imas}. Izaberi manju listu ili dopuni kredite.`
+            : "Nemaš kredita za novu listu."}
+        </span>
+        <a href="/krediti" className="text-accent-text underline-offset-4 hover:underline">
+          Vidi kredite
+        </a>
+        <InfoSavet label="Objašnjenje: krediti">
+          Liste koje si već platio otvaraš i dalje, bez kredita.
+        </InfoSavet>
+      </div>
+    );
+  }
+
+  // [0029] Admin ne vidi cenu u kreditima, samo odakle lista stiže.
+  const cenaTekst = neograniceno ? "" : ` · ${uKreditima}`;
+  const skeniranjeTekst = neograniceno ? "skeniranje" : `skeniranje košta ${uKreditima}`;
+
+  const glavno =
+    cena.vrsta === "kes"
+      ? `Gotova lista${cenaTekst} · stiže odmah`
+      : cena.vrsta === "isteklo"
+        ? `Podaci su stariji od 30 dana, ${skeniranjeTekst}`
+        : cena.vrsta === "plice"
+          ? `Gotova lista je manja od tražene, ${skeniranjeTekst}`
+          : `Nova lista, ${skeniranjeTekst}`;
+
+  const objasnjenje =
+    cena.vrsta === "kes"
+      ? `Skenirano ${formatDatum(cena.scannedAt)}. Kad platiš, lista ti je otvorena 30 dana bez novih kredita; kad firmi ima manje, plaćaš manje.`
+      : cena.vrsta === "isteklo"
+        ? `Poslednje skeniranje: ${formatDatum(cena.scannedAt)}. Posle osvežavanja lista ti je otvorena 30 dana.`
+        : cena.vrsta === "plice"
+          ? `Skenirano ${formatDatum(cena.scannedAt)}, do ${cena.kesiranaDubina * PLACES_PAGE_SIZE} firmi. Za listu do ${DUBINA_OPIS[dubina].maxResults} firmi skeniramo ponovo, a ako nađemo manje, razliku vraćamo.`
+          : "Skeniranje znači da Sajtoskop uživo pretražuje Google Maps za taj grad i nišu. Ako nađemo manje firmi nego što tražiš, razliku vraćamo.";
 
   return (
-    <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border pt-3 text-xs">
-      <span className={cn("font-medium", nemaKredita ? "text-danger" : cena.vrsta === "kes" ? "text-accent-text" : "text-warn-text")}>
-        {cena.vrsta === "kes"
-          ? neograniceno
-            ? "Iz keša · odmah"
-            : `Iz keša · ${uKreditima} · odmah`
-          : cena.vrsta === "isteklo"
-            ? `Podaci su stariji od 30 dana — osvežavanje ${kosta}`
-            : cena.vrsta === "plice"
-              ? `U kešu je samo ${cena.kesiranaDubina} ${plural(cena.kesiranaDubina, "stranica", "stranice", "stranica")} — ` +
-                `${DUBINA_OPIS[dubina].labela.toLowerCase()} ${kosta}`
-              : `Nije u kešu — skeniranje ${kosta}`}
-      </span>
-      <span className="text-fg-muted num">
-        {nemaKredita ? (
-          <>
-            {krediti > 0 && cena.cost > 1
-              ? `Imaš ${krediti} ${plural(krediti, "kredit", "kredita", "kredita")} — dovoljno za pliću dubinu. `
-              : "Nemaš kredita. "}
-            Ono što si već platio otvara se i dalje.{" "}
-            <a href="/krediti" className="text-accent-text underline-offset-4 hover:underline">
-              Vidi kredite
-            </a>
-          </>
-        ) : cena.vrsta === "kes" ? (
-          `Skenirano ${formatDatum(cena.scannedAt)}. Sve što je u kešu stiže odmah — pristup 30 dana. ${imas}`
-        ) : cena.vrsta === "isteklo" ? (
-          `Poslednje skeniranje: ${formatDatum(cena.scannedAt)}. ${imas}`
-        ) : cena.vrsta === "plice" ? (
-          `Skenirano ${formatDatum(cena.scannedAt)} — podaci nisu stari, samo ih je manje. ${imas}`
-        ) : neograniceno ? (
-          imas
-        ) : (
-          `Ako nađemo manje firmi nego što tražiš, razliku vraćamo. ${imas}`
+    <div className={red}>
+      <span
+        className={cn(
+          "num font-medium",
+          cena.vrsta === "kes" ? "text-accent-text" : "text-warn-text",
         )}
+      >
+        {glavno}
       </span>
-    </p>
+      <span className="num text-fg-muted">
+        {neograniceno ? "· admin nalog, krediti se ne troše" : `· ${imas}`}
+      </span>
+      <InfoSavet label="Objašnjenje: cena liste">
+        <span className="num">{objasnjenje}</span>
+      </InfoSavet>
+    </div>
   );
 }
 
@@ -1665,7 +1666,7 @@ function FilterTraka({
       <Cip
         ukljucen={filters.minScore !== undefined}
         disabled={disabled}
-        title="Ugly Score 45+ (band Ružan i Katastrofa). Sajtovi kojih nema nemaju skor, pa ispadaju iz rezultata."
+        title="Samo sajtovi ocenjeni kao Ružan ili Katastrofa. Firme bez sajta ne ulaze u ovaj filter."
         onClick={() =>
           onChange({ ...filters, minScore: filters.minScore === undefined ? 45 : undefined })
         }

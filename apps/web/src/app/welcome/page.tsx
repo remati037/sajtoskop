@@ -130,8 +130,8 @@ export default async function Page({
         )}
 
         <p className="lede mt-4">
-          Hvala. Račun stiže mejlom posle svake naplate. Plan se aktivira za koji sekund — ako ga
-          ne vidiš na strani „Krediti", osveži stranu.
+          Hvala. Račun stiže mejlom posle svake naplate. Plan se aktivira za koji sekund. Ako ga
+          ne vidiš na strani „Krediti“, osveži stranu.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -160,8 +160,8 @@ export default async function Page({
             className="font-medium text-accent-text underline underline-offset-4"
           >
             podrska@sajtoskop.com
-          </a>{" "}
-          — imaj pri ruci broj računa iz mejla.
+          </a>
+          . Imaj pri ruci broj računa iz mejla.
         </p>
 
         {/* [S29 §5.3 D] Ova strana je izvan `(app)` okvira: nema ni provider ni
@@ -179,7 +179,7 @@ export default async function Page({
             >
               Prijavi grešku
             </Link>{" "}
-            ako se nešto drugo desilo — stiže mi sa svim što je bilo na ekranu.
+            ako se nešto drugo desilo. Stiže mi sa svim što je bilo na ekranu.
           </p>
         )}
       </main>

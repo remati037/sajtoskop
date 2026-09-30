@@ -31,7 +31,7 @@ const NESTAJE_MS = 8_000;
 const MAX_PORUKA = 2000;
 
 const HVALA = "Zabeleženo. Hvala.";
-const HVALA_SA_KREDITOM = "Poslato. Hvala — dodao sam ti 1 kredit.";
+const HVALA_SA_KREDITOM = "Poslato. Hvala, dodao sam ti 1 kredit.";
 
 type Korak = "pitanje" | "drugi" | "treci" | "dopuna" | "hvala" | "greska";
 

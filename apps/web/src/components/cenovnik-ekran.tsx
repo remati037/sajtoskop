@@ -292,7 +292,7 @@ export function CenovnikEkran({
       {/* D5, A4 (§4): prodavac je LLC, račun stiže mejlom od Stripe-a u ime LLC-a. */}
       <p className="mx-auto mt-8 max-w-2xl text-center text-xs leading-relaxed text-fg-muted">
         Cene su u evrima, bez PDV-a. Prodavac je {prodavac}, SAD; račun stiže mejlom posle svake
-        naplate. Plaćanje preko firme uz fakturu — javi se na{" "}
+        naplate. Za plaćanje preko firme uz fakturu javi se na{" "}
         <a
           href="mailto:podrska@sajtoskop.com"
           className="font-medium text-accent-text underline underline-offset-4"
@@ -356,8 +356,8 @@ function SekcijaPaketa({
             <h2 className="text-lg font-semibold tracking-tight">Paketi kredita</h2>
             <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">
               Jednokratna kupovina, bez pretplate i bez obnavljanja.{" "}
-              <strong className="font-semibold text-fg">Krediti iz paketa ne ističu</strong> —
-              stoje na nalogu dok ih ne potrošiš, i mesečna dodela ih ne dira.
+              <strong className="font-semibold text-fg">Krediti iz paketa ne ističu.</strong> Stoje
+              na nalogu dok ih ne potrošiš, i mesečna obnova ih ne dira.
             </p>
           </div>
 
@@ -397,13 +397,15 @@ function SekcijaPaketa({
         <div className="mt-6 space-y-2 border-t border-border pt-5 text-xs leading-relaxed text-fg-muted">
           <p>
             <strong className="font-semibold text-fg">Paket nije zamena za plan.</strong> Po
-            kreditu je skuplji od svake pretplate — ko radi redovno, prolazi jeftinije sa planom.
+            kreditu je skuplji od svake pretplate, pa ko radi redovno prolazi jeftinije sa planom.
             Paket je tu za mesec u kome posao krene jače nego što je plan predviđao.
           </p>
           <p>
-            <strong className="font-semibold text-fg">Paket traži aktivan plan ili komp.</strong>{" "}
+            <strong className="font-semibold text-fg">
+              Paket traži aktivan plan ili besplatan pristup.
+            </strong>{" "}
             Kupuje se kao dopuna postojećem pristupu, ne umesto njega. Krediti iz paketa ne ističu
-            i ostaju ti i kad plan istekne — ali se novi paket tada ne može kupiti dok se plan ne
+            i ostaju ti i kad plan istekne, ali novi paket tada ne možeš da kupiš dok se plan ne
             obnovi.
           </p>
         </div>
@@ -443,7 +445,7 @@ function KarticaPaketa({
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-sm font-semibold">
           {paket.name}
-          {izabran && <span className="sr-only"> — tvoj izbor sa sajta</span>}
+          {izabran && <span className="sr-only">, tvoj izbor sa sajta</span>}
         </h3>
         <span className="inline-flex items-center gap-1.5 rounded-md bg-accent-wash px-2 py-1 text-xs font-medium text-accent-text">
           <Coins className="h-3.5 w-3.5" aria-hidden />
@@ -477,8 +479,8 @@ function KarticaPaketa({
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-faint" aria-hidden />
           <span>
             {prijavljen
-              ? "Otključava se čim uzmeš plan ili dobiješ komp pristup."
-              : "Dostupno uz aktivan plan ili komp — uzmi plan iznad."}
+              ? "Otključava se čim uzmeš plan ili dobiješ besplatan pristup."
+              : "Dostupno uz aktivan plan ili besplatan pristup. Uzmi plan iznad."}
           </span>
         </p>
       )}

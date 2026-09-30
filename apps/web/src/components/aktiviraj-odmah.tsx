@@ -133,7 +133,7 @@ export function AktivirajOdmah({
               <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent-text" aria-hidden />
               <p className="text-fg-muted">
                 <span className="font-medium text-fg">Naplata je prošla.</span> Plan i{" "}
-                <span className="num">{aktivacija.krediti}</span> kredita stižu za koji sekund —
+                <span className="num">{aktivacija.krediti}</span> kredita stižu za koji sekund,
                 strana se sama osvežava. Račun stiže mejlom.
               </p>
             </div>
@@ -144,8 +144,8 @@ export function AktivirajOdmah({
               </p>
               <p className="text-fg-muted">
                 Umesto preostalih probnih kredita dobijaš{" "}
-                <span className="num">{aktivacija.krediti}</span> kredita plana — ne sabiraju se.
-                Obračunski period kreće od danas, pa se i sledeća naplata računa od danas.
+                <span className="num">{aktivacija.krediti}</span> kredita plana. Ne sabiraju se.
+                Sledeća naplata se računa od danas.
               </p>
               {greska && (
                 <p role="alert" className="text-xs text-danger">

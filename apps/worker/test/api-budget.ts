@@ -46,8 +46,15 @@ check(budgetMonth(m1) === "2026-09", `nextMonthReset prelazi u septembar (${budg
 const m2 = nextMonthReset(new Date("2026-10-31T12:00:00Z"));
 check(budgetMonth(m2) === "2026-11", `oktobar → novembar (${budgetMonth(m2)})`);
 
-// Mesečni reset je uvek posle dnevnog — worker ne sme da dobije obrnuti redosled.
-check(nextMonthReset().getTime() > nextDayReset().getTime(), "monthly reset je posle daily reseta");
+// Mesečni reset nikad nije pre dnevnog — worker ne sme da dobije obrnuti redosled.
+// Poslednjeg dana u mesecu (po LA) oba padaju u isti trenutak, pa je `>=`; sa
+// `>` je test padao svakog poslednjeg dana u mesecu.
+check(nextMonthReset().getTime() >= nextDayReset().getTime(), "monthly reset nije pre daily reseta");
+const krajMeseca = new Date("2026-09-30T20:00:00Z"); // 13:00 po LA, poslednji dan septembra
+check(
+  nextMonthReset(krajMeseca).getTime() === nextDayReset(krajMeseca).getTime(),
+  "poslednji dan u mesecu: mesečni i dnevni reset su isti trenutak",
+);
 
 console.log(fail === 0 ? "\nSve prošlo." : `\n${fail} palo.`);
 process.exit(fail === 0 ? 0 : 1);

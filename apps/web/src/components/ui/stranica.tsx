@@ -6,6 +6,7 @@
 // redizajna imao svoj `<header>` sa istim, ali malo drugačijim klasama.
 
 import { cn } from "@/lib/cn";
+import { InfoSavet } from "./info-savet";
 
 export function ZaglavljeStranice({
   naslov,
@@ -14,6 +15,7 @@ export function ZaglavljeStranice({
   className,
 }: {
   naslov: string;
+  /** Objašnjenje ekrana. Stoji u oblačiću iza ikonice „i", ne ispod naslova. */
   opis?: React.ReactNode;
   /** Radnje sa desne strane naslova. */
   children?: React.ReactNode;
@@ -23,9 +25,9 @@ export function ZaglavljeStranice({
     <header
       className={cn("mb-7 flex flex-wrap items-start justify-between gap-4", className)}
     >
-      <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">{naslov}</h1>
-        {opis && <p className="mt-1.5 max-w-2xl text-sm text-fg-muted">{opis}</p>}
+        {opis && <InfoSavet label={`Objašnjenje: ${naslov}`}>{opis}</InfoSavet>}
       </div>
       {children && <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>}
     </header>
@@ -75,15 +77,32 @@ export function PraznoStanje({
   );
 }
 
-/** Sekcija sa naslovom u tabelama i knjigama — manja od naslova stranice. */
-export function NaslovSekcije({ className, ...props }: React.ComponentProps<"h2">) {
-  return (
+/** Sekcija sa naslovom u tabelama i knjigama, manja od naslova stranice. */
+export function NaslovSekcije({
+  className,
+  info,
+  children,
+  ...props
+}: React.ComponentProps<"h2"> & {
+  /** Objašnjenje sekcije, u oblačiću iza ikonice „i". */
+  info?: React.ReactNode;
+}) {
+  const naslov = (
     <h2
       className={cn(
         "text-[11px] font-semibold uppercase tracking-wider text-fg-muted",
-        className,
+        !info && className,
       )}
       {...props}
-    />
+    >
+      {children}
+    </h2>
+  );
+  if (!info) return naslov;
+  return (
+    <div className={cn("flex items-center gap-1", className)}>
+      {naslov}
+      <InfoSavet>{info}</InfoSavet>
+    </div>
   );
 }

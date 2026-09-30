@@ -24,12 +24,12 @@ import type { StanjeId } from "@sajtoskop/shared";
  * njegov nalog. Ceo tekst sa datumima je na `/krediti`.
  */
 const PODNASLOV_STANJA: Record<StanjeId, string> = {
-  komp: "komp pristup",
-  proba: "proba, kartica se naplaćuje na kraju probe",
+  komp: "besplatan pristup",
+  proba: "proba, kartica se naplaćuje kad proba istekne",
   aktivan: "pretplata aktivna",
-  otkazan: "otkazana, traje do kraja perioda",
-  dopuna: "bez pretplate, radi na kreditima",
-  grace: "pristup istekao — samo čitanje",
+  otkazan: "otkazana, važi do kraja perioda",
+  dopuna: "bez pretplate, trošiš kupljene kredite",
+  grace: "pristup istekao, možeš samo da gledaš",
   zakljucan: "pristup istekao",
 };
 
@@ -54,7 +54,7 @@ const PRECICE = [
   {
     href: "/pretraga",
     naslov: "Pretraga prospekata",
-    opis: "Grad i niša — pristup listi plaćaš jednom, 1–3 kredita po dubini, i važi 30 dana.",
+    opis: "Izaberi grad i nišu. Lista koju platiš važi 30 dana.",
     Ikona: Search,
   },
   {
@@ -65,8 +65,8 @@ const PRECICE = [
   },
   {
     href: "/pipeline",
-    naslov: "Pipeline",
-    opis: "Od nekontaktiranog do potpisanog, u pet kolona.",
+    naslov: "Praćenje kontakata",
+    opis: "Vidi koga si kontaktirao i ko ti je odgovorio.",
     Ikona: KanbanSquare,
   },
 ];
@@ -113,7 +113,7 @@ export default async function Page({
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <ZaglavljeStranice
         naslov="Kontrolna tabla"
-        opis="Stanje naloga i limiti plana. Sve brojke se resetuju po pravilima iz plana, ne po osećaju."
+        opis="Pregled naloga: koliko kredita imaš, koji plan koristiš i koliko novih pretraga ti je ostalo danas."
       />
 
       {/* S27 (naplata-stripe.md §9.4): potvrda posle komp pozivnice. Query samo
@@ -140,7 +140,7 @@ export default async function Page({
               neograniceno
                 ? "admin nalog, krediti se ne troše"
                 : profile.credits_topup > 0
-                  ? `${profile.credits_balance} iz pretplate · ${profile.credits_topup} dokupljeno`
+                  ? `${profile.credits_balance} mesečnih · ${profile.credits_topup} kupljenih`
                   : plan.monthlyCredits > 0
                     ? `od ${plan.monthlyCredits} mesečno`
                     : "bez mesečne dodele"
@@ -164,15 +164,16 @@ export default async function Page({
                 ? "pun pristup, Advanced limiti"
                 : pristup
                   ? PODNASLOV_STANJA[pristup.stanje]
-                  : "stanje se ne čita"
+                  : "stanje trenutno nije dostupno"
             }
             ikona={<Gauge />}
             num={false}
           />
           <StatKartica
-            naslov="Pretraga van keša"
+            naslov="Nove pretrage danas"
             vrednost={`${profile.cache_miss_count} / ${plan.cacheMissPerDay}`}
-            podnaslov="danas"
+            podnaslov="dnevna granica plana"
+            info="Nova pretraga je grad i niša za koje još nema gotove liste, pa Sajtoskop uživo pretražuje Google Maps. Gotove liste se ne računaju, a brojač se vraća na nulu svakog dana."
             ikona={<Radar />}
             odUkupno={[profile.cache_miss_count, plan.cacheMissPerDay]}
           />

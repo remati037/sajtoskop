@@ -232,7 +232,7 @@ male kombinacije i ne ponavljaj bez potrebe.
   2. Potvrdi → lista stiže odmah, bez skeniranja.
   3. Otvori istu kombinaciju ponovo (i posle osvežavanja, i sa druge strane liste) → bez modala,
      bez naplate.
-  4. Blok **„Tvoji pristupi"** na dnu `/pretraga` pokazuje kombinaciju sa rokom „plaćeno do …".
+  4. Blok **„Gotove liste"** na dnu `/pretraga` (sklopljen dok se ne klikne „Prikaži") pod **„Tvoje liste"** pokazuje kombinaciju sa rokom „plaćeno do …".
 
   **Očekivano:**
   ```sql
@@ -266,7 +266,7 @@ male kombinacije i ne ponavljaj bez potrebe.
 - [ ] **3.5 · Nula rezultata**
   Kombinacija za koju Google ne vraća ništa (npr. retka niša u malom gradu).
 
-  **Očekivano:** stanje C „Nema rezultata za …", „Nije naplaćeno"; u knjizi nema minusa (ili je
+  **Očekivano:** stanje C „Nema rezultata za …", „Ništa nije naplaćeno"; u knjizi nema minusa (ili je
   pun povraćaj), `search_access` za nju ne postoji.
 
 - [ ] **3.6 · Skeniranje bez liste — kredit se vraća sam (stanje B)**
@@ -284,8 +284,8 @@ male kombinacije i ne ponavljaj bez potrebe.
   obrisan; u `admin_audit` red `scan_refund`; ponovni pokušaj pravi nov `scan` red.
 
 - [ ] **3.7 · Skeniranje u toku i povratak**
-  1. Pokreni skeniranje → stanje D „Skeniram … — listu ćeš naći u „Tvoji pristupi", na dnu ove strane".
-  2. Zatvori tab dok traje, vrati se posle minut → lista je u „Tvoji pristupi" i otvara se bez naplate.
+  1. Pokreni skeniranje → stanje D „Skeniram …", „Listu ćeš naći pod „Gotove liste", na dnu ove strane".
+  2. Zatvori tab dok traje, vrati se posle minut → lista je u „Gotove liste" → „Tvoje liste" i otvara se bez naplate.
   3. DevTools → Network: `/api/job/:id` je jedan zahtev po krugu, krugovi se proređuju; na
      skrivenom tabu nema novih zahteva.
 
@@ -827,7 +827,7 @@ Svaki ekran u **četiri** prikaza: tamna 1280 px · svetla 1280 px · tamna 390 
 - [ ] **14.2 · Onboarding:** `/pocetak` sva četiri ekrana · traka „Prvih pet minuta" (raširena i
   skupljena) · četiri vođene tačke · vodič.
 - [ ] **14.3 · Aplikacija:** `/pretraga` (prazno, lista, kartica u pet stanja, modal skeniranja,
-  stanja A–F, samo-čitanje, „Tvoji pristupi") · `/lista` · `/pipeline` sa panelom poruka ·
+  stanja A–F, samo-čitanje, „Gotove liste") · `/lista` · `/pipeline` sa panelom poruka ·
   `/krediti` (proba, aktivan, otkazan, `past_due`, komp, dopuna) · `/dashboard` · `/utisci` ·
   baneri (grace žut, otkazan plav, nemaš plan) · modali.
 - [ ] **14.4 · Admin:** `/admin` · `/admin/korisnici` i detalj · `/admin/pozivnice` ·
@@ -863,3 +863,26 @@ Upiši svaki pad i svaki SQL izlaz koji scenario traži. Kad se nalaz popravi, d
 | Datum | Scenario | Ishod | Nalaz / izlaz | Popravljeno u |
 |---|---|---|---|---|
 | | | | | |
+
+## Čišćenje ekrana: info ikonice, oblačići, rečnik (30. 9. 2026)
+
+Ručni prolaz posle isporuke „Čišćenje korisničkih ekrana". Svaki korak u **obe teme** i na
+širini telefona (375 px).
+
+- [ ] **Info ikonica.** Na `/dashboard`, `/pretraga`, `/lista`, `/pipeline`, `/krediti` i
+  `/utisci` ispod naslova nema sivog pasusa, nego ikonica „i" pored naslova.
+  1. Hover na desktopu → oblačić se otvara, tekst je čitljiv u obe teme.
+  2. Tab do ikonice → oblačić se otvara na fokus, fokus prsten se vidi.
+  3. Telefon (DevTools touch) → dodir otvara, dodir van oblačića zatvara.
+- [ ] **Oblačić potvrde.** Plati gotovu listu na `/pretraga` → dole u sredini „Plaćeno N kredita…",
+  nestaje posle ~6 s i ne pokriva dugme „Utisak". Izvoz CSV-a na `/lista` → isto. Otključaj već
+  otključan prospekt (drugi tab) → „…je već otključan…" kao oblačić.
+- [ ] **Greške ostaju vidljive.** Ugasi mrežu, pa pokušaj pretragu → crveni `Alert` na ekranu, ne oblačić.
+- [ ] **Pretraga.** Veličina liste pokazuje „20 / 40 / 60 firmi" sa cenom. Ispod forme je jedan red
+  cene sa „i". „Gotove liste" su sklopljene. Pitanja za utisak su ispod rezultata, nikad iznad forme.
+- [ ] **Krediti.** Grace nalog (SQL iz 4.x) → upozorenje stoji **jednom**, u traci na vrhu, a ne i u
+  bloku pretplate. Pala naplata dok period traje (`aktivan` + `past_due`) → upozorenje je u bloku.
+- [ ] **Bočna traka.** Kartica kredita nema pomoćni red. Kad su sva četiri prva koraka urađena,
+  traka „Prvih pet minuta" se posle poruke „Sva četiri…" više ne vidi, ni posle osvežavanja.
+- [ ] **Rečnik.** Nigde u korisničkom delu ne piše „keš", „kombinacija", „dubina", „Pipeline",
+  „komp" ni „knjiga", i nema crtice „—" u rečenicama (kao prazna vrednost u tabeli sme).
