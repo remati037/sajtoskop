@@ -267,7 +267,7 @@ check(kartica.aiLimit(5) === "Danas si potrošio sve nove verzije poruke (5). Su
 check(kartica.nemaKredita === "Nemaš kredita. Plan počinje sa 7 dana probe i 10 kredita.", "nemaKredita");
 
 // ═══════════════════════════════════════════════════════════
-// 3. statički: tabela je otišla, maska nije blur
+// 3. statički: tabela je otišla, blur je samo preko mamca
 // ═══════════════════════════════════════════════════════════
 console.log("\nstatički");
 const src = (f: string) => readFileSync(path.join(webSrc, f), "utf8");
@@ -281,7 +281,17 @@ for (const f of ["components/pretraga-ekran.tsx", "components/moja-lista-ekran.t
   const k = src("components/kartica-prospekta.tsx");
   // Komentari se skidaju: zaglavlje fajla SME da kaže „nigde blur" — kod ne sme da ga ima.
   const kod = k.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  check(!/blur\(/.test(kod) && !/\bblur-/.test(kod), "kartica nigde ne koristi blur (§7: maska iz null)");
+  // Blur sme da postoji samo kao mamac: tačno jedno mesto (`Zamagljeno`), a sve
+  // što se zamagljuje dolazi iz fiksnog `MAMAC` — nikad iz `lead`-a (pravilo 9).
+  check((kod.match(/\bblur-/g) ?? []).length === 1 && !/blur\(/.test(kod), "blur postoji samo u komponenti Zamagljeno");
+  const zamagljeni = [...kod.matchAll(/<Zamagljeno[^>]*>([\s\S]*?)<\/Zamagljeno>/g)].map((m) => m[1] ?? "");
+  const maske = [...kod.matchAll(/<Maska>([\s\S]*?)<\/Maska>/g)].map((m) => m[1] ?? "");
+  check(zamagljeni.length >= 2 && maske.length === 3, `zamagljeno ${zamagljeni.length}, maske ${maske.length}`);
+  check(maske.every((m) => /^\{MAMAC\.\w+\}$/.test(m.trim())), "svaka Maska prikazuje samo MAMAC");
+  check(
+    zamagljeni.filter((z) => !z.includes("{children}")).every((z) => z.includes("MAMAC.") && !/\blead\b/.test(z)),
+    "zamagljen sadržaj je iz MAMAC, nikad iz lead-a",
+  );
   check(k.includes("lead.isUnlocked"), "maska se crta iz lead.isUnlocked");
   check(/<PrijaviGresku[\s\S]{0,80}greska: tekst/.test(k), "stanje greške montira „Prijavi grešku“ sa porukom (§5.3 D)");
   check(k.includes("sessionStorage") && !k.includes("localStorage"), "„Ne pitaj me više danas“ je u sessionStorage-u");
