@@ -848,7 +848,7 @@ mobil: grid-cols-[1fr_auto], problem ide ispod imena, score u treći red
 - **Zaključano polje:** ikonica `Lock` (11px) u kvadratiću `h-6 w-6 rounded-md
   border border-border text-fg-faint`, title „Otključaj za 1 kredit".
   Podsetnik na pravilo #9 iz `CLAUDE.md` — zaključano polje **ne postoji u API
-  odgovoru**. Renderuj katanac zato što polja nema, ne blur preko vrednosti.
+  odgovoru**. Renderuj katanac ili zamagljen mamac zato što polja nema, nikad blur preko vrednosti.
 - Podnožje: legenda levo, `.num` brojač `{n} / {m} leadova` desno.
 
 **Kartica prospekta** (detalj) — `rounded-[var(--radius-lg)] border bg-bg-elev`,
@@ -860,8 +860,10 @@ mobil: grid-cols-[1fr_auto], problem ide ispod imena, score u treći red
 2. Kontakt: `grid gap-px bg-border sm:grid-cols-3` — Telefon / Mejl / Sajt.
    Labela `text-[11px] uppercase tracking-[0.14em] text-fg-faint` sa ikonicom,
    vrednost `.num text-[13.5px]`, dopuna (npr. „mobilni") u `--accent-text`.
-3. Problemi: `.eyebrow` naslov + lista sa `AlertTriangle` u `--orange`,
-   `text-[13.5px] leading-snug text-fg-muted`.
+3. Problemi: `.eyebrow` naslov + lista sa tačkom od 6 px (`bg-fg-faint`, samo ozbiljan
+   problem `bg-warn`), `text-[13.5px] leading-snug text-fg-muted`. Bedž statusa je blag
+   (`*-wash` podloga, `*-text` tekst); jedini jak signal kartice je rail sa leve strane.
+   Zaključana kartica ima jedan blok „Problemi i gotova poruka" sa zamagljenim mamcem.
 4. Predlog poruke: blok sa `background: var(--bg-subtle)`, `.eyebrow` labela,
    dugme „Kopiraj" sa `Copy` ikonicom gore desno.
 
@@ -909,8 +911,10 @@ Obraćanje na **ti**. Greške objašnjavaju šta da uradiš, ne šta je puklo.
 10. **Jedna ease kriva** `[0.22, 1, 0.36, 1]`; ulazak je opacity + y + blur.
 11. **`prefers-reduced-motion` se poštuje**, i sadržaj je čitljiv bez animacije.
 12. **Fokus prsten se ne gasi.** Kontrast teksta minimum AA na obe teme.
-13. **Zaključan podatak se ne blurira** — server ga uopšte ne šalje, UI prikazuje
-    katanac. CSS blur nije bezbednost.
+13. **Zaključan podatak ne postoji u pregledaču** — server ga uopšte ne šalje. Na kartici
+    prospekta se zamagljuje **mamac**: fiksan izmišljen tekst iste dužine (`MAMAC` u
+    `kartica-prospekta.tsx`), da se vidi da tu nešto piše. Nikad blur preko prave vrednosti;
+    CSS blur nije bezbednost.
 
 ---
 

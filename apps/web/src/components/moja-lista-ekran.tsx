@@ -238,7 +238,7 @@ export function MojaListaEkran({ leads, cityLabels, exportPerDay, exportedToday,
         />
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             {naEkranu.map((l) => (
               <KarticaProspekta
                 key={l.placeId}

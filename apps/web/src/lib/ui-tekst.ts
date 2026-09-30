@@ -362,6 +362,8 @@ export const kartica = {
   snimakNijeSacuvan: "Snimak nije sačuvan",
   aiPao: "Analiza problema nije prošla, poruka je iz osnovnih signala.",
   poruka: "Predlog poruke",
+  /** Naslov jedinog bloka zaključane kartice: problemi i poruka, zamagljeni. */
+  zakljucanBlok: "Problemi i gotova poruka",
   kanal: { viber: "Viber", mejl: "Mejl", instagram: "Instagram", poziv: "Poziv" },
   staDaKazes: "Šta da kažeš",
   kopiraj: "Kopiraj",

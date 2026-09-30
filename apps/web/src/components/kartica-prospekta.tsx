@@ -13,8 +13,13 @@
 // ── pravilo 9, doslovno ─────────────────────────────────────
 // Zaključan prospekt u pregledaču NEMA telefon, mejl, sajt, skor, signale ni
 // analizu — `LockedLead` te ključeve ne nosi (test `apps/web/test/kartica.ts`
-// proverava JSON). Maska se crta iz `lead.isUnlocked === false`, tekstom
-// `••• ••• •••`. Nigde `filter: blur()`: stvarnog podatka ovde nema.
+// proverava JSON). Maska se crta iz `lead.isUnlocked === false`.
+//
+// Maska je zamagljen MAMAC: fiksan, izmišljen tekst iste dužine i oblika kao
+// pravi (`MAMAC`, jedan za sve kartice), da se vidi „tu nešto piše". Blur NIJE
+// zaštita — zaštita je to što podatka nema. Zato je mamac pošten i kad se blur
+// skine kroz DevTools: ne liči na pravi broj i ne tvrdi ništa o firmi. Blur
+// sme da stoji samo u `Zamagljeno` i samo preko `MAMAC` (test ovo proverava).
 //
 // ── odstupanje od §7.3, svesno ──────────────────────────────
 // §7.3 kaže „jedno primarno dugme preko bloka poruke" PO KARTICI. Na listi od
@@ -40,7 +45,6 @@ import {
   Phone,
   Sparkles,
   Star,
-  TriangleAlert,
 } from "lucide-react";
 import {
   jeNeograniceno,
@@ -58,7 +62,6 @@ import {
   jeBezSajta,
   mapaUrl,
   podrazumevaniTab,
-  predlogIzTelefona,
   skratiMejl,
   smeKontaktiran,
   stanjeKartice,
@@ -375,10 +378,13 @@ export function KarticaProspekta(props: KarticaProps) {
             ? kartica.otkljucajBesplatno
             : kartica.otkljucaj;
 
+  const bezSajtaZakljucan =
+    jeBezSajta(lead) && lead.siteStatus !== "mrtav" && lead.siteStatus !== "samo_drustvene";
+
   return (
     <article
       id={`kartica-${placeId}`}
-      className="relative flex flex-col rounded-2xl border border-border bg-bg-elev shadow-sm"
+      className="relative flex flex-col rounded-2xl border border-border/70 bg-bg-elev shadow-sm"
     >
       {/* Rail nosi kvalitet prospekta i vidi se pre nego što se pročita ijedno slovo. */}
       <span
@@ -390,6 +396,7 @@ export function KarticaProspekta(props: KarticaProps) {
 
       <Kontakti lead={lead} />
 
+      {lead.isUnlocked && (
       <Problemi
         lead={lead}
         stanje={stanje}
@@ -405,6 +412,7 @@ export function KarticaProspekta(props: KarticaProps) {
           ...(posao.id !== null ? { jobId: String(posao.id) } : {}),
         }}
       />
+      )}
 
       {lead.isUnlocked ? (
         <BlokPoruke
@@ -414,22 +422,44 @@ export function KarticaProspekta(props: KarticaProps) {
           onSledeci={props.onSledeci}
         />
       ) : (
-        <section className="rounded-b-2xl border-t border-border bg-bg-subtle px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="eyebrow">{kartica.poruka}</p>
-            {/* Tab koji bi bio podrazumevan — iz tipa telefona, koji je javan. */}
-            <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px] text-fg-faint">
-              {kartica.kanal[predlogIzTelefona(lead.phoneType)]}
-            </span>
-          </div>
+        // Zaključana kartica je JEDAN blok: problemi i poruka pod jednim
+        // naslovom, zamagljeni, pa dugme. Ranije su to bile dve sekcije sa po
+        // naslovom, maskom i sličicom katanca — pola kartice je bilo ponavljanje.
+        // Bez `border-t`: kontakti iznad već imaju donju ivicu.
+        <section className="rounded-b-2xl bg-bg-subtle px-5 py-4">
+          <p className="eyebrow">
+            {kartica.zakljucanBlok}
+            {!bezSajtaZakljucan && lead.issueCount !== null && lead.issueCount > 0 && (
+              <span className="num ml-2 normal-case tracking-normal text-fg-muted">
+                {kartica.brojProblema(lead.issueCount)}
+              </span>
+            )}
+          </p>
 
-          <div aria-hidden className="mt-3 space-y-1.5 select-none">
-            {["w-full", "w-11/12", "w-2/3"].map((w) => (
-              <p key={w} className={cn("num truncate text-sm leading-relaxed text-fg-faint", w)}>
-                •••••••••••••••••••••••••••••••••••••••••••••••••••••••••
-              </p>
-            ))}
-          </div>
+          {stanje === "u_toku" && (
+            <p className="mt-2 flex items-center gap-2 text-[13.5px] text-fg-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              {kartica.otkljucavam}
+            </p>
+          )}
+
+          {/* Da firma nema sajt je javan podatak, pa se vidi; ostalo je mamac. */}
+          {bezSajtaZakljucan && (
+            <ul className="mt-2">
+              <Red boja="bg-accent">{kartica.nemaSajtProblem}</Red>
+            </ul>
+          )}
+
+          <Zamagljeno className="mt-3">
+            {!bezSajtaZakljucan && (
+              <ul className="mb-2.5 space-y-1.5">
+                {MAMAC.problemi.slice(0, 2).map((red) => (
+                  <Red key={red}>{red}</Red>
+                ))}
+              </ul>
+            )}
+            <p className="line-clamp-2 text-sm leading-relaxed text-fg-muted">{MAMAC.poruka}</p>
+          </Zamagljeno>
 
           <VodjenaTacka hint="otkljucaj" kandidat={kandidatOtkljucaj} className="mt-4">
             <Button
@@ -565,15 +595,17 @@ function StatusBedz({ lead }: { lead: PublicLead }) {
     );
   }
 
-  const jak =
+  // Blaga podloga, ne puna boja: jak signal kartice je rail sa leve strane, a
+  // bedž ga samo imenuje. Pun akcenat na 20 kartica je bio zid zelenog.
+  const blag =
     lead.siteStatus === "nema_sajt"
-      ? "bg-accent text-accent-ink"
+      ? "bg-accent-wash text-accent-text"
       : lead.siteStatus === "mrtav"
-        ? "bg-warn text-warn-ink"
-        : "bg-info text-info-ink";
+        ? "bg-warn-wash text-warn-text"
+        : "bg-info-wash text-info-text";
 
   return (
-    <span className={cn(osnova, "font-semibold uppercase tracking-wider", jak)}>
+    <span className={cn(osnova, blag)}>
       {ikona}
       {STATUS_LABEL[lead.siteStatus]}
     </span>
@@ -686,10 +718,49 @@ function Polje({
   );
 }
 
+/**
+ * Izmišljen tekst ispod zamagljenja. NIKAD ne sme da bude izveden iz `lead`-a:
+ * zaključan prospekt podatak nema, a mamac ne sme ni da liči na tvrdnju o firmi.
+ */
+const MAMAC = {
+  telefon: "060 000 0000",
+  mejl: "kontakt@firma.rs",
+  sajt: "primer-firme.rs",
+  problemi: [
+    "Ovde stoji konkretan problem sa sajtom ove firme",
+    "Vidi se posle otključavanja prospekta",
+    "Svaki red je jedna stvar koju možeš da popraviš",
+    "Uz snimke sajta na telefonu",
+  ],
+  poruka:
+    "Zdravo, ovde stoji gotova poruka napisana baš za ovu firmu, sa problemima koje je " +
+    "analiza našla na njihovom sajtu. Vidiš je čim otključaš prospekt, zajedno sa " +
+    "telefonom i mejlom, i možeš odmah da je kopiraš.",
+} as const;
+
+/** Zamagljen mamac: vidi se oblik teksta, ne i slova. Čitač ekrana ga preskače. */
+function Zamagljeno({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      aria-hidden
+      className={cn("pointer-events-none select-none blur-[5px]", className)}
+    >
+      {children}
+    </div>
+  );
+}
+
 function Maska({ children }: { children: string }) {
   return (
-    <span aria-label="zaključano" className="num block select-none text-[15px] text-fg-faint">
-      {children}
+    <span className="block">
+      <span className="sr-only">zaključano</span>
+      <Zamagljeno className="num truncate text-[15px] text-fg-muted">{children}</Zamagljeno>
     </span>
   );
 }
@@ -728,7 +799,7 @@ function Kontakti({ lead }: { lead: PublicLead }) {
   ) : (
     <Polje Ikona={Phone} naslov={kartica.telefon}>
       {/* Tip telefona je javan (`phone_type`); bez tipa broja nema. */}
-      {lead.phoneType ? <Maska>06• ••• ••••</Maska> : <Nema>{kartica.nemaBroj}</Nema>}
+      {lead.phoneType ? <Maska>{MAMAC.telefon}</Maska> : <Nema>{kartica.nemaBroj}</Nema>}
       {dopuna}
     </Polje>
   );
@@ -749,7 +820,7 @@ function Kontakti({ lead }: { lead: PublicLead }) {
     </Polje>
   ) : (
     <Polje Ikona={Mail} naslov={kartica.mejl}>
-      {lead.hasEmail ? <Maska>•••••@•••••</Maska> : <Nema>{kartica.nemaMejl}</Nema>}
+      {lead.hasEmail ? <Maska>{MAMAC.mejl}</Maska> : <Nema>{kartica.nemaMejl}</Nema>}
     </Polje>
   );
 
@@ -764,7 +835,7 @@ function Kontakti({ lead }: { lead: PublicLead }) {
   } else if (!lead.isUnlocked) {
     sajt = (
       <Polje Ikona={Globe} naslov={kartica.sajt}>
-        <Maska>•••••.rs</Maska>
+        <Maska>{MAMAC.sajt}</Maska>
       </Polje>
     );
   } else if (lead.siteStatus === "samo_drustvene") {
@@ -798,16 +869,18 @@ function Kontakti({ lead }: { lead: PublicLead }) {
 // PROBLEMI I SLIČICA
 // ═══════════════════════════════════════════════════════════
 
+// Samo ozbiljan problem nosi boju; ostalo je neutralna tačka. Trougao u svakom
+// redu je na listi od 20 kartica bio sto upozorenja koja ništa ne razlikuju.
 const SEVERITY_BOJA: Record<AiSeverity, string> = {
-  visoka: "text-warn-text",
-  srednja: "text-warn-text",
-  niska: "text-fg-muted",
+  visoka: "bg-warn",
+  srednja: "bg-fg-faint",
+  niska: "bg-fg-faint",
 };
 
-function Red({ children, boja = "text-fg-faint" }: { children: React.ReactNode; boja?: string }) {
+function Red({ children, boja = "bg-fg-faint" }: { children: React.ReactNode; boja?: string }) {
   return (
-    <li className="flex gap-2 text-[13.5px] leading-snug text-fg-muted">
-      <TriangleAlert className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", boja)} aria-hidden />
+    <li className="flex gap-2.5 text-[13.5px] leading-snug text-fg-muted">
+      <span aria-hidden className={cn("mt-[0.45rem] h-1.5 w-1.5 shrink-0 rounded-full", boja)} />
       <span className="min-w-0">{children}</span>
     </li>
   );
@@ -910,42 +983,6 @@ function Problemi({
         <p className="mt-2 text-[13.5px] leading-snug text-fg-muted">
           <ZastoDobar lead={lead} />
         </p>
-      </>
-    );
-  } else if (stanje === "zakljucano" || (stanje === "u_toku" && !lead.isUnlocked)) {
-    const bezSajta = jeBezSajta(lead) && lead.siteStatus !== "mrtav" && lead.siteStatus !== "samo_drustvene";
-    sadrzaj = (
-      <>
-        <p className="eyebrow">
-          {kartica.problemi}
-          {!bezSajta && lead.issueCount !== null && lead.issueCount > 0 && (
-            <span className="num ml-2 normal-case tracking-normal text-fg-muted">
-              {kartica.brojProblema(lead.issueCount)}
-            </span>
-          )}
-        </p>
-        {stanje === "u_toku" ? (
-          <p className="mt-2 flex items-center gap-2 text-[13.5px] text-fg-muted">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            {kartica.otkljucavam}
-          </p>
-        ) : bezSajta ? (
-          <ul className="mt-2">
-            <Red boja="text-accent-text">{kartica.nemaSajtProblem}</Red>
-          </ul>
-        ) : (
-          // Statična maska — četiri reda različite dužine, nijedan nije podatak.
-          <ul aria-hidden className="mt-2 space-y-1.5 select-none">
-            {["w-10/12", "w-8/12", "w-11/12", "w-7/12"].map((w) => (
-              <li key={w} className="flex gap-2">
-                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-faint" />
-                <span className={cn("num truncate text-[13.5px] text-fg-faint", w)}>
-                  ••••••••••••••••••••••••••••••••••••
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
       </>
     );
   } else if (stanje === "u_toku" && lead.isUnlocked) {

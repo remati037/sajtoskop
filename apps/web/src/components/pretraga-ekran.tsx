@@ -1255,7 +1255,7 @@ export function PretragaEkran({
               )}
 
               {/* [S30, O5] Kartice umesto tabele — jedna kolona do 1024 px, dve iznad (§7). */}
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
                 {data.results.map((lead) => (
                   <KarticaProspekta
                     key={lead.placeId}

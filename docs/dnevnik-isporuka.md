@@ -691,3 +691,18 @@ Otpala: landing je napravljen van repoa.
 - Kartica kredita u bočnoj traci objašnjenje ima kao `title`, ne kao info ikonicu, jer bi dugme u linku bilo neispravan HTML.
 - Na `/krediti` u otkazanom stanju rečenica o planu („otkazana, važi do …") ponavlja traku na vrhu. Ostavljeno je namerno, jer je to red o stanju plana.
 - Odloženo: kontrolna tabla sa jednom glavnom radnjom (predlog D).
+
+### Kartica prospekta: zamagljen mamac i mirnija kartica
+**Isporučeno:** 30. septembar 2026 · bez migracije · izvor: zahtev „kartice su prenapadne"
+
+- Zaključana kartica više nema `•••` maske. Kontakti, problemi i predlog poruke prikazuju zamagljen **mamac** (`MAMAC` u `kartica-prospekta.tsx`): fiksan izmišljen tekst iste dužine, isti za sve kartice. Vidi se da tu nešto piše, ali se ne čita.
+- Pravilo 9 je isto: zaključan podatak i dalje ne postoji u API odgovoru. Mamac je pošten i bez blura („060 000 0000", „Ovde stoji konkretan problem sa sajtom ove firme"), pa ne liči na pravi broj i ne tvrdi ništa o firmi.
+- `test/kartica.ts`: umesto „nigde blur" proverava da blur postoji samo u `Zamagljeno` i da je sve zamagljeno iz `MAMAC`, nikad iz `lead`-a. `dizajn-sistem.md` pravilo 13 i §9 su prepisani.
+- Smirena kartica:
+  - Bedževi „Nema sajt", „Mrtav domen" i „Samo društvene" su blagi (wash), bez velikih slova, a rail sa leve strane je jedini jak signal.
+  - Trouglovi u redovima problema su neutralna tačka; samo problem ozbiljnosti `visoka` je u `--warn`.
+  - Zaključana kartica ima jedan blok „Problemi i gotova poruka" (dva reda mamca i dva reda poruke) umesto dve sekcije. Sličica katanca i kanal poruke su iz nje izbačeni.
+  - Razmak između kartica je `gap-5`, a ivica je `border-border/70`.
+
+**Odstupanja koja i danas važe:**
+- `tok-i-onboarding.md` §7.3 opisuje zaključanu karticu sa odvojenim problemima i blokom poruke. Kod ih spaja u jedan blok, a spec nije prepisan.
