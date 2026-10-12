@@ -9,6 +9,8 @@
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
+import { jeAdminIzProfila } from "@/lib/admin";
+import { zabeleziDogadjaj } from "@/lib/analitika-server";
 import { oznaciAkoTreba } from "@/lib/onboarding";
 import { promeniStatus, sacuvajBelesku } from "@/lib/pipeline";
 import { citajPristup, odbijenicaCitanja } from "@/lib/pristup";
@@ -66,6 +68,10 @@ export async function PATCH(req: Request): Promise<Response> {
     if (status !== undefined) {
       const ishod = await promeniStatus(userId, placeId, status, channel ?? null);
       if (!ishod.ok) return odbijeno(ishod.razlog);
+
+      zabeleziDogadjaj(userId, "pipeline_status_changed", { status }, {
+        admin: jeAdminIzProfila(userId, profile?.role),
+      });
 
       // [S30, §4.3] Korak `pipeline` = prvi `lead_status` red. Povratak u
       // „Nekontaktiran" nije korak — to je poništen kontakt, ne urađen.

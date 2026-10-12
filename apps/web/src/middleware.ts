@@ -30,7 +30,8 @@ export default clerkMiddleware();
 export const config = {
   matcher: [
     // Sve osim Next internih fajlova i statike — osim ako je statika u query stringu.
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // `ingest` je proxy ka PostHogu (`next.config.ts`): Clerk tu nema šta da radi.
+    "/((?!_next|ingest|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     // Uvek za API i tRPC rute.
     "/(api|trpc)(.*)",
   ],

@@ -21,6 +21,7 @@ import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import type { WebhookEvent } from "@clerk/nextjs/webhooks";
 import { NextRequest } from "next/server";
 import { RADNJE, upisiAudit } from "@/lib/admin";
+import { zabeleziDogadjaj } from "@/lib/analitika-server";
 import { otkaziPretplateNaloga } from "@/lib/otkazivanje";
 import { createProfileFromWebhook, obrisiProfil, stripeKupacZaNalog } from "@/lib/profile";
 import { KonfigGreska, webhookSecret } from "@/lib/env";
@@ -204,6 +205,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     const result = await createProfileFromWebhook(userId, primaryEmail(event.data), refId);
     console.log(`[clerk-webhook] ${event.type} ${userId} → ${result.reason}`);
+    // `created` je samo prvi put; `user.updated` i ponovljena isporuka su `existing`.
+    // Nov nalog nije admin, pa se uloga ne čita.
+    if (result.reason === "created") {
+      zabeleziDogadjaj(userId, "signup_completed", {}, { admin: false });
+    }
     return Response.json({ ok: true, reason: result.reason });
   } catch (err) {
     console.error("[clerk-webhook] upis u bazu nije uspeo:", err);

@@ -17,6 +17,8 @@
 
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
+import { jeAdminIzProfila } from "@/lib/admin";
+import { zabeleziDogadjaj } from "@/lib/analitika-server";
 import { citajPristup, odbijenica } from "@/lib/pristup";
 import { proveriIpTempo } from "@/lib/rate-limit";
 import type { ApiError, UnlockResponse } from "@/lib/search-types";
@@ -118,6 +120,13 @@ export async function POST(req: Request): Promise<Response> {
       enrichJobId: outcome.enrichJobId,
       ...(outcome.onboardingSteps ? { onboardingSteps: outcome.onboardingSteps } : {}),
     };
+
+    // Kartica istu rutu zove i da pročita već otključan prospekt — to nije događaj.
+    if (!body.alreadyUnlocked) {
+      zabeleziDogadjaj(userId, "prospect_unlocked", {}, {
+        admin: jeAdminIzProfila(userId, profile?.role),
+      });
+    }
 
     return NextResponse.json(body, { headers: HEADERS });
   } catch (err) {

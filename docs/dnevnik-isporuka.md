@@ -669,6 +669,21 @@ Otpala: landing je napravljen van repoa.
 - Mejl „Uplata primljena" delimično preklapa roadmap 6.1 („Plan je aktivan", H1.2). Kad se 6.1 bude gradio, treba ga spojiti s ovim mejlom, a ne slati dva mejla na isti `invoice.paid`.
 - Stavka 2.6 ostaje otvorena do koraka 5 (N2 pod test satom, mejl uživo) i dok se u Stripe-u ne isključi „Successful payments".
 
+### Pravni tekstovi — politika povraćaja i markeri (checklista 4.2 i 4.3)
+**Isporučeno:** 29. septembar 2026 · bez migracije · izvor: checklista 4.2 (R17) i 4.3 (R19)
+
+- Politika povraćaja: pretplata **14 dana** od naplate uz **manje od 10** potrošenih kredita od te naplate. Iznad praga i posle roka povraćaja nema, ni srazmernog. Godišnja pretplata ima ista pravila, bez vraćanja za neiskorišćene mesece. Paket: **14 dana**, samo ako nijedan kredit iz njega nije potrošen.
+- Prodavac je **Vladsdigital LLC** (Wyoming), a ne Remati LLC. Promenjeni su `PODRAZUMEVANI_PRODAVAC` u `lib/env.ts`, `.env.example`, checklista i `proizvod-i-arhitektura.md`. `/privatnost` sada ime rukovaoca čita iz `sellerName()`, kao i `/uslovi`.
+- Popunjeno je 14 od 21 preostalog markera (posle 4.2). Datum objave: 1. oktobar 2026. Sud: po prebivalištu potrošača, a za firme Beograd. Rečenica o žigu je bez broja. Odustanak ide kroz izričitu saglasnost na kupovini (`/uslovi` §14, `/povracaj` §9). Knjigovodstvo i revizija se čuvaju 10 godina, logovi do 30 dana. Lice za zaštitu podataka nije određeno; predstavnik u Srbiji je Marko Milenković. Regioni: Supabase Frankfurt, Hetzner Nürnberg, Vercel Dublin. Sentry (EU) je dodat na spisak obrađivača. Prenos: EU po listi, SAD kroz SCC.
+- Ostalo je 7 markera: adresa, Filing ID i EIN na `/uslovi` i `/privatnost`, plus adresa predstavnika. `<NacrtBaner />` ostaje dok se ne popune.
+
+**Odstupanja koja i danas važe:**
+- Tekst strane je predviđao i dve stavke kojih u odluci nema: „Srazmeran povraćaj" iznad praga i „Načet paket" (vraća se neiskorišćeni deo). Obe su obrisane. Kod ostaje isti, jer `apply_refund` podnosi i pun i delimičan refund.
+- **Tekst je ispred koda:** strane tvrde da kupac na checkout-u izričito traži da isporuka počne odmah, a Stripe Checkout to još ne traži. Bez te saglasnosti prag od 10 kredita ne stoji pred potrošačem, jer bi zakonsko pravo na odustanak bilo jače. Checkout se menja u posebnoj sesiji pre 6.1 (checklista 4.3, korak 2).
+- Odgovori iz 4.1 (rokovi, predstavnik, osnov prenosa) su moje odluke pre odgovora savetnika. Savetnik ih potvrđuje naknadno (4.1, korak 5).
+- Revizija piše „10 godina", jer ništa ne briše `admin_audit`. Kraći rok bi tražio posao za čišćenje.
+- „Wyoming" je zakucan u tekstu, a ime prodavca dolazi iz env-a. Ako se prodavac ikad promeni, menjaju se oba mesta.
+
 ### Čišćenje korisničkih ekrana: info ikonice, oblačići potvrde, rečnik
 **Isporučeno:** 30. septembar 2026 · bez migracije · izvor: zahtev „previše teksta, ne znam gde da gledam"
 
@@ -706,3 +721,27 @@ Otpala: landing je napravljen van repoa.
 
 **Odstupanja koja i danas važe:**
 - `tok-i-onboarding.md` §7.3 opisuje zaključanu karticu sa odvojenim problemima i blokom poruke. Kod ih spaja u jedan blok, a spec nije prepisan.
+
+
+### PostHog analitika: pregledi strana i događaji bez kolačića
+**Isporučeno:** 12. oktobar 2026 · bez migracije · izvor: zahtev „integracija PostHoga"
+
+- PostHog projekat je u **EU regionu** (Frankfurt), besplatan plan. Jedna env promenljiva: `NEXT_PUBLIC_POSTHOG_KEY` (`phc_…`, javan). Bez nje se ništa ne meri i ništa ne pada.
+- **Pregledač** (`lib/analitika.ts`, `components/analitika.tsx`) šalje samo preglede strana. `persistence: "memory"`: nema kolačića ni `localStorage` zapisa, pa nema ni banera za pristanak. Ugašeni su autocapture, snimci sesija, heatmape, flagovi, ankete i spoljne skripte.
+- **Server** (`lib/analitika-server.ts`) šalje imenovane događaje iz ruta koje radnju rade, kroz `after()`: `signup_completed`, `onboarding_completed`, `search_started`, `prospect_unlocked`, `csv_exported`, `pipeline_status_changed`, `checkout_started`, `trial_started`, `subscription_paid`, `credit_pack_purchased`, `feedback_submitted`. Novčani događaji izlaze iz `lib/billing.ts` kao `Ishod.analitika`, samo uz `granted`, a šalje ih webhook ruta.
+- Spisak događaja i njihovih svojstava je tip `Svojstva` u `lib/analitika-zajednicko.ts`. **Nijedan podatak o prospektu ne ulazi u događaj** (ni `place_id`); o korisniku idu Clerk ID, plan i stanje pristupa, bez mejla i imena.
+- Adrese se čiste pre slanja: query i hash se odsecaju celi (`/welcome?sesija=cs_…`, Clerk tiketi), a kod pozivnice postaje `/pozivnica/[kod]`.
+- **Proxy `/ingest`** (`rewrites()` u `next.config.ts`) vodi na `eu.i.posthog.com`. CSP nije menjan i ne nosi nijedan PostHog host. Clerk middleware izuzima `/ingest`.
+- **Admin se ne meri**: server proverava ulogu pre slanja, a `(app)` i admin okvir gase analitiku u pregledaču.
+- `/privatnost`: nov pasus u §2, osnov (legitiman interes, uz pravo prigovora) u §3, rok u §4, PostHog na spisku obrađivača u §8, prepisana prva rečenica §9. Datum verzije je 12. oktobar 2026.
+- Testovi: `test/analitika.ts` (čišćenje adresa, spisak svojstava, podešavanja klijenta) i dopuna `test/csp.ts` (prepisi, redosled, middleware). Plan testiranja ima sekciju „Analitika: PostHog", checklista stavku 1.12.
+
+**Odstupanja koja i danas važe:**
+- Dogovoreno je bilo `posthog-node`; server umesto toga šalje jedan `fetch` po događaju. SDK drži red u procesu koji bi u Vercel funkciji morao ručno da se prazni.
+- Dogovorene su bile dve env promenljive; host je zakucan na EU u kodu (`next.config.ts` i `analitika-server.ts`), jer se region projekta ne menja.
+- `skipTrailingSlashRedirect: true` važi za celu aplikaciju, jer PostHog putanje imaju kosu crtu na kraju. `/cenovnik/` sada vraća stranu umesto preusmerenja na `/cenovnik`.
+- Admin koji **pun** učita stranu van `(app)` i `/admin` (npr. `/cenovnik`) pošalje taj jedan pregled strane, jer pregledač tamo ne zna ulogu. Događaji sa servera su isključeni uvek.
+- **Brisanje naloga ne briše osobu u PostHogu.** Zapisi ostaju do isteka roka čuvanja, vezani za Clerk ID koji više ne postoji. Brisanje na `user.deleted` traži Personal API key (tajan) i nije rađeno.
+- Rok „najduže godinu dana" u `/privatnost` §4 je pretpostavka o besplatnom planu; potvrđuje se u checklisti 1.12, korak 3.
+- Gost koji se prijavi u istoj kartici spaja anonimne preglede sa nalogom (`identify`), jedan anoniman ID po prijavi.
+- Landing (`sajtoskop.com`) nije pokriven, jer nije u ovom repou.

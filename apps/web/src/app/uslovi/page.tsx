@@ -37,14 +37,15 @@ export default function Page() {
           Otvaranjem naloga prihvataš ove uslove.
         </>
       }
-      azurirano={<Popuniti>datum objave ove verzije</Popuniti>}
+      azurirano={<span className="num">1. oktobar 2026.</span>}
     >
       <Odeljak broj={1} naslov="Ko pruža uslugu">
         <p>
-          Sajtoskop pruža <Popuniti>pun pravni naziv i pravna forma, npr. „Remati, preduzetnik Marko Milenković"</Popuniti>
-          , sa sedištem na adresi <Popuniti>adresa sedišta</Popuniti>, matični broj{" "}
-          <Popuniti>matični broj</Popuniti>, PIB <Popuniti>PIB</Popuniti> (u daljem tekstu
-          „mi" ili „Sajtoskop").
+          Sajtoskop pruža <strong>{prodavac}</strong>, društvo sa ograničenom odgovornošću
+          osnovano u državi Wyoming, SAD, sa sedištem na adresi{" "}
+          <Popuniti>registrovana adresa LLC-a</Popuniti>, registarski broj (Wyoming Filing ID){" "}
+          <Popuniti>Filing ID</Popuniti>, poreski broj (EIN) <Popuniti>EIN</Popuniti> (u daljem
+          tekstu „mi" ili „Sajtoskop").
         </p>
         <p>
           Kontakt za sva pitanja u vezi sa uslugom i ovim uslovima:{" "}
@@ -299,7 +300,7 @@ export default function Page() {
           kao proizvod.
         </p>
         <p>
-          Naziv i znak „sajtoskop" su naša oznaka. <Popuniti>ako je žig registrovan kod ZIS-a, dopiši broj i klase; ako nije, ova rečenica ostaje bez broja</Popuniti>
+          Naziv i znak „sajtoskop" su naša oznaka.
         </p>
       </Odeljak>
 
@@ -330,14 +331,18 @@ export default function Page() {
           Na ove uslove primenjuje se pravo Republike Srbije. Sporove prvo pokušavamo da rešimo
           dogovorom — piši na{" "}
           <TekstLink href={`mailto:${KONTAKT_MEJL}`}>{KONTAKT_MEJL}</TekstLink>. Ako to ne
-          uspe, nadležan je <Popuniti>nadležan sud — mesto, po sedištu ili po prebivalištu potrošača</Popuniti>
-          .
+          uspe, za spor sa potrošačem nadležan je sud po njegovom prebivalištu, a za spor sa
+          kupcem koji je privredni subjekt stvarno nadležan sud u Beogradu.
         </p>
         <p>
           Ako se neka odredba ovih uslova pokaže kao ništava, ostale ostaju na snazi.
         </p>
         <p>
-          <Popuniti>proveri sa knjigovođom ili pravnikom da li i kako se na ovu uslugu primenjuju propisi o zaštiti potrošača i o ugovoru na daljinu (pravo na odustanak od 14 dana za digitalne usluge) — v. i Politiku povraćaja</Popuniti>
+          Ako si potrošač, na kupovinu se primenjuju propisi o zaštiti potrošača i o ugovoru
+          zaključenom na daljinu. Pri kupovini izričito tražiš da isporuka počne odmah i
+          potvrđuješ da time gubiš pravo na odustanak od{" "}
+          <span className="num">14</span> dana; kada i koliko novca se vraća piše u{" "}
+          <TekstLink href="/povracaj">Politici povraćaja</TekstLink>.
         </p>
       </Odeljak>
     </PravniOkvir>

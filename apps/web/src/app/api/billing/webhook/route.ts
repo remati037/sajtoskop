@@ -21,9 +21,10 @@
 // (`in_…`, `pi_…`, `trial:<user>`, `expire:<sub>`) fina.
 
 import type Stripe from "stripe";
-import { obradiDogadjaj } from "@/lib/billing";
+import { obradiDogadjaj, type Ishod } from "@/lib/billing";
 import { supabaseSkladiste } from "@/lib/billing-skladiste";
 import { KonfigGreska, stripeServerEnv } from "@/lib/env";
+import { zabeleziDogadjaj } from "@/lib/analitika-server";
 import { prijaviGresku, prijaviPoruku } from "@/lib/sentry";
 import { stripe } from "@/lib/stripe-server";
 
@@ -95,6 +96,7 @@ export async function POST(req: Request): Promise<Response> {
       return Response.json({ ok: false, radnja: ishod.radnja });
     }
     console.log(`[stripe-webhook] ${dogadjaj.type} ${dogadjaj.id} → ${ishod.radnja}`);
+    posaljiAnalitiku(ishod);
     if (ishod.upozorenje) {
       // Obrađeno, ali mejl nije otišao (P4). 200 ostaje — Stripe ne sme da
       // ponavlja događaj zbog pošte — ali bez Sentry-ja bi se to videlo samo u logu.
@@ -113,5 +115,23 @@ export async function POST(req: Request): Promise<Response> {
     });
     await skladiste.obrisiDogadjaj(dogadjaj.id);
     return new Response("Obrada nije uspela.", { status: 500 });
+  }
+}
+
+/**
+ * Novčani događaj za analitiku, ako ga je obrada vratila. Stoji u ruti, a ne u
+ * `lib/billing.ts`: obrada je čista i testira se bez Next-a, a slanje traži
+ * `after()`. Ponovljena isporuka ovde ne stiže (brana idempotencije iznad).
+ */
+function posaljiAnalitiku(ishod: Ishod): void {
+  const a = ishod.analitika;
+  if (!a) return;
+  switch (a.dogadjaj) {
+    case "trial_started":
+      return zabeleziDogadjaj(a.userId, a.dogadjaj, a.svojstva);
+    case "subscription_paid":
+      return zabeleziDogadjaj(a.userId, a.dogadjaj, a.svojstva);
+    case "credit_pack_purchased":
+      return zabeleziDogadjaj(a.userId, a.dogadjaj, a.svojstva);
   }
 }

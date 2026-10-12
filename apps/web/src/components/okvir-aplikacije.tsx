@@ -36,6 +36,7 @@ import {
 import type { OnboardingPocetno } from "@/lib/onboarding-schema";
 import { cn } from "@/lib/cn";
 import { NAVIGACIJA, naslovZaPutanju, type NavStavka } from "@/lib/navigacija";
+import { useAnalitikaNaloga } from "./analitika";
 import { PrekidacTeme, PrekidacTemeDugme } from "./prekidac-teme";
 import type { AktivacijaProbe } from "./aktiviraj-odmah";
 import { OnboardingProvider } from "./onboarding-provider";
@@ -112,6 +113,8 @@ type Props = {
   trakaDopune?: TrakaDopune | null;
   /** [S30, §4.6] Stanje prvog prolaza iz profila. `null` = profil nije pročitan. */
   onboarding?: OnboardingPocetno | null;
+  /** `profiles.plan`, samo za analitiku (svojstvo osobe u PostHogu). */
+  planNaloga?: string | null;
   children: React.ReactNode;
 };
 
@@ -130,9 +133,11 @@ export function OkvirAplikacije({
   uzrokGrace = null,
   trakaDopune = null,
   onboarding = null,
+  planNaloga = null,
   children,
 }: Props) {
   const putanja = usePathname();
+  useAnalitikaNaloga({ admin, plan: planNaloga ?? undefined, stanje: pristup?.stanje });
   // [0029] Admin: krediti se ne troše, pa se ni ne broje.
   const neograniceno = jeNeograniceno(pristup);
   const [skupljen, setSkupljen] = useState(false);

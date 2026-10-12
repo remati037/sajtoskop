@@ -128,7 +128,7 @@ korisnik klikne „Otključaj"
 
 ## 4. Naplata i krediti
 
-**Stripe** (hosted Checkout + Customer Portal), prodavac **Remati LLC**, EUR, Stripe Tax
+**Stripe** (hosted Checkout + Customer Portal), prodavac **Vladsdigital LLC**, EUR, Stripe Tax
 isključen. Tehnički spec, webhook događaji i plan testova: `docs/naplata-stripe.md`.
 Nijedan Stripe ID (`prod_`, `price_`, `cus_`, kupon) ne ulazi u kod — samo `lookup_key` iz
 `packages/shared/src/plans.ts`, koji je **jedini izvor cena i kredita**.

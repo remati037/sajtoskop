@@ -102,7 +102,7 @@ baza očišćena 14.9. · jedini nalog ima `profiles.role = 'admin'`.
      | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_COUPON_FIRST_MONTH` | **za sada test** (`sk_test_`, `whsec_` test endpointa na `app.sajtoskop.com`, ID test kupona — `sajtoskop_prvi_mesec` ako je pravljen kroz `pnpm stripe:seed`); u 6.4 prelaze na live |
      | `NEXT_PUBLIC_APP_URL` | `https://app.sajtoskop.com` |
      | `NEXT_PUBLIC_LANDING_URL` | `https://www.sajtoskop.com` (sa `www`) |
-     | `NEXT_PUBLIC_SELLER_NAME` | `Remati LLC` |
+     | `NEXT_PUBLIC_SELLER_NAME` | `Vladsdigital LLC` |
      | `CRON_SECRET` | nova vrednost: `openssl rand -base64 32` |
      | `ADMIN_BOOTSTRAP_IDS` | već postavljeno |
      | `RESEND_API_KEY`, `FEEDBACK_EMAIL_FROM`, `FEEDBACK_EMAIL_TO` | v. 1.8 |
@@ -303,6 +303,25 @@ baza očišćena 14.9. · jedini nalog ima `profiles.role = 'admin'`.
   3. Mejl Hetzner naloga drži pod nadzorom — abuse prijava traži odgovor u 24 h.
 
   **Gotovo kad:** alarm postoji i provera ispisuje `OK`.
+
+- [ ] **1.12 · PostHog: analitika korišćenja**
+  Kod je isporučen 12. 10. (dnevnik isporuka). Bez ključa na Vercelu se ništa ne meri i ništa
+  se ne ruši. Projekat je u EU regionu, na besplatnom planu bez kartice.
+  1. PostHog (`eu.posthog.com`) → **Settings → Project** → uključi **Discard client IP data**.
+     Politika privatnosti tvrdi da se IP adresa ne čuva.
+  2. Potpiši DPA: `posthog.com/dpa` → popuni podatke LLC-a → sačuvaj PDF uz ostale ugovore.
+     Politika tvrdi da je sa svakim obrađivačem zaključen ugovor o obradi.
+  3. **Settings → Organization → Billing** → pročitaj rok čuvanja podataka (data retention).
+     `/privatnost` §4 kaže „najduže godinu dana". Ako piše drugačije, tekst se menja pre objave.
+  4. Vercel → **Settings → Environment Variables** → `NEXT_PUBLIC_POSTHOG_KEY` = projektni
+     ključ (`phc_…`, iz **Settings → Project**), okruženje **samo Production** → **Redeploy**.
+     Promenljiva se upisuje u build, pa bez novog deploya ne važi.
+  5. Otvori `https://app.sajtoskop.com` nalogom koji **nije admin** i plati jednu pretragu.
+     PostHog → **Activity** → u roku od minuta stižu `$pageview` i `search_started`.
+  6. DevTools → **Application** → Cookies i Local storage: nema ključa koji počinje sa `ph_`.
+     DevTools → **Network**: zahtevi idu na `app.sajtoskop.com/ingest/…`, nijedan na `posthog.com`.
+
+  **Gotovo kad:** oba događaja se vide u PostHogu, a u pregledaču nema `ph_` zapisa.
 
 ---
 
@@ -604,12 +623,12 @@ samo redosled. Rezultate upisuj u zapisnik na kraju tog fajla.
 ## 4. Pravno i poresko — pokreni odmah
 
 - [ ] **4.1 · Pisano pitanje poreskom savetniku** (ranije R18)
-  Stripe **nije** merchant of record: prodavac je Remati LLC, Stripe Tax je isključen, a kupci
+  Stripe **nije** merchant of record: prodavac je Vladsdigital LLC, Stripe Tax je isključen, a kupci
   su iz Srbije i EU, pretežno fizička lica (frilenseri). Odgovor određuje da li se sme
   naplaćivati ovako kako je podešeno.
   1. Nađi savetnika koji radi i sa američkim LLC-om i sa vlasnikom rezidentom Srbije.
   2. Pošalji pitanja **mejlom** (da odgovor bude pisan):
-     - Da li Remati LLC mora da se registruje za PDV u Srbiji (preko poreskog punomoćnika) zbog
+     - Da li Vladsdigital LLC mora da se registruje za PDV u Srbiji (preko poreskog punomoćnika) zbog
        prodaje elektronskih usluga fizičkim licima u Srbiji, i od kog iznosa?
      - Da li za kupce fizička lica iz EU treba registracija u non-Union OSS šemi, i od kog iznosa?
      - Da li važi obaveza fiskalizacije za ovakvu prodaju?
@@ -622,53 +641,56 @@ samo redosled. Rezultate upisuj u zapisnik na kraju tog fajla.
   4. Ako odgovor traži izmenu (npr. PDV na cenu, Stripe Tax, samo B2B prodaja) — to je nova
      sesija sa Claude-om **pre** 6.1.
 
+  5. Pravni tekstovi su 29.9.2026 popunjeni tvojim odlukama, pre odgovora savetnika (v. 4.3):
+     rok čuvanja 10 godina, odustanak kroz saglasnost na checkout-u, bez lica za zaštitu
+     podataka, predstavnik u Srbiji po čl. 44 ZZPL-a, prenos u SAD kroz SCC. Pošalji mu i
+     to na potvrdu. Ako nešto ospori, menja se tekst na stranama.
+
   **Gotovo kad:** stigao je pisan odgovor na svih sedam pitanja i zna se da li nešto mora da
   se menja.
 
-- [ ] **4.2 · Odluka o politici povraćaja** (ranije R17)
-  `/povracaj` čeka četiri broja. Primer koji se lako brani (tvoja odluka):
-  - **pretplata:** povraćaj u roku od 14 dana od prve naplate, ako je potrošeno najviše 10
-    kredita;
-  - **posle tog roka:** nema srazmernog povraćaja — otkaz važi do kraja plaćenog perioda;
-  - **paket:** 14 dana, samo ako nijedan kredit iz paketa nije potrošen.
+- [x] **4.2 · Odluka o politici povraćaja** (ranije R17) — odlučeno 29.9.2026, upisano u `/povracaj`
+  - **pretplata:** pun povraćaj u roku od **14 dana** od naplate, ako je od te naplate potrošeno
+    **manje od 10** kredita; iznad praga nema povraćaja (ni srazmernog);
+  - **posle tog roka:** nema povraćaja — otkaz važi do kraja plaćenog perioda;
+  - **godišnja:** ista pravila, **bez** srazmernog povraćaja za neiskorišćene mesece;
+  - **paket:** **14 dana**, samo ako nijedan kredit iz paketa nije potrošen; načet paket se ne
+    vraća.
 
-  Tehnički, svaki povraćaj iz Stripe Dashboarda sam skida kredite iz knjige (`apply_refund`),
-  pa politika ne traži ručni posao.
+  Prag pred potrošačem stoji samo uz saglasnost na checkout-u (v. 4.3, korak 2). Tehnički,
+  svaki povraćaj iz Stripe Dashboarda sam skida kredite iz knjige (`apply_refund`), pa politika
+  ne traži ručni posao.
 
-  **Gotovo kad:** četiri vrednosti su zapisane (ulaz u 4.3).
-
-- [ ] **4.3 · Popuni 25 markera u pravnim tekstovima** (ranije R19)
-  Posle 4.1 i 4.2. Na stranama se vide kao žute kapsule, uz baner „Ovo je nacrt".
-  1. Skupi podatke: pun naziv (**Remati LLC**), država osnivanja, registrovana adresa, EIN.
-     Markeri traže „matični broj" i „PIB" jer su pisani za domaću firmu — za LLC to postaju
-     broj iz registra države osnivanja i EIN.
-  2. Spisak markera:
-     - **`/uslovi` (8):** datum objave · pun naziv i pravna forma · adresa sedišta · matični
-       broj · PIB · broj žiga kod ZIS-a (ako ga nema, rečenica ostaje bez broja) · nadležan sud
-       · primena propisa o zaštiti potrošača i pravu na odustanak (iz 4.1).
-     - **`/privatnost` (11):** datum objave · naziv rukovaoca · adresa · matični broj · PIB ·
-       lice za zaštitu podataka (da li je obavezno po ZZPL-u) · zakonski rok čuvanja
-       podataka o naplati (4.1) · rok čuvanja revizije (npr. 24 meseca) · rok čuvanja logova
-       kod hostinga · stvarni regioni obrade (Supabase Frankfurt, Hetzner lokacija, Vercel
-       region) · osnov za prenos van zemlje i ugovori o obradi (DPA) sa obrađivačima.
-     - **`/povracaj` (6):** datum objave · rok za zahtev · prag potrošenih kredita · srazmerno
-       posle roka ili ne · rok za paket · formulacija o pravu na odustanak (4.1).
-  3. Regioni: Supabase → Settings → General (region); Hetzner Console → server (lokacija);
-     Vercel → Settings → Functions (region).
-  4. DPA: Supabase, Vercel, Clerk, Stripe, Anthropic, Resend i Hetzner imaju standardne ugovore
-     o obradi na svojim sajtovima — za većinu je dovoljno prihvatiti ih u podešavanjima naloga.
-  5. Prompt:
+- [ ] **4.3 · Popuni markere u pravnim tekstovima** (ranije R19)
+  Odluke su donete 29.9.2026 i upisane: prodavac **Vladsdigital LLC** (Wyoming), datum objave
+  1\. oktobar 2026, sud po prebivalištu potrošača (za firme Beograd), žig nije prijavljen,
+  saglasnost na odustanak u checkout-u, knjigovodstvo i revizija 10 godina, logovi do 30 dana,
+  bez lica za zaštitu podataka, a predstavnik u Srbiji je Marko Milenković. Regioni: Supabase
+  Frankfurt, Hetzner Nürnberg, Vercel Dublin, Sentry EU. Prenos: EU po listi, SAD kroz SCC iz
+  DPA. `/povracaj` je gotov. **Ostalo je 7 markera, svi čekaju ova četiri podatka:**
+  registrovana adresa LLC-a, Wyoming Filing ID, EIN i adresa predstavnika u Srbiji.
+  1. Upiši ta četiri podatka, pa ukloni `<NacrtBaner />` iz `components/pravni-okvir.tsx`
+     (baner je u zajedničkom okviru, ne na stranama). `grep "<Popuniti>"` na sve tri strane
+     mora da vrati prazno.
+  2. **Saglasnost u Stripe Checkout-u — posebna sesija sa Claude-om, pre 6.1.** `/uslovi` §14
+     i `/povracaj` §9 tvrde da kupac pri kupovini izričito traži da isporuka počne odmah i
+     potvrđuje da gubi pravo na odustanak od 14 dana. Danas checkout to ne traži. Bez toga je
+     prag od 10 kredita pred potrošačem neodrživ, a tekst ne odgovara stvarnosti. Prompt:
      ```
-     Pročitaj CLAUDE.md. Popuni sve <Popuniti> markere u apps/web/src/app/{uslovi,
-     privatnost,povracaj}/page.tsx sledećim vrednostima: <nalepi spisak>. Prodavac je
-     Remati LLC — gde marker traži matični broj i PIB, upiši registarski broj i EIN i
-     prilagodi rečenicu. Kad nestane poslednji marker, ukloni <NacrtBaner /> sa sve tri
-     strane. Ne menjaj ništa drugo u pravnom tekstu bez pitanja. grep "Popuniti" mora da
-     vrati samo definiciju komponente. Ažuriraj docs/dnevnik-isporuka.md.
+     Pročitaj CLAUDE.md i docs/naplata-stripe.md. U Stripe Checkout (pretplata i paket)
+     dodaj izričitu saglasnost kupca da isporuka počne odmah i da time gubi pravo na
+     odustanak od 14 dana (consent_collection.terms_of_service + custom_text sa linkom na
+     /uslovi i /povracaj), na srpskom. Ažuriraj spec, plan testiranja i dnevnik.
      ```
-  6. Pročitaj sve tri strane na `app.sajtoskop.com` od početka do kraja.
+  3. Prihvati ugovor o obradi (DPA) kod svakog obrađivača pre objave, jer `/privatnost` tvrdi da
+     su zaključeni: Supabase, Vercel, Clerk, Anthropic, Resend, Hetzner (Console → DPA) i
+     Sentry. Stripe je samostalan rukovalac i DPA mu ne treba.
+  4. Na Vercelu proveri `NEXT_PUBLIC_SELLER_NAME`: mora da bude `Vladsdigital LLC` ili prazno
+     (prazno pada na isto ime).
+  5. Pročitaj sve tri strane na `app.sajtoskop.com` od početka do kraja.
 
-  **Gotovo kad:** nijedna žuta kapsula ni baner „Ovo je nacrt" ne postoje na tri strane.
+  **Gotovo kad:** nijedna žuta kapsula ni baner „Ovo je nacrt" ne postoje na tri strane, a
+  checkout traži saglasnost.
 
 - [ ] **4.4 · Aktivacija Stripe naloga za live**
   Stripe pregleda sajt pre odobrenja: traži vidljive cene, uslove, politiku povraćaja,

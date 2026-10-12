@@ -23,6 +23,7 @@ import {
   type Pristup,
   type ProfileRow,
 } from "@sajtoskop/shared";
+import { zabeleziDogadjaj } from "./analitika-server";
 import type { OnboardingPocetno } from "./onboarding-schema";
 import { RAZLOZI_TRAKE_DOPUNE } from "./traka-dopune";
 import { adminSupabase } from "./supabase";
@@ -95,10 +96,16 @@ export async function oznaciKorak(userId: string, korak: KorakKljuc): Promise<Is
     }
     const red = ((data ?? []) as {
       ok: boolean;
+      reason: string;
       steps: Record<string, string> | null;
       done_at: string | null;
     }[])[0];
     if (!red?.ok || !red.steps) return null;
+    // Poslednji korak je onaj koji je SADA upisan i uz koji je traka završena;
+    // `already` je ponovljen poziv i ne broji se drugi put.
+    if (red.done_at && red.reason !== "already") {
+      zabeleziDogadjaj(userId, "onboarding_completed", {});
+    }
     return { steps: red.steps, doneAt: red.done_at };
   } catch (err) {
     console.error(`[onboarding] korak ${korak}:`, err instanceof Error ? err.message : err);

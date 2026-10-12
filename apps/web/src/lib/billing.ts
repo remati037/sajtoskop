@@ -63,6 +63,7 @@ import {
   posaljiSporAdminu,
   posaljiUplatuPrimljenu,
 } from "./billing-mejl";
+import type { Svojstva } from "./analitika-zajednicko";
 import type { MejlIshod } from "./mail";
 import { imePlana } from "./ui-tekst";
 
@@ -239,7 +240,18 @@ export type Ishod = {
    * samo mejl. Ruta ga loguje i šalje u Sentry; Stripe ga ne vidi.
    */
   upozorenje?: string;
+  /**
+   * Novčani događaj za analitiku. Postoji samo kad je dodela SADA upisana
+   * (`granted`), nikad na ponovljenu isporuku. Šalje ga ruta, ne ovaj modul.
+   */
+  analitika?: AnalitikaNaplate;
 };
+
+export type AnalitikaNaplate = { userId: string } & (
+  | { dogadjaj: "trial_started"; svojstva: Svojstva["trial_started"] }
+  | { dogadjaj: "subscription_paid"; svojstva: Svojstva["subscription_paid"] }
+  | { dogadjaj: "credit_pack_purchased"; svojstva: Svojstva["credit_pack_purchased"] }
+);
 
 /** Podešavanja koja obrada ne sme da čita sama iz env-a (test ih prosleđuje). */
 export type NaplataOpcije = {
@@ -559,7 +571,19 @@ async function zavrsenaSesija(
     const r = await s.primeniPaket({ userId, credits: opis.credits, txnId: pi, customerId });
     if (!r.ok) return { ok: false, radnja: "paket", greska: r.reason };
 
-    const ishod: Ishod = { ok: true, radnja: `paket:${r.reason}` };
+    const ishod: Ishod = {
+      ok: true,
+      radnja: `paket:${r.reason}`,
+      ...(r.reason === "granted" && paket
+        ? {
+            analitika: {
+              userId,
+              dogadjaj: "credit_pack_purchased" as const,
+              svojstva: { pack: paket, credits: opis.credits },
+            },
+          }
+        : {}),
+    };
     // Potvrda samo kad je paket SADA legao — `already_granted` je ponovljena
     // isporuka, i mejl je tada već otišao (ili je njegov pad već prijavljen).
     const iznos = sesija.amount_total ?? 0;
@@ -677,12 +701,16 @@ async function stanjePretplate(
   if (!r.ok) return { ok: false, radnja: tip, greska: r.reason };
 
   let dodatak = "";
+  let analitika: AnalitikaNaplate | undefined;
 
   // Dan 0 probe: 10 kredita, jednom po NALOGU (`trial:<user>`), nikad drugi put.
   if (tip === "customer.subscription.created" && sub.status === "trialing") {
     const p = await s.pocniProbu({ userId, subscriptionId: sub.id, credits: TRIAL_CREDITS });
     if (!p.ok) return { ok: false, radnja: "proba", greska: p.reason };
     dodatak += `, proba:${p.reason}`;
+    if (p.reason === "granted") {
+      analitika = { userId, dogadjaj: "trial_started", svojstva: { plan } };
+    }
   }
 
   // Kraj pretplate: kasa koja ističe se prazni. SAMO ovde, nikad na `updated`
@@ -693,7 +721,7 @@ async function stanjePretplate(
     dodatak += `, istek:${e.reason}`;
   }
 
-  return { ok: true, radnja: `${tip}:${r.reason}${dodatak}` };
+  return { ok: true, radnja: `${tip}:${r.reason}${dodatak}`, ...(analitika ? { analitika } : {}) };
 }
 
 /**
@@ -751,7 +779,19 @@ async function placenaFaktura(
   const r = await s.primeniFakturu({ userId, invoiceId: inv.id, target });
   if (!r.ok) return { ok: false, radnja: "invoice.paid", greska: r.reason };
 
-  const ishod: Ishod = { ok: true, radnja: `faktura:${r.reason}` };
+  const ishod: Ishod = {
+    ok: true,
+    radnja: `faktura:${r.reason}`,
+    ...(r.reason === "granted"
+      ? {
+          analitika: {
+            userId,
+            dogadjaj: "subscription_paid" as const,
+            svojstva: { plan, billing_reason: inv.billing_reason ?? "" },
+          },
+        }
+      : {}),
+  };
   // Potvrda uplate (checklista 2.6): samo kad je dodela SADA upisana i kad je
   // novac stvarno naplaćen. Gratis mesec (pozivnica) ima 0 € — nije uplata.
   const iznos = inv.amount_paid ?? 0;

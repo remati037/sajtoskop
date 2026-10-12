@@ -20,6 +20,7 @@
 
 import { ClerkProvider } from "@clerk/nextjs";
 import { srRS } from "@clerk/localizations";
+import { Analitika } from "./analitika";
 import { useTema } from "./tema-provider";
 
 const SVETLA = {
@@ -74,6 +75,7 @@ export function ClerkOkvir({ children }: { children: React.ReactNode }) {
         },
       }}
     >
+      <Analitika />
       {children}
     </ClerkProvider>
   );
