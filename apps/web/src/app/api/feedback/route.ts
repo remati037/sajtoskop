@@ -18,6 +18,7 @@ import { after, NextResponse } from "next/server";
 import { proveriOdgovor, vaziPitanje, type FeedbackSource, type Pitanje } from "@sajtoskop/shared";
 import { originZahteva } from "@/lib/admin";
 import { requireUserId } from "@/lib/auth";
+import { zabeleziDogadjaj } from "@/lib/analitika-server";
 import {
   ideOdmah,
   javiMejlom,
@@ -220,6 +221,12 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     const { red, posaljiMejl } = ishod;
+
+    // Samo izvor i tip — tekst utiska i odgovori ostaju u našoj bazi.
+    zabeleziDogadjaj(userId, "feedback_submitted", {
+      source: pitanje ? IZVOR_ZA_SLOJ[pitanje.sloj] : source,
+      kind: tip,
+    });
 
     // Pitanje prelazi u `odgovoreno` i vezuje se sa zapisom. Ovo je i mesto gde
     // cooldown ide na 7 dana, a streak na nulu (F11 §3.1) — dakle tek kad zapis

@@ -24,6 +24,7 @@ import {
   type ProfileRow,
 } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
+import { zabeleziDogadjaj } from "@/lib/analitika-server";
 import { checkoutBodySchema } from "@/lib/billing-schema";
 import { KonfigGreska, stripeServerEnv } from "@/lib/env";
 import { stripe } from "@/lib/stripe-server";
@@ -180,6 +181,7 @@ export async function POST(req: Request): Promise<Response> {
         locale: "auto",
         allow_promotion_codes: false,
       });
+      zabeleziDogadjaj(userId, "checkout_started", { kind: "pack", pack: telo.paket });
       return NextResponse.json({ url: sesija.url }, { headers: HEADERS });
     }
 
@@ -249,6 +251,11 @@ export async function POST(req: Request): Promise<Response> {
       locale: "auto",
       // Kupac iz Srbije uglavnom nema PIB polje; ne tražimo ni adresu.
       billing_address_collection: "auto",
+    });
+    zabeleziDogadjaj(userId, "checkout_started", {
+      kind: "plan",
+      plan: telo.plan,
+      cycle: telo.ciklus,
     });
 
     return NextResponse.json({ url: sesija.url }, { headers: HEADERS });

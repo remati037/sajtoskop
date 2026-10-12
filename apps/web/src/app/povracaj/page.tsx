@@ -3,9 +3,14 @@
 // Public details), a `docs/naplata-stripe.md` je zove nepregovarljivom pre
 // prve prodaje.
 //
-// ‼️ DVA BROJA U OVOM TEKSTU SU ODLUKA IZ KORAKA R17 (rok i prag potrošenih
-//    kredita) I NISU DONETA — stoje kao `Popuniti` markeri. Struktura teksta
-//    je gotova; kad odluka padne, menjaju se samo brojevi.
+// Odluka R17 (checklista 4.2 i 4.3, 29.9.2026): pretplata 14 dana i prag od
+// 10 potrošenih kredita, iznad praga i posle roka nema povraćaja (ni
+// srazmernog, ni za godišnju); paket 14 dana, samo netaknut.
+//
+// ‼️ Prag stoji pred potrošačem samo zato što kupac na checkout-u izričito
+//    traži da isporuka počne odmah i potvrđuje gubitak prava na odustanak
+//    (odeljak 9). Bez te saglasnosti u Stripe Checkout-u (checklista 4.3)
+//    zakon je jači od ove politike.
 //
 // ‼️ Odeljak 5 mora da ostane: spor kod izdavaoca kartice (chargeback) rešava
 //    Stripe i banka, ne mi — politika koja tvrdi suprotno laže kupca.
@@ -15,7 +20,7 @@
 import type { Metadata } from "next";
 import { KONTAKT_MEJL } from "@/components/futer";
 import { sellerName } from "@/lib/env";
-import { Lista, Odeljak, Popuniti, PravniOkvir, TekstLink } from "@/components/pravni-okvir";
+import { Lista, Odeljak, PravniOkvir, TekstLink } from "@/components/pravni-okvir";
 
 export const metadata: Metadata = {
   title: "Politika povraćaja",
@@ -36,7 +41,7 @@ export default function Page() {
           potrošeni i kako se povraćaj traži. Odnosi se i na pretplate i na pakete kredita.
         </>
       }
-      azurirano={<Popuniti>datum objave ove verzije</Popuniti>}
+      azurirano={<span className="num">1. oktobar 2026.</span>}
     >
       <Odeljak broj={1} naslov="Ko vraća novac">
         <p>
@@ -54,14 +59,12 @@ export default function Page() {
         <Lista>
           <li>
             <strong>Pun povraćaj</strong> — ako zahtev pošalješ u roku od{" "}
-            <Popuniti>rok za zahtev, odluka R17 (npr. 14 dana)</Popuniti> od naplate i ako je od
-            te naplate potrošeno manje od{" "}
-            <Popuniti>prag potrošenih kredita, odluka R17 (npr. 10)</Popuniti> kredita.
+            <span className="num">14</span> dana od naplate i ako je od te naplate potrošeno
+            manje od <span className="num">10</span> kredita.
           </li>
           <li>
-            <strong>Srazmeran povraćaj</strong> — ako je u istom roku potrošeno više od tog
-            praga, vraća se iznos umanjen za vrednost potrošenih kredita, po ceni kredita iz
-            plana koji si platio.
+            <strong>Iznad tog praga</strong> nema povraćaja, ni u roku ni srazmerno — krediti su
+            iskorišćeni na skeniranja i otključavanja koja su isporučena.
           </li>
           <li>
             <strong>Posle isteka roka</strong> nema povraćaja za tekući period. Otkazivanje i
@@ -69,9 +72,10 @@ export default function Page() {
             ostaje pun.
           </li>
           <li>
-            <strong>Godišnja pretplata</strong> —{" "}
-            <Popuniti>odluka R17: da li se posle početnog roka vraća srazmerno za neiskorišćene mesece ili ne</Popuniti>
-            .
+            <strong>Godišnja pretplata</strong> — ista pravila: pun povraćaj u roku od{" "}
+            <span className="num">14</span> dana od naplate, pod istim pragom. Posle toga nema
+            srazmernog povraćaja za neiskorišćene mesece; otkazivanje važi od kraja plaćene
+            godine.
           </li>
         </Lista>
         <p>
@@ -83,20 +87,16 @@ export default function Page() {
 
       <Odeljak broj={3} naslov="Paketi kredita">
         <p>
-          Paket je jednokratna kupovina i njegovi krediti ne ističu, pa se povraćaj vezuje za to
-          koliko je od njega potrošeno:
+          Paket je jednokratna kupovina i njegovi krediti ne ističu, pa se vraća samo paket iz
+          koga nije potrošen nijedan kredit:
         </p>
         <Lista>
           <li>
             <strong>Neiskorišćen paket</strong> — pun povraćaj, ako zahtev stigne u roku od{" "}
-            <Popuniti>rok za zahtev kod paketa, odluka R17</Popuniti> od kupovine.
+            <span className="num">14</span> dana od kupovine.
           </li>
           <li>
-            <strong>Načet paket</strong> — vraća se vrednost neiskorišćenih kredita iz tog
-            paketa; već potrošeni se ne vraćaju.
-          </li>
-          <li>
-            <strong>Potrošen paket</strong> — bez povraćaja. Vrednost je isporučena.
+            <strong>Načet ili potrošen paket</strong> — bez povraćaja, ni za neiskorišćeni deo.
           </li>
         </Lista>
       </Odeljak>
@@ -187,7 +187,11 @@ export default function Page() {
           Ova politika ne isključuje prava koja imaš po prinudnim propisima Republike Srbije.
         </p>
         <p>
-          <Popuniti>proveri sa pravnikom ili knjigovođom kako se na ovu uslugu primenjuje pravo na odustanak od ugovora zaključenog na daljinu (14 dana) za digitalni sadržaj koji se isporučuje odmah, i unesi tačnu formulaciju o saglasnosti kupca da usluga počne pre isteka tog roka</Popuniti>
+          Ako si potrošač, ugovor zaključen na daljinu ti inače daje pravo da od njega odustaneš
+          u roku od <span className="num">14</span> dana, bez navođenja razloga. Pri kupovini
+          izričito tražiš da isporuka počne odmah i potvrđuješ da time gubiš to pravo — krediti
+          stižu na nalog u istom trenutku. Umesto njega važi ova politika, sa istim rokom od{" "}
+          <span className="num">14</span> dana.
         </p>
       </Odeljak>
     </PravniOkvir>

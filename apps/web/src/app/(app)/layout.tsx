@@ -155,6 +155,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       trakaDopune={trakaDopune}
       // [S30, §4.6] Traka, tačke i vodič — iz profila koji je gore već pročitan.
       onboarding={onboardingIzProfila(profile)}
+      planNaloga={profile?.plan ?? null}
     >
       {children}
     </OkvirAplikacije>

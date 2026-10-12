@@ -102,7 +102,15 @@ const sellerSchema = z.object({
   NEXT_PUBLIC_SELLER_NAME: z.string().trim().min(1).optional(),
 });
 
-export const PODRAZUMEVANI_PRODAVAC = "Remati LLC";
+/**
+ * Projektni ključ PostHoga. Javan je (ide i u pregledač), ali ga server čita
+ * odavde da bi tipfeler pao na `null`, a ne na 401 iz tuđeg API-ja.
+ */
+const analitikaSchema = z.object({
+  NEXT_PUBLIC_POSTHOG_KEY: z.string().regex(/^phc_/),
+});
+
+export const PODRAZUMEVANI_PRODAVAC = "Vladsdigital LLC";
 
 export type ServerEnv = z.infer<typeof serverSchema>;
 
@@ -232,4 +240,13 @@ export function stripeServerEnv(): StripeServerEnv {
 export function sellerName(): string {
   const parsed = sellerSchema.safeParse(process.env);
   return (parsed.success && parsed.data.NEXT_PUBLIC_SELLER_NAME) || PODRAZUMEVANI_PRODAVAC;
+}
+
+/**
+ * Ključ za analitiku, ili `null` kad nije podešen. Ne baca nikad: bez ključa se
+ * ništa ne meri (lokalni razvoj, preview) i to je uredno stanje, kao kod Resend-a.
+ */
+export function analitikaKljuc(): string | null {
+  const parsed = analitikaSchema.safeParse(process.env);
+  return parsed.success ? parsed.data.NEXT_PUBLIC_POSTHOG_KEY : null;
 }

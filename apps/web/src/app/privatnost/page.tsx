@@ -14,6 +14,7 @@
 
 import type { Metadata } from "next";
 import { KONTAKT_MEJL } from "@/components/futer";
+import { sellerName } from "@/lib/env";
 import { Lista, Odeljak, Popuniti, PravniOkvir, TekstLink } from "@/components/pravni-okvir";
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
+  const prodavac = sellerName();
   return (
     <PravniOkvir
       putanja="/privatnost"
@@ -34,20 +36,24 @@ export default function Page() {
           i tvoje podatke kao korisnika i podatke o firmama koje se pojavljuju u alatu.
         </>
       }
-      azurirano={<Popuniti>datum objave ove verzije</Popuniti>}
+      azurirano={<span className="num">12. oktobar 2026.</span>}
     >
       <Odeljak broj={1} naslov="Ko je rukovalac">
         <p>
-          Rukovalac podacima je <Popuniti>pun pravni naziv i pravna forma rukovaoca</Popuniti>,{" "}
-          <Popuniti>adresa sedišta</Popuniti>, matični broj <Popuniti>matični broj</Popuniti>,
-          PIB <Popuniti>PIB</Popuniti>.
+          Rukovalac podacima je <strong>{prodavac}</strong>, društvo sa ograničenom
+          odgovornošću iz države Wyoming, SAD, <Popuniti>registrovana adresa LLC-a</Popuniti>,
+          registarski broj (Wyoming Filing ID) <Popuniti>Filing ID</Popuniti>, poreski broj
+          (EIN) <Popuniti>EIN</Popuniti>.
         </p>
         <p>
           Kontakt za sva pitanja o obradi podataka i za ostvarivanje prava:{" "}
           <TekstLink href={`mailto:${KONTAKT_MEJL}`}>{KONTAKT_MEJL}</TekstLink>.
         </p>
         <p>
-          <Popuniti>proveri da li po ZZPL-u imaš obavezu da odrediš lice za zaštitu podataka o ličnosti; ako imaš, upiši ime i kontakt</Popuniti>
+          Lice za zaštitu podataka o ličnosti nije određeno, jer obrada ne ispunjava uslove pod
+          kojima je to obavezno. Pošto rukovalac nema sedište u Srbiji, njegov predstavnik u
+          Republici Srbiji je Marko Milenković, <Popuniti>adresa predstavnika u Srbiji</Popuniti>
+          ; njemu se možeš obratiti i preko iste adrese e-pošte.
         </p>
       </Odeljak>
 
@@ -74,6 +80,14 @@ export default function Page() {
         <p>
           <strong>Utisci.</strong> Odgovori koje sam pošalješ kroz ekran „Utisci", uključujući
           tekst i sliku koju priložiš, uz identifikator tvog naloga.
+        </p>
+        <p>
+          <strong>Analitika korišćenja.</strong> Koje strane aplikacije otvaraš i koje radnje
+          izvršiš (plaćena pretraga sa gradom i nišom, otključavanje, izvoz, promena statusa,
+          početak i završetak kupovine, poslat utisak), uz identifikator tvog naloga, plan i
+          stanje pristupa, vrstu pregledača i uređaja. Adresa e-pošte, ime i sadržaj tvojih
+          beleški, poruka i utisaka se u analitiku ne šalju, kao ni bilo koji podatak o firmi
+          koju gledaš. Analitika radi bez kolačića (v. odeljak 9), a IP adresa se ne čuva.
         </p>
         <p>
           <strong>Tehnički podaci.</strong> Zapisi o greškama i radu sistema, IP adresa uz
@@ -112,6 +126,12 @@ export default function Page() {
             <em>Osnov: legitiman interes.</em>
           </li>
           <li>
+            <strong>Analitika korišćenja</strong>: da bismo videli koji delovi alata rade, gde
+            ljudi zastaju i šta treba popraviti. <em>Osnov: legitiman interes.</em> Ovoj obradi
+            možeš da prigovoriš u svakom trenutku, na adresu iz odeljka 1; tada tvoj nalog
+            isključujemo iz analitike.
+          </li>
+          <li>
             <strong>Zakonske obaveze</strong> — knjigovodstvena i poreska dokumentacija.{" "}
             <em>Osnov: zakonska obaveza.</em>
           </li>
@@ -138,7 +158,7 @@ export default function Page() {
           </li>
           <li>
             <strong>Knjigovodstvena i poreska dokumentacija</strong> —{" "}
-            <Popuniti>zakonski rok čuvanja, potvrdi sa knjigovođom (korak R18)</Popuniti>. Ovi
+            <span className="num">10</span> godina. Ovi
             zapisi ostaju i posle brisanja naloga jer se čuvaju po zakonu; originali računa su
             kod Stripe-a.
           </li>
@@ -146,12 +166,17 @@ export default function Page() {
             <strong>Revizija administratorskih radnji</strong> — zapis o tome ko je i kada uradio
             radnju nad nalogom (uključujući brisanje) sadrži identifikator naloga i ostaje i
             posle brisanja, da bi trag o novcu i pristupu bio potpun. Rok čuvanja:{" "}
-            <Popuniti>rok čuvanja revizije, npr. 24 meseca</Popuniti>.
+            <span className="num">10</span> godina, isto kao knjigovodstvena dokumentacija.
           </li>
           <li>
-            <strong>Tehnički zapisi o greškama</strong> —{" "}
-            <Popuniti>rok čuvanja logova kod pružalaca hostinga; unesi stvarne vrednosti iz podešavanja</Popuniti>
-            .
+            <strong>Analitika korišćenja</strong>: najduže godinu dana, posle čega se zapisi
+            automatski brišu. Zapisi su vezani za identifikator naloga, ne za adresu e-pošte;
+            posle brisanja naloga taj identifikator više ne pokazuje ni na koga.
+          </li>
+          <li>
+            <strong>Tehnički zapisi o greškama</strong> — najduže{" "}
+            <span className="num">30</span> dana kod pružalaca hostinga i praćenja grešaka,
+            posle čega se automatski brišu.
           </li>
         </Lista>
       </Odeljak>
@@ -248,14 +273,15 @@ export default function Page() {
             <strong>Clerk</strong> (SAD) — prijava, identitet korisnika i adresa e-pošte.
           </li>
           <li>
-            <strong>Supabase</strong> — baza podataka i skladište snimaka ekrana, u kojima su
+            <strong>Supabase</strong> (EU, Frankfurt) — baza podataka i skladište snimaka ekrana, u kojima su
             svi podaci iz odeljka 2.
           </li>
           <li>
-            <strong>Vercel</strong> (SAD) — hosting veb aplikacije i tehnički zapisi.
+            <strong>Vercel</strong> (SAD; funkcije rade u Dablinu, Irska) — hosting veb
+            aplikacije i tehnički zapisi.
           </li>
           <li>
-            <strong>Hetzner</strong> (Nemačka) — server koji radi skeniranje sajtova i pravi
+            <strong>Hetzner</strong> (Nemačka, Nirnberg) — server koji radi skeniranje sajtova i pravi
             snimke ekrana.
           </li>
           <li>
@@ -271,6 +297,16 @@ export default function Page() {
             <strong>Resend</strong> (SAD) — slanje mejlova (obaveštenja, pozivnice, odgovori na
             utiske).
           </li>
+          <li>
+            <strong>Sentry</strong> (EU, Nemačka) — zapisi o greškama na serveru, radi njihovog
+            otklanjanja. Tvoji podaci o nalogu se ne šalju namerno; zapis može da sadrži
+            identifikator naloga uz kog je greška nastala.
+          </li>
+          <li>
+            <strong>PostHog</strong> (EU, Frankfurt): analitika korišćenja iz odeljka 2. Šalju
+            se identifikator naloga, plan, stanje pristupa i zapisi o otvorenim stranama i
+            radnjama; adresa e-pošte i podaci o firmama se ne šalju.
+          </li>
         </Lista>
         <p>
           <strong>Stripe je poseban slučaj.</strong> On obrađuje plaćanje i podatke o kartici
@@ -279,17 +315,23 @@ export default function Page() {
           otisak kartice.
         </p>
         <p>
-          <Popuniti>potvrdi i upiši stvarne regione obrade: region Supabase projekta, lokaciju Hetzner servera i region Vercel funkcija</Popuniti>
+          Baza, skladište, server za skeniranje, veb funkcije i analitika rade u Evropskoj uniji
+          (Supabase i PostHog u Frankfurtu, Hetzner u Nirnbergu, Vercel funkcije u Dablinu). Clerk, Anthropic,
+          Resend i Google obrađuju podatke i u SAD.
         </p>
         <p>
-          <Popuniti>proveri i navedi osnov za prenos podataka van zemlje po ZZPL-u (standardne ugovorne klauzule ili lista zemalja sa primerenim nivoom zaštite) i da li je zaključen ugovor o obradi sa svakim obrađivačem</Popuniti>
+          Sa svakim obrađivačem je zaključen ugovor o obradi podataka. Prenos u države
+          Evropske unije zasniva se na tome što su one na listi zemalja sa primerenim nivoom
+          zaštite; prenos u SAD zasniva se na standardnim ugovornim klauzulama sadržanim u tim
+          ugovorima.
         </p>
       </Odeljak>
 
       <Odeljak broj={9} naslov="Kolačići i lokalno skladište">
         <p>
-          <strong>Ne koristimo analitiku, praćenje ni reklamne kolačiće.</strong> U pregledaču
-          postoje samo:
+          <strong>Ne koristimo reklamne kolačiće ni kolačiće za praćenje.</strong> Analitika
+          korišćenja iz odeljka 2 radi bez kolačića i ne upisuje ništa u tvoj pregledač. U
+          pregledaču postoje samo:
         </p>
         <Lista>
           <li>

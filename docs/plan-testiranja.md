@@ -886,3 +886,38 @@ Ručni prolaz posle isporuke „Čišćenje korisničkih ekrana". Svaki korak u 
   traka „Prvih pet minuta" se posle poruke „Sva četiri…" više ne vidi, ni posle osvežavanja.
 - [ ] **Rečnik.** Nigde u korisničkom delu ne piše „keš", „kombinacija", „dubina", „Pipeline",
   „komp" ni „knjiga", i nema crtice „—" u rečenicama (kao prazna vrednost u tabeli sme).
+
+
+## Analitika: PostHog (12. 10. 2026)
+
+Ručni prolaz posle isporuke „PostHog analitika". Lokalno: upiši `NEXT_PUBLIC_POSTHOG_KEY` u
+koren `.env` samo za ovaj prolaz, pa ga posle obriši. Događaji sa `localhost`-a u PostHogu
+nose oznaku `$internal_or_test_user`, pa se filtriraju.
+
+- [ ] **Bez ključa se ništa ne šalje.** Bez promenljive u `.env`: DevTools → Network, filter
+  `ingest` → nijedan zahtev ni na jednoj strani. Pretraga i otključavanje rade normalno.
+- [ ] **Pregled strane ide kroz naš domen.** Sa ključem, kao gost otvori `/cenovnik` → jedan
+  `POST /ingest/e/`, status 200. Nijedan zahtev na `posthog.com`.
+- [ ] **Ništa na disku.** DevTools → Application → Cookies, Local storage i Session storage:
+  nema ključa koji počinje sa `ph_`.
+- [ ] **Tajne u adresi ne izlaze.** Otvori `/pozivnica/PROBA123?x=1`. PostHog → Activity →
+  poslednji `$pageview` → `$current_url` se završava na `/pozivnica/[kod]`, bez `?x=1`.
+- [ ] **Prijava vezuje nalog.** Prijavi se običnim nalogom i otvori `/pretraga`. U PostHogu
+  je `$pageview` vezan za osobu čiji je ID Clerk `user_…`, sa svojstvima `plan` i `stanje`.
+  Na osobi nema mejla ni imena.
+- [ ] **Događaji sa servera.** Istim nalogom: plati pretragu, otključaj prospekt, izvezi CSV,
+  prevuci karticu u Praćenju kontakata, pošalji utisak. U Activity stižu `search_started`
+  (sa `city`, `niche`, `list_size`, `source`, `credits`), `prospect_unlocked`, `csv_exported`,
+  `pipeline_status_changed` i `feedback_submitted`. Nijedan ne nosi naziv, telefon, mejl ni
+  sajt firme.
+- [ ] **Ponovljeno čitanje nije događaj.** Otvori karticu već otključanog prospekta i promeni
+  filter u pretrazi → nema novog `prospect_unlocked` ni `search_started`.
+- [ ] **Naplata (Stripe test mod).** Klik na plan na `/cenovnik` → `checkout_started`. Završena
+  proba → `trial_started`. Kupljen paket → `credit_pack_purchased`. Naplaćena faktura (test sat
+  posle probe) → `subscription_paid` sa `billing_reason`. Ponovi isporuku istog događaja iz
+  Stripe panela → nema drugog događaja u PostHogu.
+- [ ] **Admin se ne meri.** Admin nalogom prođi `/pretraga`, plati pretragu i otvori `/admin`.
+  Network: nijedan `POST /ingest/e/`. PostHog: nijedan događaj za taj Clerk ID.
+- [ ] **Odjava.** Odjavi se, pa otvori `/cenovnik` → `$pageview` više nije vezan za prethodni nalog.
+- [ ] **Politika privatnosti.** `/privatnost` u obe teme: §2 ima „Analitika korišćenja", §8
+  navodi PostHog (EU, Frankfurt), §9 više ne tvrdi da analitike nema.

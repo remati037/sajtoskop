@@ -17,11 +17,14 @@ import { ArrowLeft } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { cn } from "@/lib/cn";
 import { ADMIN_NAVIGACIJA, adminNaslov, jeAktivna, type AdminStavka } from "@/lib/admin-navigacija";
+import { useAnalitikaNaloga } from "./analitika";
 import { PrekidacTemeDugme } from "./prekidac-teme";
 import { Znak } from "./znak";
 
 export function AdminOkvir({ children }: { children: React.ReactNode }) {
   const putanja = usePathname();
+  // Konzolu otvara samo admin (pravilo 13), a admin se ne meri.
+  useAnalitikaNaloga({ admin: true });
 
   return (
     <>

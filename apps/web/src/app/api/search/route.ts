@@ -34,6 +34,8 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_PLAN, maxRezultataZaDubinu, stranicaZaRezultate } from "@sajtoskop/shared";
 import { requireUserId } from "@/lib/auth";
+import { jeAdminIzProfila } from "@/lib/admin";
+import { zabeleziDogadjaj } from "@/lib/analitika-server";
 import { budzetZaScan } from "@/lib/budzet";
 import {
   claimCacheMiss,
@@ -160,6 +162,16 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const kontekst: Kontekst = { userId, profile, pristup };
+
+  // Analitika: samo NAPLAĆENA pretraga. Listanje, filteri i ponuda cene nisu
+  // događaj — bilo bi ih deset po jednoj stvarnoj pretrazi.
+  const zabeleziPretragu = (source: "ready_list" | "scan", credits: number) =>
+    zabeleziDogadjaj(
+      userId,
+      "search_started",
+      { city, niche, list_size: maxRezultataZaDubinu(dubina), source, credits },
+      { admin: jeAdminIzProfila(userId, profile?.role) },
+    );
 
   // Ponuda → rezultati → stranice → cena. Jedan lanac, jedan izvor (shared), i
   // baza ga u `spend_credit_and_scan` prelazi ponovo nad istim `maxResults`.
@@ -372,6 +384,7 @@ export async function POST(req: Request): Promise<Response> {
         charged: charge.charged,
         ...(charge.charged ? { cost: charge.cost, creditsLeft: charge.creditsLeft } : {}),
       };
+      if (charge.charged) zabeleziPretragu("ready_list", charge.cost);
       return NextResponse.json(await saOnboardingom(body, kontekst, true), { headers: HEADERS });
     }
 
@@ -419,6 +432,7 @@ export async function POST(req: Request): Promise<Response> {
       cost: charge.cost,
       creditsLeft: charge.creditsLeft,
     };
+    if (charge.charged) zabeleziPretragu("scan", charge.cost);
 
     return NextResponse.json(await saOnboardingom(body, kontekst, true), { headers: HEADERS });
   } catch (err) {

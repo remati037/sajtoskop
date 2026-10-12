@@ -12,6 +12,8 @@ import { NextResponse } from "next/server";
 import { CITY_SLUGS, NICHE_SLUGS, planFor } from "@sajtoskop/shared";
 import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
+import { jeAdminIzProfila } from "@/lib/admin";
+import { zabeleziDogadjaj } from "@/lib/analitika-server";
 import { exportUnlockedCsv } from "@/lib/export";
 import { citajPristup, odbijenicaCitanja } from "@/lib/pristup";
 import type { ApiError } from "@/lib/search-types";
@@ -116,6 +118,13 @@ export async function GET(req: Request): Promise<Response> {
         429,
       );
     }
+
+    zabeleziDogadjaj(
+      userId,
+      "csv_exported",
+      { rows: rezultat.rows, truncated: Boolean(rezultat.truncated) },
+      { admin: jeAdminIzProfila(userId, profile.role) },
+    );
 
     return new NextResponse(rezultat.csv, {
       headers: {

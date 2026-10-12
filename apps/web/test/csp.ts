@@ -21,6 +21,7 @@
 // sklapaju iz publishable ključa u trenutku izvršavanja.
 
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import config from "../next.config";
 
@@ -128,6 +129,39 @@ for (const [d, izvori] of direktive) {
   check(tudji.length === 0, `${d} nosi samo poznate hostove${tudji.length ? ` (tuđi: ${tudji.join(" ")})` : ""}`);
 }
 check(!csp.includes("stripe"), "CSP ne nosi nijedan Stripe host — checkout je redirekcija");
+
+// ── analitika: PostHog ide kroz naš domen, CSP ga ne vidi ───
+// Pregledač priča samo sa `/ingest`; `rewrites()` to prosleđuje u EU region.
+// PostHog host u CSP-u bi značio da je neko vratio direktan poziv ili tuđu
+// skriptu — a onda ni blokator ni CSP više ne rade ono što piše u politici.
+console.log("\nanalitika");
+
+check(!csp.includes("posthog"), "CSP ne nosi nijedan PostHog host — sve ide kroz /ingest");
+
+const prepisi = await config.rewrites!();
+const lista = Array.isArray(prepisi) ? prepisi : [];
+const odrediste = (source: string) => lista.find((r) => r.source === source)?.destination ?? "";
+
+check(
+  odrediste("/ingest/:path*") === "https://eu.i.posthog.com/:path*",
+  "/ingest ide na eu.i.posthog.com (EU region)",
+);
+check(
+  odrediste("/ingest/static/:path*").startsWith("https://eu-assets.i.posthog.com/"),
+  "/ingest/static ide na eu-assets.i.posthog.com",
+);
+// Redosled je uslov: opšti prepis ispred posebnog bi progutao `/static`.
+check(
+  lista.findIndex((r) => r.source === "/ingest/static/:path*") <
+    lista.findIndex((r) => r.source === "/ingest/:path*"),
+  "poseban prepis (/static) stoji ispred opšteg",
+);
+check(config.skipTrailingSlashRedirect === true, "skipTrailingSlashRedirect — /ingest/e/ ne dobija 308");
+
+// Clerk middleware ne sme da se izvršava nad proxy-jem: svaki događaj bi bio
+// jedan poziv middleware-a više. `server-only` uvoza nema, pa se čita izvor.
+const middleware = readFileSync(new URL("../src/middleware.ts", import.meta.url), "utf8");
+check(/\(\?!_next\|ingest\|/.test(middleware), "middleware matcher izuzima /ingest");
 
 // ── P0-4: `unsafe-eval` nikad u produkciji ─────────────────
 console.log("\nprodukcijski režim");

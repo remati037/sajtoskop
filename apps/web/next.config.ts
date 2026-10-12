@@ -129,6 +129,17 @@ const clerkCaptcha = "https://challenges.cloudflare.com https://*.protect.clerk.
 // naplate u pet direktiva; sve je ispalo i `test/csp.ts` proverava da se nije
 // vratio.
 
+// ── analitika (PostHog): ni ona ne traži nijedan CSP izvor ──
+// Pregledač šalje događaje na `/ingest` na NAŠEM domenu, a `rewrites()` ispod ih
+// prosleđuje PostHogu (EU). `connect-src 'self'` to već pokriva, a biblioteka je
+// u našem bundle-u (`disable_external_dependency_loading`), pa nema ni tuđe
+// skripte. Usput ga ne obara ni blokator reklama. `test/csp.ts` proverava da se
+// PostHog host nije pojavio ni u jednoj direktivi.
+//
+// Isti host stoji i u `src/lib/analitika-server.ts`.
+const POSTHOG = "https://eu.i.posthog.com";
+const POSTHOG_ASSETS = "https://eu-assets.i.posthog.com";
+
 /**
  * `'unsafe-eval'` SAMO u razvoju. U produkciji ga nema i ne sme da ga bude.
  *
@@ -203,6 +214,18 @@ const nextConfig: NextConfig = {
   // Vercel build ne sme da prođe sa tipskom greškom. Ako ovo ikad postane
   // `ignoreBuildErrors: true`, prestala je da važi cela `strict` politika.
   typescript: { ignoreBuildErrors: false },
+
+  // PostHog putanje se završavaju kosom crtom (`/ingest/e/`); Next bi ih bez
+  // ovoga vratio kao 308 i događaj se izgubi.
+  skipTrailingSlashRedirect: true,
+
+  async rewrites() {
+    return [
+      { source: "/ingest/static/:path*", destination: `${POSTHOG_ASSETS}/static/:path*` },
+      { source: "/ingest/array/:path*", destination: `${POSTHOG_ASSETS}/array/:path*` },
+      { source: "/ingest/:path*", destination: `${POSTHOG}/:path*` },
+    ];
+  },
 
   async headers() {
     return [
